@@ -1,0 +1,40 @@
+# 09-module-video.txt - Modulo de Video
+
+## Objetivo
+
+Implementar adapters para parsing estrutural de containers ISO BMFF e analise de metadados temporais STTS/ELST.
+
+## Instrucoes
+
+### 1. Leitura
+
+Leia:
+- docs/specs/modules/08-module-video.md
+- tests/specs/test-module-video.md
+
+### 2. Implementacao
+
+Em src/backend/adapters/:
+- isomedia_parser_adapter.py
+- isomedia_compare_adapter.py
+- stts_analysis_adapter.py
+
+REGRAS CRITICAS:
+- Parser ISO BMFF: struct puro, big-endian, suportar tamanho 32 e 64 bits.
+- Analise STTS: rigorosa para audio (CBR), tolerante para video (VFR).
+- Comparacao estrutural: considerar relacoes pai-filho, nao so presenca de boxes.
+
+### 3. Testes
+
+Execute:
+```bash
+pytest tests/unit/test_video.py -v
+```
+
+Crie testes se nao existirem (TU-VID-001 a TU-VID-006, TI-VID-001).
+Use arquivos MP4 de teste em tests/fixtures/video/.
+
+SE FALHAR:
+- Corrija ate passar
+
+Gere relatorio de execucao.

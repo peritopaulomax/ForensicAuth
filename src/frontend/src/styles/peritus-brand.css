@@ -1,0 +1,28 @@
+/* Forensic Auth — design tokens */
+
+:root {
+  --peritus-navy: #0a1628;
+  --peritus-navy-mid: #0f2744;
+  --peritus-navy-light: #1a3a5c;
+  --peritus-gold: #c9a227;
+  --peritus-gold-soft: #e8d48a;
+  --peritus-silver: #94a3b8;
+  --peritus-cloud: #e2e8f0;
+
+  --forensic-cyan: #06b6d4;
+  --forensic-cyan-dark: #0891b2;
+  --forensic-teal: #14b8a6;
+  --forensic-glow: rgba(6, 182, 212, 0.35);
+
+  --brand-font: "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --brand-font-display: "DM Sans", system-ui, sans-serif;
+
+  --color-ink: var(--peritus-navy);
+  --color-muted: #64748b;
+  --color-border: #e2e8f0;
+  --color-surface: #fff;
+  --color-surface-muted: #f8fafc;
+
+  --radius-md: 10px;
+  --radius-sm: 6px;
+}

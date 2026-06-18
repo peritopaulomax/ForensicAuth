@@ -1,0 +1,37 @@
+# ForensicAuth — GPU Worker Dockerfile
+# Build: docker build -f Dockerfile.gpu -t forensicauth-gpu .
+# Run:   docker run --gpus all -v ./models:/app/models forensicauth-gpu
+
+FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+
+# System dependencies
+RUN apt-get update && apt-get install -y \
+    python3.11 python3.11-dev python3-pip \
+    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    libgomp1 \
+    git wget \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install base requirements first (cached layer)
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Install GPU/heavy requirements
+COPY requirements-gpu.txt .
+RUN pip3 install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu124 \
+    && pip3 install --no-cache-dir -r requirements-gpu.txt
+
+# Copy application code
+COPY src/backend/ ./
+
+# Create directories
+RUN mkdir -p uploads results models logs
+
+# Celery worker entrypoint (GPU-enabled)
+CMD ["celery", "-A", "app.celery_app", "worker", "-Q", "gpu", "-c", "1", "--loglevel=info"]

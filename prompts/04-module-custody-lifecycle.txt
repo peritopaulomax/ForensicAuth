@@ -1,0 +1,21 @@
+# Prompt: Modulo custodia ampliada + compartilhamento + fechamento
+
+Leia AGENTS.md, docs/specs/modules/04-module-custody.md, 11-module-case-sharing-lifecycle.md
+e tests/specs/test-module-custody.md + test-module-case-sharing.md.
+
+## Checklist pos-implementacao
+
+1. conda activate forensicauth
+2. python scripts/migrate_custody_lifecycle.py
+3. python scripts/generate_custody_signing_key.py (producao)
+4. pytest tests/unit/test_case_shares.py tests/unit/test_custody_signing.py
+   tests/unit/test_case_lifecycle.py tests/unit/test_forensic_integrity.py
+   tests/unit/test_custody.py tests/integration/test_case_shares_api.py
+
+## Criterios
+
+- Compartilhamento viewer/editor com custodia case_shared/unshared
+- Ed25519 em todo novo elo de custodia
+- Fechar/reabrir com manifesto assinado
+- ICP-Brasil: UI desabilitada, API 501
+- verify-case-forensic + export JSON/HTML

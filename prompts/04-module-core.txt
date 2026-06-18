@@ -1,0 +1,48 @@
+# 04-module-core.txt - Modulo Core
+
+## Objetivo
+
+Implementar o nucleo do backend: configuracao Pydantic, conexao com banco, dependencias compartilhadas e a interface abstrata ForensicPlugin com registro dinamico de plugins.
+
+## Instrucoes
+
+### 1. Leitura
+
+Leia:
+- docs/specs/modules/03-module-core.md
+- tests/specs/test-module-core.md
+
+### 2. Implementacao
+
+Em src/backend/:
+- core/settings.py: Pydantic Settings com validacao
+- core/database.py: Engine, SessionLocal, get_db, Base
+- core/dependencies.py: get_current_user, require_role
+- core/forensic_plugin.py: Classe abstrata ForensicPlugin
+- core/plugin_registry.py: discover_and_register(), PLUGINS dict
+- Atualize app/main.py para criar tabelas no startup e registrar plugins
+
+### 3. Mock Adapters para Testes
+
+Em tests/mocks/adapters/:
+- Crie MockPluginA, MockPluginB, MockPluginC que herdam ForensicPlugin
+- Cada um retorna dados fixos deterministicos
+
+### 4. Testes
+
+Execute:
+```bash
+pytest tests/unit/test_core.py -v
+```
+
+SE FALHAR:
+- Corrija ate passar
+
+### 5. Verificacao Final
+
+- Configuracao carrega do .env
+- Plugins sao descobertos automaticamente
+- Interface abstrata nao e instanciavel
+- get_db funciona corretamente
+
+Gere relatorio de execucao.

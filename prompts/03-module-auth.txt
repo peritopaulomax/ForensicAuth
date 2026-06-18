@@ -1,0 +1,54 @@
+# 03-module-auth.txt - Modulo de Autenticacao
+
+## Objetivo
+
+Implementar o modulo de autenticacao e autorizacao (login, registro, JWT, RBAC) e fazer os testes passarem (Green).
+
+## Instrucoes
+
+### 1. Leitura
+
+Leia:
+- docs/specs/modules/02-module-auth.md
+- tests/specs/test-module-auth.md
+
+### 2. Implementacao
+
+Em src/backend/:
+- services/auth_service.py:
+  - authenticate(username, password) → User + token
+  - register(data, current_user) → User
+  - hash_password(password) → str
+  - validate_password_strength(password) → (bool, str)
+  - create_access_token(data) → str
+  - verify_token(token) → dict
+
+- api/v1/endpoints/auth.py:
+  - POST /login
+  - POST /register (require_role("admin"))
+  - GET /me
+
+- models/user.py: Modelo SQLAlchemy User
+
+- Atualize app/main.py incluindo router auth
+
+### 3. Testes
+
+Execute:
+```bash
+pytest tests/unit/test_auth.py -v
+```
+
+SE FALHAR:
+- Leia o erro
+- Corrija o codigo
+- Reexecute
+- REPITA ate TODOS passarem (Green)
+
+### 4. Verificacao Final
+
+- Todos os 7 testes unitarios de auth passam
+- TestClient consegue fazer login e acessar /me
+- Registro bloqueado para nao-admin
+
+Gere relatorio de execucao com status dos testes.

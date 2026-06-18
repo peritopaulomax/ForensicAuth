@@ -1,0 +1,104 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: forensicauth-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: forensicauth
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: forensicauth-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: forensicauth-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/forensicauth
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - UPLOAD_DIR=/app/uploads
+      - RESULTS_DIR=/app/results
+      - FORENSICAUTH_IMAGE_TAG=${FORENSICAUTH_IMAGE_TAG:-forensicauth:local-cpu}
+      - FORENSICAUTH_IMAGE_DIGEST=${FORENSICAUTH_IMAGE_DIGEST:-}
+      - FORENSICAUTH_WORKER_QUEUE=celery
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./models:/app/models
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: forensicauth-worker
+    restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info -c 4
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/forensicauth
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - UPLOAD_DIR=/app/uploads
+      - RESULTS_DIR=/app/results
+      - GPU_AVAILABLE=false
+      - FORENSICAUTH_IMAGE_TAG=${FORENSICAUTH_IMAGE_TAG:-forensicauth:local-cpu}
+      - FORENSICAUTH_IMAGE_DIGEST=${FORENSICAUTH_IMAGE_DIGEST:-}
+      - FORENSICAUTH_WORKER_QUEUE=celery
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./models:/app/models
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    container_name: forensicauth-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      app:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:

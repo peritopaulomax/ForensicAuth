@@ -1,0 +1,53 @@
+# 11-module-reports.txt - Modulo de Relatorios
+
+## Objetivo
+
+Implementar geracao de laudos periciais em PDF com template HTML, cadeia de custodia e imutabilidade.
+
+## Instrucoes
+
+### 1. Leitura
+
+Leia:
+- docs/specs/modules/10-module-reports.md
+- tests/specs/test-module-reports.md
+
+### 2. Implementacao
+
+Em src/backend/:
+- models/report.py: Modelo Report
+- services/report_service.py:
+  - validate_jobs_for_report()
+  - render_html() — Jinja2 template
+  - html_to_pdf() — WeasyPrint
+  - generate_report() — Celery task
+- templates/reports/padrao_pf.html:
+  - Capa institucional
+  - Secoes: caso, evidencias, custodia, analises, conclusoes, assinatura
+  - CSS para paginacao e tabelas
+- api/v1/endpoints/reports.py:
+  - POST /reports
+  - GET /reports/{id}
+  - GET /reports/{id}/download
+
+### 3. Testes
+
+Execute:
+```bash
+pytest tests/unit/test_reports.py -v
+```
+
+Crie testes se nao existirem (TU-REP-001 a TU-REP-005, TI-REP-001 a TI-REP-003).
+
+SE FALHAR:
+- Corrija ate passar
+
+### 4. Verificacao Final
+
+- Laudo gerado inclui todos os dados do caso
+- SHA-256 do PDF calculado e registrado
+- Cadeia de custodia atualizada
+- PDF e imutavel (sem endpoint de edicao)
+- Template customizado funciona
+
+Gere relatorio de execucao.

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ForensicAuth — Arquitetura e funcionamento</title>
+  <style>
+    :root {
+      --ink: #1a1a2e;
+      --muted: #4b5563;
+      --accent: #0f766e;
+      --accent-light: #ecfdf5;
+      --border: #e5e7eb;
+      --bg: #f8fafc;
+      --card: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.65;
+    }
+    header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #0f766e 100%);
+      color: #fff;
+      padding: 3rem 1.5rem 2.5rem;
+    }
+    header h1 { margin: 0 0 0.5rem; font-size: 2rem; font-weight: 700; }
+    header p { margin: 0; max-width: 720px; opacity: 0.92; font-size: 1.05rem; }
+    main { max-width: 920px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+    h2 {
+      margin-top: 2.5rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 2px solid var(--accent);
+      font-size: 1.45rem;
+    }
+    h3 { margin-top: 1.75rem; font-size: 1.15rem; color: var(--accent); }
+    p, li { color: var(--ink); }
+    .muted { color: var(--muted); font-size: 0.95rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      margin: 1.25rem 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .card-accent { background: var(--accent-light); border-color: #99f6e4; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      margin: 1rem 0;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.55rem 0.75rem;
+      text-align: left;
+    }
+    th { background: #f1f5f9; font-weight: 600; }
+    code {
+      background: #f1f5f9;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.88em;
+    }
+    pre {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 1rem 1.25rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+    .diagram {
+      font-family: ui-monospace, monospace;
+      font-size: 0.78rem;
+      white-space: pre;
+      background: #fff;
+      border: 1px solid var(--border);
+      padding: 1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+    }
+    nav.toc {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.5rem;
+      margin-bottom: 2rem;
+    }
+    nav.toc ul { margin: 0.5rem 0 0; padding-left: 1.25rem; }
+    nav.toc a { color: var(--accent); text-decoration: none; }
+    nav.toc a:hover { text-decoration: underline; }
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ForensicAuth — Arquitetura e funcionamento</h1>
+    <p>Plataforma web de perícia forense digital: casos, evidências, técnicas de autenticidade, cadeia de custódia criptográfica e transferência entre instalações.</p>
+  </header>
+
+  <main>
+    <nav class="toc" aria-label="Sumário">
+      <strong>Sumário</strong>
+      <ul>
+        <li><a href="#o-que-e">O que é o ForensicAuth</a></li>
+        <li><a href="#componentes">Componentes do sistema</a></li>
+        <li><a href="#fluxo">Fluxo do perito</a></li>
+        <li><a href="#backend">Backend e motor forense</a></li>
+        <li><a href="#custodia">Cadeia de custódia</a></li>
+        <li><a href="#dados">Onde ficam os dados</a></li>
+        <li><a href="#vcp">Transferência VCP</a></li>
+        <li><a href="#deploy">Implantação típica</a></li>
+      </ul>
+    </nav>
+
+    <section id="o-que-e">
+      <h2>1. O que é o ForensicAuth</h2>
+      <p>O <strong>ForensicAuth</strong> (Verificação de Autenticidade) é uma aplicação para peritos e analistas que precisam:</p>
+      <ul>
+        <li>Organizar investigações em <strong>casos</strong> com número de protocolo;</li>
+        <li>Receber <strong>evidências</strong> (imagens, áudio, vídeo, PDF) preservando integridade (SHA-256);</li>
+        <li>Aplicar <strong>técnicas forenses</strong> (ELA, PRNU, metadados, estrutura PDF, áudio ENF, etc.);</li>
+        <li>Registrar apenas ações deliberadas em uma <strong>cadeia de custódia</strong> imutável;</li>
+        <li><strong>Fechar</strong> casos com manifesto assinado e <strong>exportar/importar</strong> pacotes VCP entre instituições.</li>
+      </ul>
+      <div class="card card-accent">
+        <strong>Princípio central:</strong> explorar parâmetros de análise (preview) <em>não</em> altera a cadeia. Só entram eventos como upload, derivado salvo, laudo, compartilhamento, fechamento e importação/exportação VCP.
+      </div>
+    </section>
+
+    <section id="componentes">
+      <h2>2. Componentes do sistema</h2>
+      <div class="diagram">┌─────────────────────────────────────────────────────────────┐
+│  Navegador (perito / analista)                              │
+│  React + TypeScript — casos, análises, custódia, VCP      │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ HTTPS  /api/v1/*
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  nginx (frontend)  →  proxy reverso para API              │
+└───────────────────────────┬─────────────────────────────────┘
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  FastAPI (app) — autenticação JWT, CRUD, auditoria, jobs    │
+└──────┬──────────────────────┬───────────────────────────────┘
+       │                      │
+       ▼                      ▼
+┌──────────────┐      ┌──────────────────┐
+│ PostgreSQL   │      │ Redis + Celery   │
+│ metadados,   │      │ worker — análises│
+│ custódia     │      │ CPU/GPU          │
+└──────────────┘      └──────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Disco: uploads / results / derivatives — bytes das evidências│
+└──────────────────────────────────────────────────────────────┘</div>
+
+      <table>
+        <thead>
+          <tr><th>Camada</th><th>Tecnologia</th><th>Responsabilidade</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Interface</td><td>React 18, TypeScript, Vite</td><td>UX, gráficos Plotly, upload, modais VCP</td></tr>
+          <tr><td>API</td><td>FastAPI, Python 3.11+</td><td>Regras de negócio, permissões, orquestração</td></tr>
+          <tr><td>Persistência</td><td>PostgreSQL 15</td><td>Usuários, casos, jobs, registros de custódia</td></tr>
+          <tr><td>Fila</td><td>Celery + Redis</td><td>Jobs longos sem bloquear HTTP</td></tr>
+          <tr><td>Forense</td><td>Plugins + bibliotecas especializadas</td><td>Algoritmos por tipo de mídia</td></tr>
+          <tr><td>Confiança</td><td>SHA-256 + Ed25519</td><td>Cadeia encadeada e assinaturas</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="fluxo">
+      <h2>3. Fluxo do perito (visão funcional)</h2>
+      <ol>
+        <li><strong>Login</strong> — JWT identifica quem executa cada ação.</li>
+        <li><strong>Criar caso</strong> — protocolo único, metadados processuais.</li>
+        <li><strong>Upload de evidência</strong> — arquivo gravado em disco; SHA-256 registrado; evento <code>evidence_upload</code> na cadeia.</li>
+        <li><strong>Análise exploratória</strong> — perito escolhe técnica e parâmetros; job roda no worker; resultados em <code>results/</code> (sem custódia).</li>
+        <li><strong>Salvar derivado</strong> — artefato escolhido vira evidência derivada; evento <code>derivative_saved</code> com proveniência (insumos, algoritmo, parâmetros).</li>
+        <li><strong>Verificar integridade</strong> — “Verificar cadeia” (log) ou “Verificação forense” (log + arquivos + assinaturas).</li>
+        <li><strong>Compartilhar / fechar</strong> — colaboração auditada; fechamento com manifesto assinado.</li>
+        <li><strong>Exportar VCP</strong> — pacote ZIP portável para outra instalação ForensicAuth.</li>
+      </ol>
+    </section>
+
+    <section id="backend">
+      <h2>4. Backend e motor forense</h2>
+      <h3>4.1 Estrutura em camadas</h3>
+      <ul>
+        <li><code>api/v1/endpoints/</code> — rotas HTTP (casos, evidências, análise, auditoria, VCP).</li>
+        <li><code>services/</code> — lógica de negócio (custódia, jobs, exportação, lifecycle).</li>
+        <li><code>models/</code> — entidades SQLAlchemy (User, Case, Evidence, CustodyRecord, …).</li>
+        <li><code>core/plugins/</code> — adaptadores que implementam <code>ForensicPlugin</code>.</li>
+        <li><code>core/legacy/</code> — implementações algorítmicas preservadas (jpegio, PRNU, parsers binários, etc.).</li>
+      </ul>
+      <p class="muted">Cada técnica (ex.: <code>jpeg_ghosts</code>, <code>prnu</code>, <code>pdf_structure_metrics</code>) é um plugin registrado no startup. O plugin valida parâmetros, executa o algoritmo e devolve artefatos (imagens, HTML Plotly, JSON).</p>
+
+      <h3>4.2 Jobs de análise</h3>
+      <p>Um <strong>AnalysisJob</strong> liga uma evidência a uma técnica e parâmetros. Estados: <code>pending → running → completed | failed</code>. Com PostgreSQL em produção, o worker Celery consome a fila Redis. Previews não geram registro de custódia; apenas derivados <em>salvos</em> pelo usuário.</p>
+    </section>
+
+    <section id="custodia">
+      <h2>5. Cadeia de custódia (resumo)</h2>
+      <p>Cada evento forense relevante vira um registro <strong>append-only</strong> em <code>custody_records</code>:</p>
+      <ul>
+        <li><code>record_hash</code> = SHA-256 de payload canônico (tipo, IDs, hashes de arquivo, detalhes JSON, elo anterior, sequência).</li>
+        <li><code>previous_record_hash</code> liga o registro ao anterior — cadeia por caso.</li>
+        <li><code>system_signature</code> = Ed25519 sobre <code>record_hash</code> (identidade da instalação).</li>
+      </ul>
+      <p>Alterar qualquer campo antigo quebra a verificação. Detalhes completos: documento <a href="CADEIA-CUSTODIA-E-VERIFICACAO-FORENSE.md">Cadeia de custódia e verificação forense</a>.</p>
+    </section>
+
+    <section id="dados">
+      <h2>6. Onde ficam os dados</h2>
+      <table>
+        <thead>
+          <tr><th>Local</th><th>Conteúdo</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>PostgreSQL</td><td>Usuários, casos, evidências (metadados + caminho + SHA-256), jobs, custódia, fechamentos</td></tr>
+          <tr><td><code>uploads/{case_id}/</code></td><td>Bytes originais das evidências</td></tr>
+          <tr><td><code>derivatives/{case_id}/</code></td><td>Derivados salvos pelo perito</td></tr>
+          <tr><td><code>results/{job_id}/</code></td><td>Saídas temporárias de análise (preview)</td></tr>
+          <tr><td><code>models/</code></td><td>Pesos de ML (técnicas opcionais)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="vcp">
+      <h2>7. Transferência entre instalações (VCP)</h2>
+      <p>O <strong>Verification Case Package (VCP)</strong> é um ZIP (<code>.vcp.zip</code>) com JSON canônico, binários endereçados por SHA-256, cadeia completa, fechamentos e chave pública Ed25519 da origem. Importação valida tudo antes de gravar; conflitos de protocolo/caso ativo são rejeitados.</p>
+      <p>Referência: <a href="PACOTE-VERIFICATION-CASE-PACKAGE.md">Estrutura do Verification Case Package</a>.</p>
+    </section>
+
+    <section id="deploy">
+      <h2>8. Implantação típica</h2>
+      <p>Produção recomendada: <strong>Docker Compose</strong> no Linux com PostgreSQL, Redis, app, worker e frontend nginx. TLS no reverse proxy externo. Backup diário do banco + volumes de evidências + chaves Ed25519.</p>
+      <p>Passo a passo: <a href="INSTALACAO-PRODUCAO-LINUX.md">Instalação em Linux (produção)</a>.</p>
+    </section>
+
+    <footer>
+      ForensicAuth — documentação pública. Versão de arquitetura alinhada ao repositório principal.
+    </footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Core dependencies (inference + model import)
+torch>=2.0
+peft>=0.10.0
+Pillow>=9.0
+numpy>=1.24
+
+# Optional: visualization in inference.py
+# matplotlib>=3.5
+
+# Training only (install separately)
+# pip install imdlbenco

@@ -1,0 +1,49 @@
+# 05-module-custody.txt - Modulo de Cadeia de Custodia
+
+## Objetivo
+
+Implementar o modulo de cadeia de custodia digital com hash encadeado, imutabilidade e verificacao de reproducibilidade.
+
+## Instrucoes
+
+### 1. Leitura
+
+Leia:
+- docs/specs/modules/04-module-custody.md
+- tests/specs/test-module-custody.md
+
+### 2. Implementacao
+
+Em src/backend/:
+- models/custody_record.py: Modelo SQLAlchemy CustodyRecord
+- services/custody_service.py:
+  - create_record() com hash encadeado
+  - verify_chain() recalculando hashes
+  - recompute_job_hash() para reproducibilidade
+- api/v1/endpoints/audit.py:
+  - GET /audit
+  - GET /audit/verify/{record_id}
+
+Implemente imutabilidade via:
+- Trigger no PostgreSQL OU
+- Protecao no ORM (override de update/delete) OU
+- Camada de servico que bloqueia modificacoes
+
+### 3. Testes
+
+Execute:
+```bash
+pytest tests/unit/test_custody.py -v
+```
+
+SE FALHAR:
+- Corrija ate passar
+
+### 4. Verificacao Final
+
+- Registros criam hash encadeado corretamente
+- verify_chain detecta tampering
+- recompute_job_hash valida reproducibilidade
+- UPDATE/DELETE em custody_records e bloqueado
+
+Gere relatorio de execucao.

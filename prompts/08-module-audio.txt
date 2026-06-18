@@ -1,0 +1,53 @@
+# 08-module-audio.txt - Modulo de Audio
+
+## Objetivo
+
+Implementar adapters forenses para analise de audio: parsers binarios (MP3, Opus, WAV IMA ADPCM) e analises espectrais (ENF, espectrograma, LTAS).
+
+## Instrucoes
+
+### 1. Leitura
+
+Leia:
+- docs/specs/modules/07-module-audio.md
+- tests/specs/test-module-audio.md
+
+### 2. Implementacao
+
+Em src/backend/adapters/:
+- mp3_parser_adapter.py
+- opus_parser_adapter.py
+- wav_ima_adpcm_adapter.py
+- enf_adapter.py
+- audio_quantization_adapter.py
+- audio_dc_local_adapter.py
+- audio_spectrogram_adapter.py
+- audio_ltas_adapter.py
+- audio_stereo_residual_adapter.py
+
+REGRAS CRITICAS:
+- MP3 e Opus: usar parser binario puro (struct). NAO substituir por mutagen/pydub.
+- WAV IMA ADPCM: simular decodificacao bloco a bloco, comparar step_index.
+- ENF: suportar 50 Hz e 60 Hz (default 60 para Brasil).
+
+### 3. Testes
+
+Execute:
+```bash
+pytest tests/unit/test_audio.py -v
+```
+
+Crie testes se nao existirem (TU-AUD-001 a TU-AUD-009, TI-AUD-001).
+Use arquivos de teste em tests/fixtures/audio/.
+
+SE FALHAR:
+- Corrija ate passar
+
+### 4. Verificacao de Equivalencia
+
+Compare saida dos adapters com notebooks legados:
+- MP3 parser deve detectar mesmo encoder e inconsistencias
+- Opus parser deve identificar mesma plataforma
+- IMA ADPCM deve encontrar mesmas inconsistencias
+
+Gere relatorio de execucao.

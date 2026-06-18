@@ -1,0 +1,61 @@
+# ForensicAuth — GPU/Heavy Dependencies
+# Install on the definitive Linux+GPU system with:
+#   pip install -r requirements.txt
+#   pip install -r requirements-gpu.txt
+# Or for specific CUDA version (e.g. CUDA 12.4):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+#   pip install -r requirements-gpu.txt
+
+# Deep Learning
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.35.0
+accelerate>=0.24.0
+peft>=0.10.0
+timm>=0.9.0
+open_clip_torch>=2.24.0
+
+# MIML APSC-Net usa OpenMMLab legado vendorizado em vendor/MIML.
+# mmcv-lite 2.x é incompatível com esse mmseg legado.
+mmcv==1.7.2
+addict>=2.4.0
+yapf>=0.43.0
+terminaltables>=3.1.10
+prettytable>=3.17.0
+pycocotools>=2.0.11
+
+# ML / Boosting
+xgboost>=2.0.0
+
+# Face Analysis / Deepfake
+insightface>=0.7.0
+onnxruntime-gpu>=1.16.0
+
+# Performance
+numba>=0.58.0
+
+# SAFE (KDD'25) synthetic image detection
+kornia>=0.7.2
+pytorch_wavelets>=1.3.0
+PyWavelets>=1.4.0
+
+# CAMO (BitMind UCF MoE) synthetic/deepfake detection
+dlib>=19.24.0
+
+# Forensic-specific
+jpegio>=0.2.0
+rawpy>=0.18.0
+imagehash>=4.3.0
+scikit-image>=0.21.0
+
+# Audio (heavy)
+librosa>=0.10.0
+soundfile>=0.12.0
+
+# Video
+imageio-ffmpeg>=0.4.9
+av>=10.0.0
+decord>=0.6.0
+pytorch-lightning>=2.1.0
+lightning>=2.1.0
+easydict>=1.10

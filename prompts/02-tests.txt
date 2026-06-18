@@ -1,0 +1,65 @@
+# 02-tests.txt - Criacao de Testes Base
+
+## Objetivo
+
+Criar a estrutura de testes, fixtures, mocks e testes iniciais que devem falhar (Red), conforme TDD.
+
+## Instrucoes
+
+### 1. Leitura
+
+Leia:
+- tests/specs/test-overview.md
+- tests/specs/test-integration.md
+- tests/specs/test-module-auth.md
+- tests/specs/test-module-core.md
+- tests/specs/test-module-custody.md
+
+### 2. Estrutura de Testes
+
+Crie:
+- tests/conftest.py com fixtures:
+  - db_session (SQLite em memoria, rollback apos cada teste)
+  - client (TestClient do FastAPI)
+  - auth_headers (token JWT para usuario de teste)
+  - sample_case, sample_evidence
+- tests/unit/ vazio (sera preenchido pelos prompts de modulos)
+- tests/integration/ vazio
+- tests/mocks/ com mock adapters e plugins
+
+### 3. Testes de Auth (Red)
+
+Em tests/unit/test_auth.py:
+- Testes TU-AUTH-001 a TU-AUTH-007
+- Use mocks para banco (nao precisa de PostgreSQL)
+- Todos devem falhar inicialmente (classes nao existem)
+
+### 4. Testes de Core (Red)
+
+Em tests/unit/test_core.py:
+- Testes TU-CORE-001 a TU-CORE-006
+- Mock de adapters e configuracao
+- Todos devem falhar inicialmente
+
+### 5. Testes de Custody (Red)
+
+Em tests/unit/test_custody.py:
+- Testes TU-CUST-001 a TU-CUST-007
+- Use db_session fixture
+- Todos devem falhar inicialmente
+
+### 6. Execucao
+
+Rode:
+```bash
+pytest tests/unit/test_auth.py -v
+pytest tests/unit/test_core.py -v
+pytest tests/unit/test_custody.py -v
+```
+
+Esperado: TODOS FALHAM (Red). Isso e correto para TDD.
+
+Gere relatorio de execucao listando:
+- Total de testes criados
+- Status: todos FAILED (esperado)
+- Proximo passo: implementar codigo nos prompts de modulos
