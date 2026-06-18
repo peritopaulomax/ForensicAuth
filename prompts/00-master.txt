@@ -1,0 +1,68 @@
+# 00-master.txt - Prompt Master de Contexto
+
+## Contexto do Projeto
+
+Voce esta trabalhando no ForensicAuth: uma plataforma forense digital unificada para peritos criminais da Policia Federal. Consolida tecnicas legadas de analise de imagem, audio, video e PDF em uma aplicacao web profissional.
+
+## Stack
+
+- Backend: FastAPI + Python 3.11 + SQLAlchemy + Celery + Redis
+- Frontend: React 18 + TypeScript
+- Banco: PostgreSQL 15
+- Deploy: Docker + Docker Compose
+- Testes: pytest (backend), Vitest (frontend)
+
+## Regras Maximas
+
+1. Toda execucao deve ser pensada do INICIO ate a ENTREGA. Priorize automatismo.
+2. Se Yolo Mode estiver ativo, execute ferramentas (Shell, WriteFile, etc.) SEM pedir autorizacao ao usuario.
+3. NUNCA entregue trabalho incompleto.
+4. TODO codigo gerado DEVE passar nos testes correspondentes antes de avancar.
+5. ANTES de escrever qualquer codigo, leia as especificacoes em docs/specs/.
+6. Quando o usuario disser "execute prompt X", leia o arquivo prompts/XX-nome.txt e siga EXATAMENTE.
+7. Se o contexto esgotar, releia docs/specs/ e AGENTS.md.
+8. Bibliotecas forenses especificas dos legados sao INTOCAVEIS. Adaptadores apenas orquestram.
+9. Cadeia de custodia digital: todo processamento deve ter hash SHA-256 e ser reprodutivel.
+
+## Estrutura de Especificacoes
+
+- docs/specs/00-overview.md — Comportamental geral
+- docs/specs/01-architecture.md — Arquitetura e contratos
+- docs/specs/modules/02-module-auth.md — Autenticacao
+- docs/specs/modules/03-module-core.md — Core Engine
+- docs/specs/modules/04-module-custody.md — Cadeia de Custodia
+- docs/specs/modules/05-module-jobs.md — Jobs e Processamento
+- docs/specs/modules/06-module-image.md — Imagem
+- docs/specs/modules/07-module-audio.md — Audio
+- docs/specs/modules/08-module-video.md — Video
+- docs/specs/modules/09-module-pdf.md — PDF
+- docs/specs/modules/10-module-reports.md — Relatorios
+
+## Estrutura de Testes
+
+- tests/specs/test-overview.md — Estrategia geral
+- tests/specs/test-integration.md — Testes de integracao
+- tests/specs/test-module-*.md — Testes por modulo
+
+## Ordem de Execucao dos Prompts
+
+1. 01-setup.txt — Ambiente e dependencias
+2. 02-tests.txt — Estrutura de testes e fixtures
+3. 03-module-auth.txt — Modulo de autenticacao
+4. 04-module-core.txt — Modulo core (config, db, plugin registry)
+5. 05-module-custody.txt — Modulo de cadeia de custodia
+6. 06-module-jobs.txt — Modulo de jobs e fila
+7. 07-module-image.txt — Modulo de imagem
+8. 08-module-audio.txt — Modulo de audio
+9. 09-module-video.txt — Modulo de video
+10. 10-module-pdf.txt — Modulo de PDF
+11. 11-module-reports.txt — Modulo de relatorios
+
+## Instrucao Final
+
+A cada prompt:
+1. Leia as especificacoes correspondentes
+2. Implemente o codigo
+3. Execute os testes IMEDIATAMENTE
+4. Se falhar, CORRIJA ate passar (verde)
+5. So entao finalize o prompt e gere relatorio de execucao

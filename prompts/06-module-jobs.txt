@@ -1,0 +1,57 @@
+# 06-module-jobs.txt - Modulo de Jobs e Processamento
+
+## Objetivo
+
+Implementar o modulo de filas de processamento com Celery, gerenciamento de GPU/VRAM e orquestracao de adapters forenses.
+
+## Instrucoes
+
+### 1. Leitura
+
+Leia:
+- docs/specs/modules/05-module-jobs.md
+- tests/specs/test-module-jobs.md
+
+### 2. Implementacao
+
+Em src/backend/:
+- models/analysis_job.py: Modelo AnalysisJob
+- services/analysis_service.py:
+  - submit_job() — valida e cria job
+  - get_job_status() — consulta status
+  - get_job_result() — retorna artefatos
+- tasks/forensic_tasks.py:
+  - Celery task run_forensic_analysis()
+  - Gerencia GPU lock (Redis-based semaphore)
+  - Executa plugin, salva artefatos, calcula hash
+- core/gpu_manager.py:
+  - acquire_gpu_lock() / release_gpu_lock()
+- api/v1/endpoints/analysis.py:
+  - POST /analysis
+  - GET /analysis/{job_id}
+  - GET /analysis/{job_id}/result
+  - GET /analysis/techniques
+
+### 3. Testes
+
+Execute:
+```bash
+pytest tests/unit/test_jobs.py -v
+```
+
+Crie os testes se ainda nao existirem:
+- TU-JOB-001 a TU-JOB-007
+- TI-JOB-001, TI-JOB-002
+
+SE FALHAR:
+- Corrija ate passar
+
+### 4. Verificacao Final
+
+- Submissao de job cria registro e publica task
+- Worker executa plugin e salva artefatos
+- GPU lock serializa jobs que precisam
+- Retry funciona em caso de falha
+- Timeout funciona
+
+Gere relatorio de execucao.

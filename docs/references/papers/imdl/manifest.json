@@ -1,0 +1,86 @@
+{
+  "description": "PDFs dos artigos das técnicas IML/DL integradas no VA Suite (uso interno / referência futura na UI).",
+  "updated": "2026-06-10",
+  "techniques": {
+    "safire": {
+      "title": "SAFIRE: Segment Any Forged Image Region",
+      "venue": "AAAI 2025",
+      "repo": "https://github.com/mjkwon2021/SAFIRE",
+      "sources": [
+        "https://arxiv.org/pdf/2412.08197.pdf",
+        "https://arxiv.org/abs/2412.08197"
+      ],
+      "local_file": "safire/paper.pdf"
+    },
+    "trufor": {
+      "title": "TruFor: Leveraging All-Round Clues for Trustworthy Image Forgery Detection and Localization",
+      "venue": "CVPR 2023",
+      "repo": "https://github.com/grip-unina/TruFor",
+      "sources": [
+        "https://openaccess.thecvf.com/content/CVPR2023/papers/Guillaro_TruFor_Leveraging_All-Round_Clues_for_Trustworthy_Image_Forgery_Detection_and_CVPR_2023_paper.pdf",
+        "https://arxiv.org/pdf/2212.10957.pdf"
+      ],
+      "local_file": "trufor/paper.pdf"
+    },
+    "cat_net": {
+      "title": "Learning JPEG Compression Artifacts for Image Manipulation Detection and Localization (CAT-Net v2)",
+      "venue": "IJCV 2022",
+      "repo": "https://github.com/mjkwon2021/CAT-Net",
+      "sources": [
+        "https://arxiv.org/pdf/2108.12947.pdf",
+        "https://link.springer.com/article/10.1007/s11263-022-01617-5"
+      ],
+      "local_file": "cat_net/paper.pdf"
+    },
+    "objectformer": {
+      "title": "ObjectFormer for Image Manipulation Detection and Localization",
+      "venue": "CVPR 2022",
+      "repo": "https://github.com/wdrink/Objectformer",
+      "sources": [
+        "https://openaccess.thecvf.com/content/CVPR2022/papers/Wang_ObjectFormer_for_Image_Manipulation_Detection_and_Localization_CVPR_2022_paper.pdf",
+        "https://arxiv.org/pdf/2203.14681.pdf"
+      ],
+      "local_file": "objectformer/paper.pdf"
+    },
+    "sparse_vit": {
+      "title": "SparseViT: Nonsemantics-Centered, Parameter-Efficient Image Manipulation Localization",
+      "venue": "AAAI 2025",
+      "repo": "https://github.com/scu-zjz/SparseViT",
+      "sources": [
+        "https://arxiv.org/pdf/2412.14598.pdf",
+        "https://arxiv.org/abs/2412.14598"
+      ],
+      "local_file": "sparse_vit/paper.pdf"
+    },
+    "mesorch": {
+      "title": "Mesorch: A Powerful Multiscale Forensic Orchistrator for Image Manipulation Detection and Localization",
+      "venue": "AAAI 2025",
+      "repo": "https://github.com/scu-zjz/Mesorch",
+      "sources": [
+        "https://arxiv.org/pdf/2412.13753.pdf",
+        "https://arxiv.org/abs/2412.13753"
+      ],
+      "local_file": "mesorch/paper.pdf"
+    },
+    "dinov3_iml": {
+      "title": "DINOv3 Beats Specialized Detectors: A Simple Foundation Model Baseline for Image Forensics",
+      "venue": "arXiv 2026",
+      "repo": "https://github.com/Irennnne/DINOv3-IML",
+      "sources": [
+        "https://arxiv.org/pdf/2604.16083.pdf",
+        "https://arxiv.org/abs/2604.16083"
+      ],
+      "local_file": "dinov3_iml/paper.pdf"
+    },
+    "co_transformers": {
+      "title": "Collaborative Transformers with Multi-Level Forensic Attention for Image Manipulation Localization",
+      "venue": "AAAI 2026",
+      "repo": "https://github.com/ProgrameThinking/Co-Transformers",
+      "sources": [
+        "https://ojs.aaai.org/index.php/AAAI/article/download/38250/42212",
+        "https://ojs.aaai.org/index.php/AAAI/article/view/38250"
+      ],
+      "local_file": "co_transformers/paper.pdf"
+    }
+  }
+}

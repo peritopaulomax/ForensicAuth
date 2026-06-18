@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.pth
+*.pth.tar
+checkpoints/
+output/
+*.egg-info/
+dist/
+build/
+.env
+.venv
+*.log
+*.aux
+*.pdf
+.DS_Store

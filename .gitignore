@@ -1,0 +1,127 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Node / React
+node_modules/
+dist/
+build/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+.env
+*.env
+.env.local
+.env.*.local
+src/backend/.env
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/postgres/
+
+# Dev runtime / build artifacts
+data/
+.data/
+uploads/
+uploads-dev/
+derivatives/
+derivatives-dev/
+results/
+results-dev/
+models/
+models-dev/
+peritus_cases/
+peritus_cases-dev/
+src/backend/uploads/
+src/backend/results/
+src/backend/derivatives/
+src/frontend/test-results/
+.dev-logs/
+.dev-pids/
+tools/node-v*/
+**/.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Model weights / large binaries (should be managed separately)
+*.pkl
+*.onnx
+*.pt
+*.pth
+*.h5
+*.weights
+
+# Archives / generated forensic references
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.prnu
+
+# Legacy sample evidence media should stay out of GitHub
+Legados/**/*.JPG
+Legados/**/*.JPEG
+Legados/**/*.jpg
+Legados/**/*.jpeg
+Legados/**/*.PNG
+Legados/**/*.png
+Legados/**/*.mp4
+Legados/**/*.mov
+Legados/**/*.avi
+Legados/**/*.wav
+Legados/**/*.mp3
+Legados/**/*.opus
+# External nested repositories kept outside this GitHub repo
+Legados/Peritus/copy-move-forgery-detection-pca/
+Legados/Peritus/waveletnoiseresidue/
+vendor/MIML/

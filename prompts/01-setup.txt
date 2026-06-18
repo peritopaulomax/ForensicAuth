@@ -1,0 +1,75 @@
+# 01-setup.txt - Setup de Ambiente
+
+## Objetivo
+
+Preparar o ambiente de desenvolvimento completo: dependencias Python, configuracao do projeto, banco de dados, e estrutura base do backend e frontend.
+
+## Instrucoes
+
+### 1. Leitura
+
+Leia:
+- docs/specs/01-architecture.md (stack e modelos de dados)
+- docs/specs/modules/03-module-core.md (configuracao e plugin registry)
+
+### 2. Dependencias Python
+
+Crie requirements.txt com:
+- fastapi, uvicorn, python-multipart
+- sqlalchemy[asyncio], alembic, psycopg2-binary
+- pydantic, pydantic-settings
+- python-jose[cryptography], passlib[bcrypt]
+- celery, redis
+- pytest, pytest-asyncio, pytest-cov, httpx
+- python-dotenv
+- weasyprint, jinja2
+- opencv-python-headless, numpy, scipy, Pillow
+- networkx, matplotlib, seaborn
+- PyMuPDF, pdfminer.six, pypdf
+- (Dependencias especificas forenses serao adicionadas nos modulos respectivos)
+
+### 3. Configuracao do Backend
+
+Em src/backend/:
+- Crie app/config.py com Settings (Pydantic)
+- Crie app/database.py com engine, SessionLocal, Base
+- Crie app/main.py com FastAPI app, routers placeholder, CORS
+- Crie app/dependencies.py com get_db, get_current_user
+
+### 4. Models SQLAlchemy
+
+Crie src/backend/models/ com:
+- user.py
+- case.py
+- evidence.py
+- analysis_job.py
+- custody_record.py
+- report.py
+
+Use UUID como PK. Relacionamentos conforme 01-architecture.md.
+
+### 5. Docker Compose
+
+Crie docker-compose.yml com:
+- app (FastAPI + volume para uploads/results)
+- db (PostgreSQL 15)
+- redis (Redis 7)
+- worker (Celery worker)
+
+### 6. Frontend Base
+
+Em src/frontend/:
+- Inicialize projeto React com Vite + TypeScript
+- Instale: react-router-dom, axios, @tanstack/react-query, zustand
+- Crie estrutura base: App.tsx, pages/, components/, services/
+
+### 7. Validacao
+
+Execute:
+```bash
+docker-compose up -d db redis
+pytest --version
+python -c "import fastapi; print(fastapi.__version__)"
+```
+
+Gere relatorio de execucao com status.

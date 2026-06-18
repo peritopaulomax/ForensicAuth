@@ -1,0 +1,40 @@
+# 10-module-pdf.txt - Modulo de PDF
+
+## Objetivo
+
+Implementar adapters para forense de PDF: analise estrutural, overlay de fontes e deteccao de edicoes TouchUp_TextEdit.
+
+## Instrucoes
+
+### 1. Leitura
+
+Leia:
+- docs/specs/modules/09-module-pdf.md
+- tests/specs/test-module-pdf.md
+
+### 2. Implementacao
+
+Em src/backend/adapters/:
+- pdf_structure_adapter.py
+- pdf_font_overlay_adapter.py
+- pdf_touchup_adapter.py
+
+REGRAS CRITICAS:
+- TouchUp: tokenizador customizado de content streams NAO substituivel.
+- Font Overlay: usar blend mode Multiply, opacidade 0.3.
+- Structure: grafos de objetos indiretos com Jaccard e Weisfeiler-Lehman.
+
+### 3. Testes
+
+Execute:
+```bash
+pytest tests/unit/test_pdf.py -v
+```
+
+Crie testes se nao existirem (TU-PDF-001 a TU-PDF-007, TI-PDF-001).
+Use PDFs de teste em tests/fixtures/pdf/.
+
+SE FALHAR:
+- Corrija ate passar
+
+Gere relatorio de execucao.

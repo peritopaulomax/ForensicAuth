@@ -1,0 +1,134 @@
+# Zooming In on Fakes: A Novel Dataset for Localized AI-Generated Image Detection with Forgery Amplification Approach (AAAI 2026)
+
+Official repository forthe AAAI2026 paper "*Zooming In on Fakes: A Novel Dataset for Localized AI-Generated Image Detection with Forgery Amplification Approach*". 
+
+[[paper](https://arxiv.org/abs/2504.11922)]  [[website](https://github.com/clpbc/BR-Gen)]
+
+## Dataset(BR-Gen)
+
+This dataset contains150k localized generated images, forged by traditional inpainting methods (MAT, LaMa) and text-guided inpainting methods (SDXL, BrushNet, PowerPaint). We provided the Region Masks and Localized Generated Images.
+
+### Visual Cases
+
+![cases](figs/cases.png)
+
+
+
+### Dataset specifications
+
+![cases](figs/br-gen.png)
+
+How we created 150k localized generated images using various open-source models. We used 2 types of masks, and 5 types of inpainting methods to generated these images. Not seen in the diagram: each real image will correspond to 2 masks and 10 localized generated images.
+
+| Generated types                             |                                           |
+| ------------------------------------------- | ----------------------------------------- |
+| **# masks**                                 | 2 (Stuff, Background)                     |
+| **# Inpainting Methods**                    | 5 (LaMa, MAT, SDXL, BrushNet, PowerPaint) |
+| **Total # generated iamges per real image** | 2 * 5 = 10                                |
+
+| Dataset sizes                    | Training | Testing | Validation | Total   |
+| -------------------------------- | -------- | ------- | ---------- | ------- |
+| **# real images**                | 12,000   | 1,500   | 1,500      | 15,000  |
+| **# localized generated images** | 120,000  | 15,000  | 15,000     | 150,000 |
+
+Note, in the process of training and testing, in order  to prevent the impact o category imbalance, we random  sample the generated images to keep the number of real samples the same.
+
+
+
+### Download
+
+The **BR-Gen** dataset can be downloaded through [Google Drive](https://drive.google.com/drive/folders/1lPILaotrTplG5P83cugBnKM1EwUJFA9d?usp=sharing) and [Baidu Netdisk](https://pan.baidu.com/s/1cXgXm4EefC1sCw8vwadB_w) (Password: cclp). About stuff categories and thing categories, you can consult [COCO_stuff](https://github.com/nightrome/cocostuff) for more details. If you have any questions, please send an email to [lvpancai@gmail.com](mailto:lvpancai@gmail.com). 
+
+
+
+Considering copyright issues, the BR-Gen dataset only provides Region Masks and Forged Images. The original images were collected from datasets such as COCO, ImageNet, and Places. as detailed in **Section 3.1 Real Image Collection** of the paper. (The full corresponding original data is available via community contributions. Please refer to Issue **[#10](https://github.com/clpbc/BR-Gen/issues/10)** for details.)
+
+| Dataset        | Download URL                                                 |
+| -------------- | ------------------------------------------------------------ |
+| COCO2017_train | http://images.cocodataset.org/zips/train2017.zip             |
+| ImageNet       | https://image-net.org/data/ILSVRC/2012/ILSVRC2012_img_train.tar |
+| Places         | [Places2: A Large-Scale Database for Scene Understanding](http://places2.csail.mit.edu/download.html) |
+
+However, we have provided the file name of the real image used in the dataset. You can extract the real image data used in this dataset from the original real data according to "**RealImage/xxxxx/xxxxx_image_list.txt**" in the path.
+
+#### Dataset JSON Files
+We also provide official JSON files for dataset partitioning, covering the training set and multiple validation splits.
+- `train.json` contains **12,000 real images** and the corresponding downsampled forged images.
+- Validation JSON files provide detailed and complete divisions for each val split.
+
+Download link: [Dataset jsons](https://pan.baidu.com/s/1wQaeEw9cYWNBdgXXjNs8-g?pwd=cclp)
+
+
+
+
+
+### License
+
+The BR-Gen dataset is released only for academic research. Researchers from educational institutes are allowed to use this database freely for noncommercial purposes.
+
+## Noise-guided Foregery Amplification Vision Transformer(NFA-ViT)
+
+To address the BR-Gen challenge and enhance performance of local AIGC detection, we introduce NFA-ViT, a noise-guided forgery amplification transformer that leverages a dual-branch architecture to diffuse forgery cues into real regions through modulated self-attention, significantly improving the detectability of small or spatially subtle forgeries.
+
+![nfa_vit](figs/nfa_fit.png)
+
+For dataset and model utilization, we recommend using [IMDLBenCo](https://github.com/scu-zjz/IMDLBenCo), which offers many methods. And you can use this codebase to load the data and test model.
+
+For Pretrain Weight, Please refer to [NFA_ViT](https://github.com/clpbc/BR-Gen/tree/main/model_zoo/nfa_vit) README.md. 
+
+### Installation
+```bash
+conda create -n nfa_vit python=3.9 -y
+conda activate nfa_vit
+pip install -r requirements.txt
+```
+
+### Train
+```bash
+train.sh
+```
+
+### Test
+
+We have considered the following dataset settings:
+
+```markdown
+BRGen-Stuff-Val/
+│
+├── Au/
+│   ├── COCO_00000000520.png
+│   └── ImageNet_n06359193_84719.png
+│
+├── Tp/
+│   ├── MAT_Stuff_COCO_00000000520.png
+│   └── PowerPaint_Stuff_ImageNet_n06359193_84719.png
+│
+└── Gt/
+    ├── MAT_Stuff_COCO_00000000520_mask.png
+    └── PowerPaint_Stuff_ImageNet_n06359193_84719_mask.png
+```
+
+
+For the training and testing sets, we adopt a unified folder hierarchy and loading method, which makes the data loading process more uniform and seamlessly integrates with IMDLBenCo. We provide a corresponding small validation set file BRGen-Stuff-Val, with a download address of [BaiDu Netdisk](https://pan.baidu.com/s/180LOvt-xMkTwU5mTsCYCew) (Password: cclp), consisting of 3000 Tp/Gt images. We hope that this small Stuff validation set can provide assistance for generalization evaluation in Image Manipulation Detection and Localization Domain.
+
+```bash
+test.sh
+```
+
+## Citation
+If you find BR-Gen and NFA-ViT are useful for your research and applications, please cite using this BibTeX:
+
+```bib
+@article{cai2025zooming,
+  title={Zooming In on Fakes: A Novel Dataset for Localized AI-Generated Image Detection with Forgery Amplification Approach},
+  author={Cai, Lvpan and Wang, Haowei and Ji, Jiayi and ZhouMen, YanShu and Ma, Yiwei and Sun, Xiaoshuai and Cao, Liujuan and Ji, Rongrong},
+  journal={Proceedings of the the AAAI Conference on Artificial Intelligence (AAAI)},
+  year={2026}
+}
+```
+
+
+
+## References & Acknowledgements
+We sincerely thank [IMDLBenCo](https://github.com/scu-zjz/IMDLBenCo) for their exploration and support.
+

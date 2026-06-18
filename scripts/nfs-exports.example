@@ -1,0 +1,14 @@
+# Exemplo /etc/exports — maquina principal ForensicAuth
+# Ajuste IP da rede LAN do worker (ex.: 10.61.242.0/24)
+# Apos editar: sudo exportfs -ra && sudo systemctl restart nfs-kernel-server
+
+/home/bfl-pcf/VA Suite/uploads-dev     10.61.242.0/24(rw,sync,no_subtree_check,no_root_squash)
+/home/bfl-pcf/VA Suite/results-dev     10.61.242.0/24(rw,sync,no_subtree_check,no_root_squash)
+/home/bfl-pcf/VA Suite/derivatives-dev 10.61.242.0/24(rw,sync,no_subtree_check,no_root_squash)
+/home/bfl-pcf/VA Suite/models          10.61.242.0/24(ro,sync,no_subtree_check,no_root_squash)
+
+# Producao (docker volumes no host):
+# /srv/forensicauth/uploads      10.61.242.0/24(rw,sync,no_subtree_check,no_root_squash)
+# /srv/forensicauth/results      10.61.242.0/24(rw,sync,no_subtree_check,no_root_squash)
+# /srv/forensicauth/derivatives  10.61.242.0/24(rw,sync,no_subtree_check,no_root_squash)
+# /srv/forensicauth/models       10.61.242.0/24(ro,sync,no_subtree_check,no_root_squash)

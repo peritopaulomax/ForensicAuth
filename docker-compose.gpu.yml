@@ -1,0 +1,136 @@
+# ForensicAuth — Docker Compose with GPU support
+# Usage: docker compose -f docker-compose.gpu.yml --env-file .env.production up --build
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: forensicauth
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/forensicauth
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      FORENSICAUTH_PROCESS_ROLE: api
+      FORENSICAUTH_WORKER_QUEUE: ""
+      GPU_AVAILABLE: "false"
+      ML_WARMUP_ON_STARTUP: "false"
+      EFFORT_WARMUP_ON_STARTUP: "false"
+      GPU_DISTRIBUTED_LOCK: "true"
+      UPLOAD_DIR: /app/uploads
+      RESULTS_DIR: /app/results
+      DERIVATIVES_DIR: /app/derivatives
+      PERITUS_CASES_DIR: /app/peritus_cases
+      MODELS_DIR: /app/models
+      FORENSICAUTH_IMAGE_TAG: ${FORENSICAUTH_IMAGE_TAG:-forensicauth:local-cpu}
+      FORENSICAUTH_IMAGE_DIGEST: ${FORENSICAUTH_IMAGE_DIGEST:-}
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./derivatives:/app/derivatives
+      - ./peritus_cases:/app/peritus_cases
+      - ./models:/app/models
+
+  worker-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A app.celery_app worker -Q celery -c 4 -n cpu@%h --loglevel=info
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/forensicauth
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      FORENSICAUTH_PROCESS_ROLE: worker-cpu
+      FORENSICAUTH_WORKER_QUEUE: celery
+      GPU_AVAILABLE: "false"
+      ML_WARMUP_ON_STARTUP: "false"
+      EFFORT_WARMUP_ON_STARTUP: "false"
+      GPU_DISTRIBUTED_LOCK: "true"
+      UPLOAD_DIR: /app/uploads
+      RESULTS_DIR: /app/results
+      DERIVATIVES_DIR: /app/derivatives
+      PERITUS_CASES_DIR: /app/peritus_cases
+      MODELS_DIR: /app/models
+      FORENSICAUTH_IMAGE_TAG: ${FORENSICAUTH_IMAGE_TAG:-forensicauth:local-cpu}
+      FORENSICAUTH_IMAGE_DIGEST: ${FORENSICAUTH_IMAGE_DIGEST:-}
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./derivatives:/app/derivatives
+      - ./peritus_cases:/app/peritus_cases
+      - ./models:/app/models
+
+  worker-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: celery -A app.celery_app worker -Q gpu -c 1 -n gpu@%h --loglevel=info
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/forensicauth
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      FORENSICAUTH_PROCESS_ROLE: worker-gpu
+      FORENSICAUTH_WORKER_QUEUE: gpu
+      GPU_AVAILABLE: "true"
+      ML_WARMUP_ON_STARTUP: "true"
+      EFFORT_WARMUP_ON_STARTUP: "true"
+      EFFORT_WARMUP_VARIANTS: genimage
+      SYNTHETIC_KEEP_RESIDENT: "true"
+      GPU_RESIDENT_TECHNIQUES: synthetic,effort,safe
+      GPU_LRU_TTL_SECONDS: "1800"
+      GPU_RESERVED_FUTURE_MB: "7000"
+      GPU_MIN_FREE_MB: "1500"
+      GPU_DISTRIBUTED_LOCK: "true"
+      CUDA_VISIBLE_DEVICES: "0"
+      UPLOAD_DIR: /app/uploads
+      RESULTS_DIR: /app/results
+      DERIVATIVES_DIR: /app/derivatives
+      PERITUS_CASES_DIR: /app/peritus_cases
+      MODELS_DIR: /app/models
+      FORENSICAUTH_IMAGE_TAG: ${FORENSICAUTH_IMAGE_TAG:-forensicauth:local-gpu}
+      FORENSICAUTH_IMAGE_DIGEST: ${FORENSICAUTH_IMAGE_DIGEST:-}
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./derivatives:/app/derivatives
+      - ./peritus_cases:/app/peritus_cases
+      - ./models:/app/models
+
+volumes:
+  postgres_data:

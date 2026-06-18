@@ -1,0 +1,22 @@
+:root {
+  font-family: var(--brand-font, "DM Sans", system-ui, sans-serif);
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light;
+  color: #1a1a2e;
+  background-color: #f5f7fa;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+}

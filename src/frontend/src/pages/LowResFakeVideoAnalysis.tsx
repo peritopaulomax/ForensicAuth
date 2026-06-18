@@ -1,0 +1,139 @@
+import { useCallback, useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import MediaEvidenceSelector from "@/components/MediaEvidenceSelector";
+import VideoPlayer, { useVideoEvidenceUrl } from "@/components/VideoPlayer";
+import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
+import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
+import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
+import { useForensicJob } from "@/hooks/useForensicJob";
+import api from "@/services/api";
+
+const META = FORENSIC_TECHNIQUE_META.lowres_fake_video;
+
+type FrameRow = { frame_idx: number; score: number; decision: string };
+
+export default function LowResFakeVideoAnalysis() {
+  const { caseId } = useParams<{ caseId: string }>();
+  const [selectedEvidence, setSelectedEvidence] = useState<string | null>(null);
+  const [runtimeOk, setRuntimeOk] = useState<boolean | null>(null);
+  const [runtimeReason, setRuntimeReason] = useState("");
+  const [report, setReport] = useState<{
+    video_decision: string;
+    mean_score: number;
+    max_score: number;
+    max_frame_idx: number;
+    frames: FrameRow[];
+  } | null>(null);
+  const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
+  const [chartUrl, setChartUrl] = useState<string | null>(null);
+  const videoUrl = useVideoEvidenceUrl(selectedEvidence);
+  const { running, error, progress, runAnalysis, fetchImage, fetchResultJson, reset } = useForensicJob();
+
+  useEffect(() => {
+    api
+      .get<{ name: string; available?: boolean; unavailable_reason?: string | null }[]>("/analysis/techniques")
+      .then((res) => {
+        const t = res.data.find((x) => x.name === "lowres_fake_video");
+        setRuntimeOk(t ? t.available !== false : false);
+        setRuntimeReason(t?.unavailable_reason || "LFV nao registrado.");
+      })
+      .catch(() => {
+        setRuntimeOk(false);
+        setRuntimeReason("Falha ao verificar LFV.");
+      });
+  }, []);
+
+  const onSelect = useCallback(
+    (id: string) => {
+      setSelectedEvidence(id);
+      reset();
+      setReport(null);
+      setChartUrl(null);
+      setSelectedFrame(null);
+    },
+    [reset]
+  );
+
+  async function process() {
+    if (!selectedEvidence || !runtimeOk) return;
+    await runAnalysis(selectedEvidence, "lowres_fake_video", { sample_every: 5, max_frames: 80 }, {
+      onArtifactsLoaded: async (jobId) => {
+        const parsed = await fetchResultJson<{
+          video_decision: string;
+          mean_score: number;
+          max_score: number;
+          max_frame_idx: number;
+          frames: FrameRow[];
+        }>(jobId, "lfv_report.json");
+        if (!parsed) {
+          throw new Error("Relatorio LFV (lfv_report.json) nao encontrado ou invalido.");
+        }
+        setReport(parsed);
+        setSelectedFrame(parsed.max_frame_idx);
+        setChartUrl((await fetchImage(jobId, "lfv_scores_chart.png")) ?? null);
+      },
+    });
+  }
+
+  return (
+    <AnalysisPageShell caseId={caseId!} title={META.title} subtitle={META.cardSubtitle}>
+      <TechniqueReferenceIntro meta={META} />
+      {runtimeOk === false && (
+        <MessageBox type="err" text={runtimeReason} />
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: "1rem" }}>
+        <AnalysisPanel title="Evidencia">
+          <MediaEvidenceSelector caseId={caseId!} fileType="video" selectedId={selectedEvidence} onSelect={onSelect} />
+          <div style={{ marginTop: "1rem" }}>
+            <ProcessButton
+            onClick={process}
+            running={running}
+            disabled={!selectedEvidence || runtimeOk === false}
+            label="Analisar video"
+          />
+          </div>
+          {running && <p style={{ fontSize: "0.8rem", color: "#6b7280" }}>Progresso: {Math.round(progress)}%</p>}
+          {error && <MessageBox type="err" text={error} />}
+        </AnalysisPanel>
+        <AnalysisPanel title="Video">
+          <VideoPlayer src={videoUrl} seekFrame={selectedFrame} />
+        </AnalysisPanel>
+      </div>
+      {report && (
+        <div style={{ marginTop: "1rem" }}>
+        <AnalysisPanel title="Resultados">
+          <p>
+            <strong>Decisao:</strong> {report.video_decision} · <strong>Score max:</strong>{" "}
+            {report.max_score.toFixed(4)} (frame {report.max_frame_idx})
+          </p>
+          {chartUrl && <img src={chartUrl} alt="LFV scores" style={{ width: "100%", maxHeight: 220 }} />}
+          <div style={{ maxHeight: 240, overflow: "auto", marginTop: "0.5rem" }}>
+            <table style={{ width: "100%", fontSize: "0.78rem" }}>
+              <thead>
+                <tr>
+                  <th>Frame</th>
+                  <th>Score</th>
+                  <th>Decisao</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.frames?.map((f) => (
+                  <tr
+                    key={f.frame_idx}
+                    onClick={() => setSelectedFrame(f.frame_idx)}
+                    style={{ cursor: "pointer", background: selectedFrame === f.frame_idx ? "#eff6ff" : undefined }}
+                  >
+                    <td>{f.frame_idx}</td>
+                    <td>{f.score.toFixed(4)}</td>
+                    <td>{f.decision}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </AnalysisPanel>
+        </div>
+      )}
+    </AnalysisPageShell>
+  );
+}

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leitor de Páginas</title>
+    <script src="script.js" defer></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+        }
+        #content {
+            height: calc(100vh - 50px); /* Ajuste 50px conforme necessário para seu cabeçalho, rodapé, etc. */
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="content">
+        <!-- O conteúdo das páginas será carregado aqui -->
+    </div>
+    <button id="prevButton">Anterior</button>
+    <button id="nextButton">Próximo</button>
+</body>
+</html>

@@ -1,0 +1,67 @@
+# 07-module-image.txt - Modulo de Imagem
+
+## Objetivo
+
+Implementar adapters forenses para todas as tecnicas de analise de imagem, encapsulando bibliotecas especificas dos legados (jpegio, libzero, opencv, insightface, etc.).
+
+## Instrucoes
+
+### 1. Leitura
+
+Leia:
+- docs/specs/modules/06-module-image.md
+- tests/specs/test-module-image.md
+
+### 2. Implementacao
+
+Em src/backend/adapters/:
+- Crie um arquivo por adapter:
+  - prnu_adapter.py
+  - dct_artifacts_adapter.py
+  - jpeg_ghosts_adapter.py
+  - bag_adapter.py
+  - zero_grid_adapter.py
+  - double_compression_adapter.py
+  - quantization_estimation_adapter.py
+  - resampling_adapter.py
+  - patchmatch_adapter.py
+  - deepfake_adapter.py
+  - synthetic_image_detection_adapter.py
+
+Cada adapter DEVE:
+- Herdar de ForensicPlugin
+- Implementar name, supported_types, analyze(), validate_parameters()
+- Chamar as bibliotecas legadas DIRETAMENTE (nao substituir)
+- Salvar artefatos em disco
+- Retornar dict padronizado (success, artifacts, metrics, logs)
+
+Para detecção de imagens sintéticas e Deepfake:
+- Carregar modelos uma unica vez (singleton/module-level)
+- Verificar disponibilidade de GPU
+- Gerenciar VRAM (liberar apos uso)
+
+### 3. Copia de Modelos
+
+Se necessario, copie os modelos pre-treinados do servidor Gradio existente para:
+- src/backend/models_weights/ (ou path configuravel em Settings)
+
+### 4. Testes
+
+Execute:
+```bash
+pytest tests/unit/test_image.py -v
+```
+
+Crie testes se nao existirem (TU-IMG-001 a TU-IMG-010, TI-IMG-001).
+Use mocks para modelos PyTorch/InsightFace em testes unitarios.
+
+SE FALHAR:
+- Corrija ate passar
+
+### 5. Verificacao de Equivalencia
+
+Para cada adapter, compare a saida com o notebook legado correspondente:
+- Mesmas entradas devem produzir mesmas metricas (dentro de tolerancia zero)
+- Documente qualquer diferenca encontrada
+
+Gere relatorio de execucao.

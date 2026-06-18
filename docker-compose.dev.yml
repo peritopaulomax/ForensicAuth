@@ -1,0 +1,43 @@
+# Infraestrutura isolada para desenvolvimento (projeto forensicauth-dev).
+# Uso: docker compose -f docker-compose.dev.yml -p forensicauth-dev up -d
+#
+# Opcional: o backend pode usar SQLite sem estes serviços (padrão do dev-lan.sh).
+# Use PostgreSQL quando quiser paridade com produção:
+#   DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5433/forensicauth_dev
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: forensicauth-dev-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: forensicauth_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - forensicauth_dev_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: forensicauth-dev-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - forensicauth_dev_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  forensicauth_dev_postgres:
+  forensicauth_dev_redis:
