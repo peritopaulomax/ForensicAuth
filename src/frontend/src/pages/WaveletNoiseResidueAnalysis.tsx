@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
 import SyncedImagePairViewer, { type SyncedImagePairViewerHandle } from "@/components/SyncedImagePairViewer";
+import RectRoiCanvas, { type RectRoi } from "@/components/RectRoiCanvas";
 import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
 import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
 import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
@@ -22,22 +23,23 @@ export default function WaveletNoiseResidueAnalysis() {
   const [levelsSlider, setLevelsSlider] = useState(4);
   const [blocksize, setBlocksize] = useState(3);
   const [thr, setThr] = useState(255);
+  const [sliderThr, setSliderThr] = useState(255);
   const [post, setPost] = useState(true);
   const [useRoi, setUseRoi] = useState(false);
-  const [roiX, setRoiX] = useState(0);
-  const [roiY, setRoiY] = useState(0);
-  const [roiW, setRoiW] = useState(512);
-  const [roiH, setRoiH] = useState(512);
+  const [roiRect, setRoiRect] = useState<RectRoi | null>(null);
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [overlayUrl, setOverlayUrl] = useState<string | null>(null);
   const [coloredUrl, setColoredUrl] = useState<string | null>(null);
   const [heatmapUrl, setHeatmapUrl] = useState<string | null>(null);
+  const [inputUrl, setInputUrl] = useState<string | null>(null);
+  const [loadingInput, setLoadingInput] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const viewerRef = useRef<SyncedImagePairViewerHandle>(null);
   const previewGenRef = useRef(0);
+  const inputBlobRef = useRef<string | null>(null);
   const { running, currentJobId, result, error, progress, progressLabel, runAnalysis, reset } =
     useForensicJob();
 
@@ -130,6 +132,10 @@ export default function WaveletNoiseResidueAnalysis() {
   const lastBlocksizeRef = useRef(blocksize);
 
   useEffect(() => {
+    setSliderThr(thr);
+  }, [thr]);
+
+  useEffect(() => {
     if (!previewReady || !currentJobId || running) return;
     const blocksizeChanged = lastBlocksizeRef.current !== blocksize;
     lastBlocksizeRef.current = blocksize;
@@ -140,6 +146,23 @@ export default function WaveletNoiseResidueAnalysis() {
     return () => window.clearTimeout(timer);
   }, [previewReady, currentJobId, blocksize, thr, post, running, applyLivePreview]);
 
+  async function loadInputBlob(evidenceId: string) {
+    setLoadingInput(true);
+    revokeBlob(inputBlobRef.current);
+    inputBlobRef.current = null;
+    setInputUrl(null);
+    try {
+      const res = await api.get(`/evidences/${evidenceId}/file`, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      inputBlobRef.current = url;
+      setInputUrl(url);
+    } catch {
+      setInputUrl(null);
+    } finally {
+      setLoadingInput(false);
+    }
+  }
+
   const applyEvidence = useCallback(
     (id: string, _source: "original" | "derivative") => {
       reset();
@@ -147,13 +170,15 @@ export default function WaveletNoiseResidueAnalysis() {
       setOverlayUrl(null);
       setColoredUrl(null);
       setHeatmapUrl(null);
+      setRoiRect(null);
       setPreviewError(null);
       setSaveMessage(null);
       setViewMode("overlay");
       previewGenRef.current += 1;
       viewerRef.current?.resetZoom();
+      void loadInputBlob(id);
     },
-    [reset],
+    [reset]
   );
 
   const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
@@ -167,7 +192,7 @@ export default function WaveletNoiseResidueAnalysis() {
       levels_slider: levelsSlider,
       order,
     };
-    if (useRoi) parameters.region = [roiX, roiY, roiW, roiH];
+    if (useRoi && roiRect) parameters.region = [roiRect.x, roiRect.y, roiRect.width, roiRect.height];
     try {
       await runAnalysis(evidenceId, "wavelet_noise_residue", parameters, {
         maxWaitMs: 30 * 60 * 1000,
@@ -215,7 +240,7 @@ export default function WaveletNoiseResidueAnalysis() {
     <AnalysisPageShell
       caseId={caseId}
       title={FORENSIC_TECHNIQUE_META.wavelet_noise_residue.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.wavelet_noise_residue} />}
+      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.wavelet_noise_residue} techniqueId="wavelet_noise_residue" />}
       embedded={embedded}
     >
       <AnalysisPanel title="Evidencia">
@@ -249,33 +274,26 @@ export default function WaveletNoiseResidueAnalysis() {
             <input type="checkbox" checked={useRoi} onChange={(e) => setUseRoi(e.target.checked)} /> ROI
           </label>
         </div>
-        {useRoi && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem", marginTop: "0.5rem" }}>
-            {(
-              [
-                ["X", roiX, setRoiX],
-                ["Y", roiY, setRoiY],
-                ["Largura", roiW, setRoiW],
-                ["Altura", roiH, setRoiH],
-              ] as const
-            ).map(([label, val, setVal]) => (
-              <label key={label} style={{ fontSize: "0.82rem" }}>
-                {label}
-                <input
-                  type="number"
-                  min={1}
-                  value={val}
-                  onChange={(e) => setVal(Number(e.target.value))}
-                  style={{ display: "block", width: "100%", marginTop: 4 }}
-                />
-              </label>
-            ))}
-          </div>
+        {useRoi && evidenceId && (
+          <AnalysisPanel title="Selecione a regiao de interesse">
+            {loadingInput && <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>Carregando imagem…</p>}
+            {!loadingInput && inputUrl && (
+              <RectRoiCanvas imageUrl={inputUrl} rect={roiRect} onRectChange={setRoiRect} maxHeight={520} />
+            )}
+            {!loadingInput && !inputUrl && (
+              <MessageBox type="err" text="Nao foi possivel carregar a imagem de entrada." />
+            )}
+            {roiRect && (
+              <p style={{ fontSize: "0.78rem", color: "#6b7280", marginTop: "0.5rem" }}>
+                ROI: x={roiRect.x}, y={roiRect.y}, largura={roiRect.width}, altura={roiRect.height}
+              </p>
+            )}
+          </AnalysisPanel>
         )}
         <div style={{ marginTop: "1rem" }}>
           <ProcessButton
             onClick={process}
-            disabled={!evidenceId}
+            disabled={!evidenceId || (useRoi && !roiRect)}
             running={running}
             progress={progress}
             progressLabel={progressLabel}
@@ -309,12 +327,14 @@ export default function WaveletNoiseResidueAnalysis() {
                 type="range"
                 min={0}
                 max={255}
-                value={thr}
+                value={sliderThr}
                 disabled={!post}
-                onChange={(e) => setThr(Number(e.target.value))}
+                onChange={(e) => setSliderThr(Number(e.target.value))}
+                onPointerUp={() => setThr(sliderThr)}
+                onMouseUp={() => setThr(sliderThr)}
                 style={{ display: "block", width: "100%", marginTop: 4 }}
               />
-              <span>{thr}</span>
+              <span>{sliderThr}</span>
             </label>
           </div>
           <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem", flexWrap: "wrap", fontSize: "0.82rem" }}>

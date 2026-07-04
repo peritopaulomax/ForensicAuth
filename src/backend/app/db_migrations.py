@@ -249,6 +249,48 @@ def ensure_case_storage_mode_column(engine: Engine) -> None:
         conn.commit()
 
 
+def ensure_case_custody_seal_columns(engine: Engine) -> None:
+    """Add cases.custody_seal* columns for chain-closure seal."""
+    inspector = inspect(engine)
+    if "cases" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("cases")}
+    ts_type = _timestamp_column_sql(engine)
+    with engine.connect() as conn:
+        if "custody_seal" not in columns:
+            conn.execute(text("ALTER TABLE cases ADD COLUMN custody_seal VARCHAR(64)"))
+        if "custody_seal_signature" not in columns:
+            conn.execute(text("ALTER TABLE cases ADD COLUMN custody_seal_signature TEXT"))
+        if "custody_seal_record_hash" not in columns:
+            conn.execute(text("ALTER TABLE cases ADD COLUMN custody_seal_record_hash VARCHAR(64)"))
+        if "custody_seal_timestamp" not in columns:
+            conn.execute(text(f"ALTER TABLE cases ADD COLUMN custody_seal_timestamp {ts_type}"))
+        conn.commit()
+
+
+def ensure_case_custody_seal_values(engine: Engine) -> None:
+    """Compute and sign chain-closure seals for all existing cases that lack one."""
+    from sqlalchemy.orm import sessionmaker
+
+    from models.case import Case
+    from services.custody_service import CustodyService
+
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    try:
+        cases_without_seal = (
+            db.query(Case)
+            .filter(Case.custody_seal.is_(None))
+            .all()
+        )
+        service = CustodyService(db)
+        for case in cases_without_seal:
+            service.update_case_custody_seal(case.id)
+        db.commit()
+    finally:
+        db.close()
+
+
 def ensure_migrate_analista_to_perito(engine: Engine) -> None:
     """Remove legacy analista role — migrate existing users to perito."""
     inspector = inspect(engine)

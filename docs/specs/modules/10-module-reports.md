@@ -9,7 +9,7 @@ Gerar laudos periciais em PDF com template institucional, consolidando resultado
 ### API Endpoints
 
 - `POST /api/v1/reports`
-  - Entrada: `{case_id: UUID, title: str, job_ids: list[UUID], template: str (default: "padrao_pf")}`
+  - Entrada: `{case_id: UUID, title: str, job_ids: list[UUID], template: str (default: "padrao_institucional")}`
   - Saida: `{report_id: UUID, status: "pending", message: "Laudo em geracao"}`
   - Erros: 404 (case nao existe), 403 (sem permissao no caso), 422 (job_ids invalidos)
 
@@ -79,7 +79,7 @@ class ReportService:
 ## Template HTML
 
 O template deve usar CSS puro com:
-- Cabecalho institucional (logo PF, endereco, telefone)
+- Cabecalho institucional (logo, endereco, telefone)
 - Numero de pagina no rodape
 - Fonte Times New Roman ou Arial 12pt para corpo
 - Tabelas com bordas finas para dados tabulares
@@ -99,7 +99,7 @@ O template deve usar CSS puro com:
 | Cenario | Comportamento |
 |---------|---------------|
 | Job nao completado | Retorna 422: "Todos os jobs devem estar completados antes de gerar o laudo" |
-| Template nao encontrado | Usa template padrao "padrao_pf" e loga warning |
+| Template nao encontrado | Usa template padrao "padrao_institucional" e loga warning |
 | WeasyPrint falha | Retry 1x, depois marca como failed |
 | Artefato de job ausente no disco | Inclui mensagem "Artefato nao disponivel" no laudo |
 

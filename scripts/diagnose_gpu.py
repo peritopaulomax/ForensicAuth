@@ -2,7 +2,7 @@
 """Diagnostic script for GPU/Heavy-dependency environment.
 
 Run this on the definitive system to check what's installed and what's missing.
-The Kimi assistant will read this output and know exactly what to ask.
+Share the output with the engineering team if anything is missing.
 
 Usage:
     python scripts/diagnose_gpu.py
@@ -29,7 +29,7 @@ def check(section: str, cmd: list, shell=False) -> tuple[bool, str]:
 
 def main():
     print("=" * 60)
-    print("VA SUITE — GPU ENVIRONMENT DIAGNOSTIC")
+    print("FORENSICAUTH — GPU ENVIRONMENT DIAGNOSTIC")
     print("=" * 60)
 
     # 1. System
@@ -154,7 +154,7 @@ def main():
         print("🎉 Everything looks good! Ready to run forensic analysis with GPU.")
 
     print("\n" + "=" * 60)
-    print("Copy the output above and send it to the Kimi assistant.")
+    print("Diagnostic complete. Share the output above if support is needed.")
     print("=" * 60)
 
 

@@ -1,0 +1,104 @@
+# Production compose for ForensicAuth.
+# Requires .env.production with secure secrets (SECRET_KEY, CUSTODY_SIGNING_PRIVATE_KEY,
+# POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB).
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: forensicauth-db-prod
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: forensicauth-redis-prod
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: forensicauth-app-prod
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.production
+    environment:
+      - FORENSICAUTH_PROCESS_ROLE=api
+      - FORENSICAUTH_WORKER_QUEUE=celery
+      - UPLOAD_DIR=/app/uploads
+      - RESULTS_DIR=/app/results
+      - DERIVATIVES_DIR=/app/derivatives
+      - PERITUS_CASES_DIR=/app/peritus_cases
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./derivatives:/app/derivatives
+      - ./peritus_cases:/app/peritus_cases
+      - ./models:/app/models
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: forensicauth-worker-prod
+    restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info -c 4
+    env_file:
+      - .env.production
+    environment:
+      - FORENSICAUTH_PROCESS_ROLE=worker-cpu
+      - FORENSICAUTH_WORKER_QUEUE=celery
+      - GPU_AVAILABLE=false
+      - UPLOAD_DIR=/app/uploads
+      - RESULTS_DIR=/app/results
+      - DERIVATIVES_DIR=/app/derivatives
+      - PERITUS_CASES_DIR=/app/peritus_cases
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./derivatives:/app/derivatives
+      - ./peritus_cases:/app/peritus_cases
+      - ./models:/app/models
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    container_name: forensicauth-frontend-prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      app:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,4 +1,4 @@
-"""Cleanup expired job preview directories (not promoted to derivatives)."""
+"""Cleanup expired job preview directories."""
 
 from __future__ import annotations
 
@@ -8,10 +8,9 @@ import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy.orm import Session
-
 from app.config import get_settings
 from models.analysis_job import AnalysisJob
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +24,18 @@ def _parse_completed_at(value: datetime | None) -> datetime | None:
 
 
 def cleanup_expired_job_previews(db: Session | None = None) -> int:
-    """Delete preview folders for old completed jobs without promoted derivatives."""
-    settings = get_settings()
-    retention_days = int(getattr(settings, "JOB_PREVIEW_RETENTION_DAYS", 7))
-    if retention_days <= 0:
-        return 0
+    """Delete expired preview folders.
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    Promoted derivatives are persisted under DERIVATIVES_DIR with custody records,
+    so the job preview directory remains disposable.
+    """
+    settings = get_settings()
+    retention_days = int(getattr(settings, "JOB_PREVIEW_RETENTION_DAYS", 0))
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=retention_days)
+        if retention_days > 0
+        else datetime.now(timezone.utc)
+    )
     results_root = Path(settings.RESULTS_DIR).resolve()
     removed = 0
 
@@ -44,8 +48,6 @@ def cleanup_expired_job_previews(db: Session | None = None) -> int:
         for job in jobs:
             completed = _parse_completed_at(job.completed_at)
             if completed is None or completed > cutoff:
-                continue
-            if _job_has_promoted_derivatives(db, job.id):
                 continue
             if _remove_job_preview_dir(results_root, job.id):
                 removed += 1
@@ -66,8 +68,6 @@ def cleanup_expired_job_previews(db: Session | None = None) -> int:
             continue
         if not payload.get("preview"):
             continue
-        if payload.get("promoted"):
-            continue
         mtime = datetime.fromtimestamp(result_json.stat().st_mtime, tz=timezone.utc)
         if mtime > cutoff:
             continue
@@ -76,27 +76,6 @@ def cleanup_expired_job_previews(db: Session | None = None) -> int:
         logger.info("Preview expirado removido: %s", child)
 
     return removed
-
-
-def _job_has_promoted_derivatives(db: Session, job_id) -> bool:
-    from models.evidence import Evidence
-
-    needle = str(job_id)
-    rows = (
-        db.query(Evidence)
-        .filter(Evidence.deleted_at.is_(None), Evidence.extra_metadata.isnot(None))
-        .all()
-    )
-    for row in rows:
-        meta = row.extra_metadata or {}
-        if meta.get("source_job_id") == needle:
-            return True
-        prov = meta.get("provenance") or {}
-        op = prov.get("operation") or {}
-        if op.get("source_job_id") == needle:
-            return True
-    return False
-
 
 def _remove_job_preview_dir(results_root: Path, job_id) -> bool:
     target = results_root / str(job_id)

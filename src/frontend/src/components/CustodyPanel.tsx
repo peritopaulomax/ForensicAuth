@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import DerivationGraphModal from "@/components/DerivationGraphModal";
 import {
   listAuditRecords,
   verifyCaseChain,
@@ -81,6 +82,8 @@ export default function CustodyPanel({
   const [forensicLoading, setForensicLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [narrativeExporting, setNarrativeExporting] = useState(false);
+  const [graphEvidenceId, setGraphEvidenceId] = useState<string | null>(null);
+  const [graphEvidenceName, setGraphEvidenceName] = useState("");
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -459,7 +462,7 @@ export default function CustodyPanel({
               Arquivos: {forensicReport.files.hash_mismatch.length} divergencia(s),{" "}
               {forensicReport.files.missing.length} ausente(s)
             </li>
-            <li>Proveniencia: {forensicReport.provenance.issues.length} issue(s)</li>
+            <li>Proveniência: {forensicReport.provenance.issues.length} problema(s)</li>
             <li>
               Fechamentos: {forensicReport.closures.length} verificado(s)
             </li>
@@ -658,6 +661,30 @@ export default function CustodyPanel({
                         </div>
                       )}
                     </dl>
+                    {rec.record_type === "derivative_saved" && rec.evidence_id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const name =
+                            (typeof rec.details.original_filename === "string"
+                              ? rec.details.original_filename
+                              : evidenceName(rec.evidence_id)) || "derivado";
+                          setGraphEvidenceId(rec.evidence_id);
+                          setGraphEvidenceName(name);
+                        }}
+                        style={{
+                          marginTop: "0.5rem",
+                          padding: "0.35rem 0.65rem",
+                          borderRadius: 6,
+                          border: "1px solid #1a1a2e",
+                          background: "#fff",
+                          cursor: "pointer",
+                          fontSize: "0.78rem",
+                        }}
+                      >
+                        Ver grafo de derivacao
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleVerifyRecord(rec.id)}
@@ -679,6 +706,13 @@ export default function CustodyPanel({
             );
           })}
         </div>
+      )}
+      {graphEvidenceId && (
+        <DerivationGraphModal
+          evidenceId={graphEvidenceId}
+          evidenceName={graphEvidenceName}
+          onClose={() => setGraphEvidenceId(null)}
+        />
       )}
     </div>
   );

@@ -123,7 +123,7 @@ export default function CopyMovePcaAnalysis() {
     <AnalysisPageShell
       caseId={caseId}
       title={FORENSIC_TECHNIQUE_META.copy_move_pca.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.copy_move_pca} />}
+      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.copy_move_pca} techniqueId="copy_move_pca" />}
       embedded={embedded}
     >
       <AnalysisPanel title="Evidencia">
@@ -141,12 +141,12 @@ export default function CopyMovePcaAnalysis() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "0.75rem" }}>
           {(
             [
-              { label: "Block size (b)", value: b, onChange: setB, step: 1 },
+              { label: "Tamanho do bloco (b)", value: b, onChange: setB, step: 1 },
               { label: "PCA % (n_comp)", value: nComp, onChange: setNComp, step: 0.05 },
-              { label: "Search depth (nn)", value: nn, onChange: setNn, step: 1 },
-              { label: "Quantization (Q)", value: q, onChange: setQ, step: 16 },
-              { label: "Min clone (nf)", value: nf, onChange: setNf, step: 16 },
-              { label: "Min distance (nd)", value: nd, onChange: setNd, step: 4 },
+              { label: "Profundidade de busca (nn)", value: nn, onChange: setNn, step: 1 },
+              { label: "Quantização (Q)", value: q, onChange: setQ, step: 16 },
+              { label: "Clone mínimo (nf)", value: nf, onChange: setNf, step: 16 },
+              { label: "Distância mínima (nd)", value: nd, onChange: setNd, step: 4 },
             ] as const
           ).map(({ label, value, onChange, step }) => (
             <label key={label} style={{ fontSize: "0.82rem" }}>
@@ -167,7 +167,7 @@ export default function CopyMovePcaAnalysis() {
             <input type="checkbox" checked={morph} onChange={(e) => setMorph(e.target.checked)} /> Morfologia
           </label>
           <label>
-            <input type="checkbox" checked={alphaMask} onChange={(e) => setAlphaMask(e.target.checked)} /> Alpha mask
+            <input type="checkbox" checked={alphaMask} onChange={(e) => setAlphaMask(e.target.checked)} /> Máscara alfa
           </label>
           <label>
             <input type="checkbox" checked={useRoi} onChange={(e) => setUseRoi(e.target.checked)} /> ROI

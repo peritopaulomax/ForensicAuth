@@ -7,8 +7,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Query, Session
 
+from models.analysis_job import AnalysisJob
 from models.case import Case
 from models.case_share import CaseShare
+from models.evidence import Evidence
 from models.user import User
 
 CaseAccessLevel = Literal["owner", "assigned", "shared_editor", "shared_viewer", "admin"]
@@ -213,8 +215,6 @@ def assert_can_delete_case(case: Case, user: User) -> None:
 
 def get_accessible_evidence(db: Session, evidence_id: uuid.UUID, user: User):
     """Fetch evidence if its parent case is accessible to the user."""
-    from models.evidence import Evidence
-
     evidence = (
         db.query(Evidence)
         .filter(Evidence.id == evidence_id, Evidence.deleted_at.is_(None))
@@ -253,8 +253,6 @@ def accessible_case_ids_subquery(db: Session, user: User):
 
 def get_accessible_job(db: Session, job_id: uuid.UUID, user: User) -> "AnalysisJob":
     """Fetch analysis job if its parent evidence case is accessible."""
-    from models.analysis_job import AnalysisJob
-
     job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
     if not job:
         raise CaseAccessError("Job nao encontrado")

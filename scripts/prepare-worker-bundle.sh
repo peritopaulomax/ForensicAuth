@@ -7,8 +7,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="${1:-}"
 
 if [[ -z "$DEST" ]]; then
-  echo "Uso: $0 user@host:/caminho/VA\\ Suite"
-  echo "Exemplo: $0 perito@10.61.242.100:/home/perito/VA\\ Suite"
+  echo "Uso: $0 user@host:/caminho/ForensicAuth"
+  echo "Exemplo: $0 usuario@<HOST>:/opt/forensicauth"
   exit 1
 fi
 
@@ -34,7 +34,7 @@ rsync -avz --delete \
   "$DEST/"
 
 echo "Bundle enviado. No worker:"
-echo "  conda create -y -n va-suite python=3.11 && conda activate va-suite"
+echo "  conda create -y -n forensicauth python=3.11 && conda activate forensicauth"
 echo "  pip install -r requirements.txt -r requirements-gpu.txt"
 echo "  cp src/backend/.env.worker-gpu.example src/backend/.env"
 echo "  # Ajuste DATABASE_URL/REDIS_URL para IP da maquina principal"

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listCaseEvidences, listCaseDerivatives } from "@/services/evidence";
 import CollapsibleSection from "@/components/CollapsibleSection";
+import GlobalReferencesSelector from "@/components/GlobalReferencesSelector";
 import SelectableEvidenceList from "@/components/SelectableEvidenceList";
 import PeritusAnalysisFileSection from "@/components/PeritusAnalysisFileSection";
 import { resolvePeritusFileForAnalysis } from "@/services/peritus";
@@ -123,6 +124,14 @@ export default function ImageEvidenceSelector({
         onSelect={handleSelectPeritus}
         radioName={`${radioNamePrefix}-peritus`}
         resolving={resolvingPeritus}
+      />
+
+      <GlobalReferencesSelector
+        caseId={caseId}
+        fileType="imagem"
+        selectedId={vaSelectedId}
+        onSelect={(id) => handleSelectVa(id, "original")}
+        radioName={`${radioNamePrefix}-global-reference`}
       />
 
       {showDerivatives && (

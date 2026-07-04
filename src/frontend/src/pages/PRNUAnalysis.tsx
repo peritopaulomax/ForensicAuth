@@ -445,7 +445,7 @@ export default function PRNUAnalysis() {
     <AnalysisPageShell
       caseId={caseId}
       title={FORENSIC_TECHNIQUE_META.prnu.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.prnu} />}
+      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.prnu} techniqueId="prnu" />}
       embedded={embedded}
     >
       <AnalysisPanel title="1. Imagens de referencia (padrao do sensor)">

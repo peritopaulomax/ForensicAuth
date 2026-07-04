@@ -7,11 +7,13 @@ import FirstAccess from "@/pages/FirstAccess";
 import Users from "@/pages/Users";
 import AuthBootstrap from "@/components/AuthBootstrap";
 import Cases from "@/pages/Cases";
+import Dashboard from "@/pages/Dashboard";
 import CaseForm from "@/pages/CaseForm";
 import CaseDetail from "@/pages/CaseDetail";
 import MediaPanels from "@/pages/MediaPanels";
 import Analysis from "@/pages/Analysis";
 import AudioForensicsHub from "@/pages/AudioForensicsHub";
+import AudioSpoofingAnalysis from "@/pages/AudioSpoofingAnalysis";
 import PDFFontColorAnalysis from "@/pages/PDFFontColorAnalysis";
 import PDFStructureMetricsAnalysis from "@/pages/PDFStructureMetricsAnalysis";
 import PDFStructureSimilarityAnalysis from "@/pages/PDFStructureSimilarityAnalysis";
@@ -55,6 +57,16 @@ function App() {
             <ProtectedRoute>
               <Layout>
                 <Cases />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <Dashboard />
               </Layout>
             </ProtectedRoute>
           }
@@ -137,13 +149,16 @@ function App() {
           path="/cases/:caseId/analysis/synthetic_image_detection"
           element={legacyImageRedirect("synthetic_image_detection")}
         />
-        <Route path="/cases/:caseId/analysis/distildire" element={legacyImageRedirect("distildire")} />
         <Route
           path="/cases/:caseId/analysis/sepael"
           element={<Navigate to="../synthetic_image_detection" replace />}
         />
         <Route path="/cases/:caseId/analysis/safire" element={legacyImageRedirect("safire")} />
         <Route path="/cases/:caseId/analysis/noiseprint" element={legacyImageRedirect("noiseprint")} />
+        <Route
+          path="/cases/:caseId/analysis/presentation_attack_detection"
+          element={legacyImageRedirect("presentation_attack_detection")}
+        />
         <Route
           path="/cases/:caseId/analysis/imdl/:methodId"
           element={
@@ -168,6 +183,16 @@ function App() {
             <ProtectedRoute>
               <Layout>
                 <AudioForensicsHub />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/cases/:caseId/analysis/audio_spoofing"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <AudioSpoofingAnalysis />
               </Layout>
             </ProtectedRoute>
           }

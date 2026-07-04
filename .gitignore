@@ -1,3 +1,9 @@
+# =============================================================================
+# VA Suite / ForensicAuth — .gitignore
+# GitHub limits: 100 MB/file (normal Git), 2 GB/file (LFS).
+# Pesos de modelo: baixar via scripts/download_*.py ou HuggingFace, não commitar.
+# =============================================================================
+
 # Python
 __pycache__/
 *.py[cod]
@@ -26,40 +32,44 @@ ENV/
 env/
 .venv/
 
-# IDEs
+# IDEs / editor local
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb_checkpoints
+**/.ipynb_checkpoints/
 
 # Node / React
 node_modules/
-dist/
-build/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Docker
+# Docker / secrets (keep *.example)
 .env
 *.env
 .env.local
 .env.*.local
 src/backend/.env
+!.env.example
+!.env.production.example
 
 # Database
 *.db
 *.sqlite
 *.sqlite3
+*.db.backup*
+*.db.bak
 data/postgres/
+src/backend/vasuite_dev.db
 
-# Dev runtime / build artifacts
+# Dev runtime / case data / uploads (never push)
 data/
 .data/
 uploads/
@@ -79,25 +89,39 @@ src/frontend/test-results/
 .dev-logs/
 .dev-pids/
 tools/node-v*/
-**/.ipynb_checkpoints/
+
+# Experiment outputs (LR calibration, plots, score matrices, caches)
+outputs/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Test artifacts
+# Test / lint artifacts
 .coverage
 htmlcov/
 .pytest_cache/
 .tox/
+.mypy_cache/
+.ruff_cache/
 
-# Model weights / large binaries (should be managed separately)
+# ML weights & large binaries (use scripts/download_*.py or HuggingFace)
 *.pkl
 *.onnx
 *.pt
 *.pth
 *.h5
 *.weights
+*.safetensors
+*.bin
+*.ckpt
+*.joblib
+*.tfevents
+*.tfevents.*
+
+# Download / HF caches
+**/.cache/
+.huggingface/
 
 # Archives / generated forensic references
 *.zip
@@ -108,19 +132,44 @@ htmlcov/
 *.7z
 *.prnu
 
-# Legacy sample evidence media should stay out of GitHub
+# Accidental pip typos at repo root
+/-
+=*
+/0.3.2
+
+# Legacy sample evidence media (keep code/notebooks, not media)
 Legados/**/*.JPG
 Legados/**/*.JPEG
 Legados/**/*.jpg
 Legados/**/*.jpeg
 Legados/**/*.PNG
 Legados/**/*.png
+Legados/**/*.bmp
+Legados/**/*.BMP
+Legados/**/*.tif
+Legados/**/*.tiff
+Legados/**/*.TIF
+Legados/**/*.TIFF
 Legados/**/*.mp4
 Legados/**/*.mov
 Legados/**/*.avi
 Legados/**/*.wav
 Legados/**/*.mp3
 Legados/**/*.opus
+Legados/**/xlsr*.pt
+Legados/**/MMpaper_model.pth
+
+# Audio spoofing weights (>2 GB — HuggingFace Speech-Arena-2025/DF_Arena_1B_V_1)
+Legados/audio/DF_ARENA_1B/pytorch_model.bin
+Legados/audio/DF_ARENA_1B/*.safetensors
+Legados/audio/DF_ARENA_1B/model.safetensors
+
+# Vendor training artifacts & demo media (keep source, not runs/checkpoints)
+vendor/**/runs/
+vendor/**/examples/**/*.mp4
+vendor/**/*.mp4
+vendor/**/events.out.tfevents*
+
 # External nested repositories kept outside this GitHub repo
 Legados/Peritus/copy-move-forgery-detection-pca/
 Legados/Peritus/waveletnoiseresidue/

@@ -6,13 +6,15 @@ set -euo pipefail
 export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,192.168.0.0/16"
 export no_proxy="$NO_PROXY"
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY 2>/dev/null || true
+export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+export CUDA_MODULE_LOADING="LAZY"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND="$ROOT/src/backend"
 FRONTEND="$ROOT/src/frontend"
 PID_DIR="$ROOT/.dev-pids"
 LOG_DIR="$ROOT/.dev-logs"
-CONDA_ENV="${FORENSICAUTH_CONDA_ENV:-va-suite}"
+CONDA_ENV="${FORENSICAUTH_CONDA_ENV:-forensicauth}"
 
 mkdir -p "$PID_DIR" "$LOG_DIR"
 mkdir -p "$ROOT/uploads-dev" "$ROOT/results-dev" "$ROOT/derivatives-dev" \
@@ -85,7 +87,8 @@ cmd_start() {
   (
     cd "$BACKEND"
     export FORENSICAUTH_PROCESS_ROLE=worker-gpu GPU_AVAILABLE=true FORENSICAUTH_WORKER_QUEUE=gpu
-    export ML_WARMUP_ON_STARTUP=true SYNTHETIC_KEEP_RESIDENT=true
+    export ML_WARMUP_ON_STARTUP=false SYNTHETIC_KEEP_RESIDENT=false
+    export EFFORT_WARMUP_ON_STARTUP=false SAFE_WARMUP_ON_STARTUP=false
     _start_background worker-gpu celery -A app.celery_app worker -Q gpu -c 1 -n "gpu-local@%h" --loglevel=info
   )
 
@@ -101,7 +104,7 @@ cmd_start() {
   IP="$(_server_ip)"
   echo ""
   echo "============================================"
-  echo "  VA Suite dev stack"
+  echo "  ForensicAuth dev stack"
   echo "  API:      http://${IP}:8000/health"
   echo "  Frontend: http://${IP}:3000"
   echo "  Logs:     $LOG_DIR/"

@@ -161,7 +161,7 @@ export default function SafireAnalysis() {
               onChange={(e) => setMode(e.target.value as SafireMode)}
               style={{ display: "block", width: "100%", marginTop: 4, padding: "0.4rem" }}
             >
-              <option value="binary">Localizacao binaria (heatmap)</option>
+              <option value="binary">Localização binária (heatmap)</option>
               <option value="multi">Particionamento multi-fonte</option>
             </select>
           </label>

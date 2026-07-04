@@ -11,7 +11,7 @@ class TestIaplGpuRetry:
 
         from core.legacy.iapl import iapl_pipeline as mod
 
-        monkeypatch.setattr(mod, "prepare_vram_for_iapl", lambda **_: {})
+        monkeypatch.setattr(mod, "prepare_vram_for_iapl_if_needed", lambda: None)
         monkeypatch.setattr(mod, "clear_iapl_model_cache", lambda: None)
         monkeypatch.setattr(mod, "_iapl_allow_cpu_fallback", lambda: False)
         monkeypatch.setattr(mod, "resolve_inference_device", lambda: torch.device("cuda"))
@@ -35,7 +35,7 @@ class TestIaplGpuRetry:
 
         from core.legacy.iapl import iapl_pipeline as mod
 
-        monkeypatch.setattr(mod, "prepare_vram_for_iapl", lambda **_: {})
+        monkeypatch.setattr(mod, "prepare_vram_for_iapl_if_needed", lambda: None)
         monkeypatch.setattr(mod, "clear_iapl_model_cache", lambda: None)
         monkeypatch.setattr(mod, "_iapl_allow_cpu_fallback", lambda: True)
         monkeypatch.setattr(mod, "resolve_inference_device", lambda: torch.device("cuda"))

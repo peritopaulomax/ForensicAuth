@@ -1,0 +1,67 @@
+# Git
+.git
+.gitignore
+
+# Python caches
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Virtual environments
+.venv
+venv
+env
+
+# Node.js / frontend build artifacts
+node_modules
+dist
+build
+
+# Development data and uploads
+uploads-dev
+results-dev
+derivatives-dev
+peritus_cases-dev
+uploads
+results
+derivatives
+peritus_cases
+.data
+.dev-logs
+.dev-pids
+
+# Models and vendor (mount as volume in production)
+models
+vendor
+
+# Documentation and knowledge (not needed at runtime)
+docs
+knowledge
+summaries
+brains
+prompts
+
+# IDE and editor files
+.vscode
+.idea
+.cursor
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Tests (not needed in production image)
+tests
+.pytest_cache
+
+# Large/binary files
+*.zip
+*.tar.gz
+*.so
+*.dll
+*.exe

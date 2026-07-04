@@ -43,7 +43,7 @@ export default function Upload() {
             value={caseId}
             onChange={(e) => setCaseId(e.target.value)}
             required
-            placeholder="UUID do caso"
+            placeholder="ID do caso"
           />
         </div>
 

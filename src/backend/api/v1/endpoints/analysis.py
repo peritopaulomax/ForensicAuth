@@ -13,13 +13,17 @@ from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from models.user import User
-from services.case_access import get_accessible_evidence
+from services.case_access import (
+    assert_can_edit_case,
+    assert_case_not_closed,
+    get_accessible_evidence,
+)
 from services.job_runner import run_job_in_background
-from services.job_service import JobService
+from services.job_service import JobService, build_job_result_dir
 
 router = APIRouter()
 
-IMDL_ADMIN_ONLY_METHODS = {"nfa_vit", "miml_apscnet"}
+IMDL_ADMIN_ONLY_METHODS = {"nfa_vit"}
 
 
 class SubmitJobRequest(BaseModel):
@@ -53,6 +57,8 @@ class JobResponse(BaseModel):
 class TechniqueResponse(BaseModel):
     name: str
     supported_types: list[str]
+    description: str | None = None
+    parameters_schema: Dict[str, Any] | None = None
     available: bool = True
     unavailable_reason: str | None = None
 
@@ -88,6 +94,16 @@ def _serialize_job(job: Any, db: Session | None = None) -> dict:
     return payload
 
 
+def _job_result_dir(job: Any, settings: Any) -> Path:
+    """Return canonical result directory for a completed job."""
+    return build_job_result_dir(
+        settings.RESULTS_DIR,
+        job.evidence.case_id,
+        job.evidence_id,
+        job.id,
+    )
+
+
 @router.get("/analysis/techniques", response_model=list[TechniqueResponse])
 def list_techniques(
     db: Session = Depends(get_db),
@@ -111,6 +127,46 @@ def list_imdlbenco_methods(
     return rows
 
 
+@router.get("/analysis/audio-spoofing-detectors")
+def list_audio_spoofing_detectors(
+    current_user: User = Depends(get_current_user),
+):
+    """Catalog of audio spoofing detectors with per-detector runtime status."""
+    from core.legacy.audio_spoofing.runtime import DETECTOR_CATALOG, detector_runtime_status
+
+    rows = []
+    for item in DETECTOR_CATALOG:
+        ok, reason = detector_runtime_status(item["id"])
+        rows.append({**item, "available": ok, "unavailable_reason": reason if not ok else None})
+    return rows
+
+
+@router.get("/analysis/synthetic-reference-catalog")
+def list_synthetic_reference_catalog(
+    current_user: User = Depends(get_current_user),
+):
+    """Return hierarchical synthetic-image reference-population catalog.
+
+    Macro categories (GAN older, diffusion CNN early/modern, diffusion
+    transformer, other) group bases and generators so the frontend can render
+    a three-level selector.
+    """
+    from core.synthetic_lr_reference import reference_macro_catalog
+
+    return {"categories": reference_macro_catalog()}
+
+
+@router.get("/analysis/provenance-contract")
+def list_provenance_contract(
+    current_user: User = Depends(get_current_user),
+):
+    """Matriz de contrato de proveniencia por tecnica (insumos, params, artefatos)."""
+    from services.derivation_contract import TECHNIQUE_PROVENANCE_CONTRACT
+
+    _ = current_user
+    return {"schema_version": "1", "techniques": TECHNIQUE_PROVENANCE_CONTRACT}
+
+
 @router.post("/analysis", status_code=status.HTTP_201_CREATED)
 def submit_job(
     request: SubmitJobRequest,
@@ -118,7 +174,9 @@ def submit_job(
     current_user: User = Depends(get_current_user),
 ):
     """Submit a forensic analysis job; execution runs in background (thread or Celery)."""
-    get_accessible_evidence(db, request.evidence_id, current_user)
+    evidence = get_accessible_evidence(db, request.evidence_id, current_user)
+    assert_can_edit_case(db, evidence.case, current_user)
+    assert_case_not_closed(evidence.case)
     if (
         request.technique == "imdlbenco"
         and request.parameters.get("method") in IMDL_ADMIN_ONLY_METHODS
@@ -191,7 +249,7 @@ def get_job_result(
         )
 
     settings = get_settings()
-    result_json = Path(settings.RESULTS_DIR) / str(job.id) / "result.json"
+    result_json = _job_result_dir(job, settings) / "result.json"
     if result_json.exists():
         import json
         with open(result_json, "r", encoding="utf-8") as f:
@@ -242,7 +300,7 @@ def get_job_result_file(
         )
 
     settings = get_settings()
-    file_path = Path(settings.RESULTS_DIR) / str(job.id) / filename
+    file_path = _job_result_dir(job, settings) / filename
 
     if not file_path.exists():
         raise HTTPException(
@@ -297,7 +355,7 @@ def get_spectrogram_display_data(
         )
 
     settings = get_settings()
-    npz_path = Path(settings.RESULTS_DIR) / str(job.id) / "spectrogram_full.npz"
+    npz_path = _job_result_dir(job, settings) / "spectrogram_full.npz"
     if not npz_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -373,7 +431,7 @@ def get_audio_plot_data(
         )
 
     settings = get_settings()
-    result_dir = Path(settings.RESULTS_DIR) / str(job.id)
+    result_dir = _job_result_dir(job, settings)
     results_root = Path(settings.RESULTS_DIR).resolve()
     if not result_dir.resolve().is_relative_to(results_root):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
@@ -420,7 +478,7 @@ async def upload_spectrogram_snapshot(
         )
 
     settings = get_settings()
-    result_dir = Path(settings.RESULTS_DIR) / str(job.id)
+    result_dir = _job_result_dir(job, settings)
     results_root = Path(settings.RESULTS_DIR).resolve()
     result_dir.mkdir(parents=True, exist_ok=True)
     if not result_dir.resolve().is_relative_to(results_root):
@@ -481,7 +539,7 @@ async def upload_plot_snapshot(
         )
 
     settings = get_settings()
-    result_dir = Path(settings.RESULTS_DIR) / str(job.id)
+    result_dir = _job_result_dir(job, settings)
     results_root = Path(settings.RESULTS_DIR).resolve()
     result_dir.mkdir(parents=True, exist_ok=True)
     if not result_dir.resolve().is_relative_to(results_root):
@@ -542,7 +600,7 @@ def preview_wavelet_noise_residue(
         )
 
     settings = get_settings()
-    result_dir = Path(settings.RESULTS_DIR) / str(job.id)
+    result_dir = _job_result_dir(job, settings)
     npz_path = result_dir / "wnr_dwt_coefficients.npz"
     if not npz_path.exists():
         raise HTTPException(

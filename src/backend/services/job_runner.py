@@ -8,7 +8,7 @@ import uuid
 
 from app.config import get_settings
 from app.database import SessionLocal
-from core.gpu_inference import ml_gpu_job_slot
+from core.gpu_inference import ML_GPU_TECHNIQUES, ml_gpu_job_slot
 from core.job_dispatch import queue_for_technique
 from services.job_service import JobService
 
@@ -53,10 +53,18 @@ def run_job_in_background(job_id: uuid.UUID) -> None:
 
     if _uses_celery_backend():
         try:
-            from tasks.analysis_tasks import run_forensic_analysis
+            from tasks.analysis_tasks import (
+                run_forensic_analysis_cpu,
+                run_forensic_analysis_gpu,
+            )
 
             _record_dispatch_queue(job_id, queue)
-            run_forensic_analysis.apply_async(args=[jid], queue=queue)
+            task = (
+                run_forensic_analysis_gpu
+                if technique in ML_GPU_TECHNIQUES
+                else run_forensic_analysis_cpu
+            )
+            task.apply_async(args=[jid], queue=queue)
             logger.info("Job %s enfileirado em %s (tecnica=%s)", jid, queue, technique)
             return
         except Exception as exc:

@@ -10,7 +10,9 @@ from typing import Any, BinaryIO, Dict
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from models.case import Case
 from models.evidence import Evidence
+from services.case_access import assert_case_not_closed
 from services.custody_service import CustodyService
 from services.audio_evidence_metadata import AUDIO_TECHNICAL_KEY, probe_audio_for_upload
 from services.evidence_classification import is_derived, is_reference, reference_technique
@@ -125,6 +127,10 @@ class EvidenceService:
         Returns:
             The created Evidence record.
         """
+        case = self.db.query(Case).filter(Case.id == case_id).first()
+        if case:
+            assert_case_not_closed(case)
+
         # Validate file size
         file_obj.seek(0, 2)  # Seek to end
         file_size = file_obj.tell()
@@ -183,10 +189,9 @@ class EvidenceService:
         self.db.commit()
         self.db.refresh(evidence)
 
-        from models.case import Case as CaseModel
         from services.peritus_va_materializer import mark_peritus_binding_modified
 
-        case_row = self.db.query(CaseModel).filter(CaseModel.id == case_id).first()
+        case_row = self.db.query(Case).filter(Case.id == case_id).first()
         if case_row and getattr(case_row, "storage_mode", "va") == "peritus":
             mark_peritus_binding_modified(self.settings, case_id)
 

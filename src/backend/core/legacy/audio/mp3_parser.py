@@ -822,24 +822,15 @@ class MP3Analyzer:
         
         return "\n".join(lines)
 
-# --- Cell 1 ---
-# === ÁREA DE EXECUÇÃO ===
-
-# 👇 Insira o nome do seu arquivo MP3 aqui
-NOME_DO_ARQUIVO = 'HC3e_teste5.mp3'
-
-try:
-    # Cria uma instância do analisador
-    analyzer = MP3Analyzer(NOME_DO_ARQUIVO)
-    
-    # Executa a análise completa
-    report = analyzer.analyze()
-        
-    # Imprime o relatório final
-    print(report)
-
-except FileNotFoundError:
-    print(f'\n[ERRO] Arquivo não encontrado: "{NOME_DO_ARQUIVO}"')
-    print("Verifique o nome do arquivo e o caminho informado.")
-except Exception as e:
-    print(f'\n[ERRO INESPERADO] Ocorreu um problema durante a análise: {e}')
+if __name__ == "__main__":
+    # Exemplo de uso local; substitua pelo caminho do arquivo de interesse.
+    NOME_DO_ARQUIVO = "exemplo.mp3"
+    try:
+        analyzer = MP3Analyzer(NOME_DO_ARQUIVO)
+        report = analyzer.analyze()
+        print(report)
+    except FileNotFoundError:
+        print(f'\n[ERRO] Arquivo não encontrado: "{NOME_DO_ARQUIVO}"')
+        print("Verifique o nome do arquivo e o caminho informado.")
+    except Exception as e:
+        print(f'\n[ERRO INESPERADO] Ocorreu um problema durante a análise: {e}')

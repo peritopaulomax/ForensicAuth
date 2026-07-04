@@ -43,12 +43,47 @@ export interface ReferenceGroup {
   files: Evidence[];
 }
 
+export interface GlobalReferenceGroup {
+  reference_type: string;
+  group_label: string;
+  display_label: string;
+  files: Evidence[];
+}
+
 export interface CaseReferencesResponse {
   groups: ReferenceGroup[];
+  global_groups: GlobalReferenceGroup[];
 }
 
 export async function listCaseReferences(caseId: string): Promise<CaseReferencesResponse> {
   const response = await api.get<CaseReferencesResponse>(`/cases/${caseId}/references`);
+  return response.data;
+}
+
+export async function uploadGlobalReference(
+  caseId: string,
+  file: File,
+  groupLabel: string,
+  referenceType: "imagem" | "video" | "audio" | "pdf",
+  onProgress?: (percent: number) => void
+): Promise<Evidence> {
+  const formData = new FormData();
+  formData.append("case_id", caseId);
+  formData.append("group_label", groupLabel.trim());
+  formData.append("reference_type", referenceType);
+  formData.append("file", file);
+
+  const response = await api.post<Evidence>("/evidences/global-reference-upload", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+    onUploadProgress: (progressEvent) => {
+      if (onProgress && progressEvent.total) {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percent);
+      }
+    },
+  });
   return response.data;
 }
 
@@ -184,6 +219,18 @@ export interface SaveDerivativeResult {
   message: string;
 }
 
+type DerivativeSaveListener = (evidence: Evidence) => void;
+const derivativeSaveListeners = new Set<DerivativeSaveListener>();
+
+export function registerDerivativeSaveListener(listener: DerivativeSaveListener): () => void {
+  derivativeSaveListeners.add(listener);
+  return () => derivativeSaveListeners.delete(listener);
+}
+
+function notifyDerivativeSaved(evidence: Evidence) {
+  derivativeSaveListeners.forEach((listener) => listener(evidence));
+}
+
 export async function listCaseDerivatives(caseId: string): Promise<Evidence[]> {
   const response = await api.get<Evidence[]>(`/cases/${caseId}/derivatives`);
   return response.data;
@@ -211,6 +258,7 @@ export async function saveDerivative(params: {
     label: params.label,
     effective_parameters: params.effective_parameters,
   });
+  notifyDerivativeSaved(response.data.evidence);
   return response.data;
 }
 
@@ -220,12 +268,17 @@ export interface LineageNode {
   file_type: string;
   sha256: string;
   is_derived: boolean;
+  is_synthetic?: boolean | null;
+  synthetic_kind?: string | null;
   technique?: string | null;
   parameters?: Record<string, unknown> | null;
   procedure_summary?: string | null;
   artifact_role?: string | null;
   derivation_outputs?: Record<string, unknown> | null;
   derivation_step?: string | null;
+  source_job_id?: string | null;
+  derivation_group_id?: string | null;
+  legacy_provenance?: boolean | null;
   layer?: number;
   images_used?: number | null;
 }
@@ -236,6 +289,8 @@ export interface LineageEdge {
   technique?: string | null;
   parameters: Record<string, unknown>;
   procedure_summary?: string | null;
+  source_job_id?: string | null;
+  derivation_step?: string | null;
 }
 
 export interface LineageOperation {
@@ -256,6 +311,19 @@ export interface LineagePhase {
   node_count?: number | null;
 }
 
+export interface DerivationGroup {
+  derivation_group_id: string;
+  source_job_id?: string | null;
+  member_count: number;
+  siblings: Array<{
+    evidence_id: string;
+    original_filename: string;
+    artifact_role?: string | null;
+    derivation_step?: string | null;
+    artifact_filename?: string | null;
+  }>;
+}
+
 export interface LineageGraph {
   target_id: string;
   case_id: string;
@@ -266,6 +334,8 @@ export interface LineageGraph {
   edges: LineageEdge[];
   operations?: LineageOperation[];
   phases?: LineagePhase[];
+  derivation_groups?: DerivationGroup[];
+  legacy_notes?: string[];
 }
 
 export async function getEvidenceLineage(evidenceId: string): Promise<LineageGraph> {

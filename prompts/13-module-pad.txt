@@ -1,0 +1,181 @@
+# 13-module-pad.txt - Modulo de Deteccao de Ataques de Apresentacao (PAD)
+
+## Objetivo
+
+Implementar a tecnica forense `presentation_attack_detection` no ForensicAuth, integrando o modelo open source Silent-Face-Anti-Spoofing (MiniFASNetV2 + RetinaFace) como um novo plugin na aba "Imagens", com dashboard proprio, execucao em fila GPU/CPU, cadeia de custodia e testes E2E fim a fim.
+
+## Leitura Obrigatoria
+
+Leia ANTES de implementar:
+- docs/specs/modules/13-module-pad.md
+- tests/specs/test-module-pad.md
+- docs/specs/00-overview.md
+- docs/specs/01-architecture.md
+- AGENTS.md (Regra Maxima 8: bibliotecas forenses legadas sao intocaveis)
+
+## SETUP GUIADO (ambiente da fase)
+
+Antes de codar, conduza o ambiente:
+
+1) Verifique se o ambiente conda `forensicauth` esta ativo:
+   ```bash
+   conda activate forensicauth
+   ```
+
+2) Verifique se PyTorch, OpenCV e dependencias do Silent-Face-Anti-Spoofing estao instalados:
+   ```bash
+   python -c "import torch; print(torch.__version__)"
+   python -c "import cv2; print(cv2.__version__)"
+   ```
+
+3) Verifique/instale dependencias do modelo:
+   ```bash
+   pip install torchvision
+   ```
+
+4) Verifique pesos do modelo:
+   ```bash
+   ls models/pad/anti_spoof_models 2>/dev/null || echo "FALTANDO"
+   ls models/pad/detection_model 2>/dev/null || echo "FALTANDO"
+   ```
+   Se faltarem, baixe do repositorio original:
+   ```bash
+   git clone https://github.com/minivision-ai/Silent-Face-Anti-Spoofing.git /tmp/silent-face
+   # Copie resources/anti_spoof_models e resources/detection_model para models/pad/
+   ```
+
+5) Verifique licenca do modelo (CC BY-NC 4.0) e documente restricoes em docs/public/LICENCAS-PAD.md.
+
+6) Valide GPU disponivel:
+   ```bash
+   python -c "import torch; print(torch.cuda.is_available())"
+   ```
+
+## Instrucoes
+
+### 1. Estrutura de arquivos
+
+Crie/modifique:
+- src/backend/core/plugins/presentation_attack_detection_adapter.py
+- src/backend/core/legacy/pad/   (codigo vendored do Silent-Face-Anti-Spoofing)
+- src/frontend/src/pages/PresentationAttackDetectionAnalysis.tsx
+- src/frontend/src/config/imageAnalysisGroups.ts
+- tests/unit/test_presentation_attack_detection_plugin.py
+- tests/unit/test_presentation_attack_detection_adapter.py
+- tests/integration/test_presentation_attack_detection_job.py
+- tests/integration/test_presentation_attack_detection_worker.py
+- tests/e2e/test_presentation_attack_detection_e2e.py
+- tests/fixtures/face_real.jpg
+- tests/fixtures/face_printed.jpg
+
+### 2. Backend - Adapter
+
+Em src/backend/core/plugins/presentation_attack_detection_adapter.py:
+- Herde de ForensicPlugin
+- name = "presentation_attack_detection"
+- supported_types = ["imagem"]
+- validate_parameters(): aceite "threshold" opcional (padrao 0.5)
+- analyze():
+  - Carregue imagem via PIL/OpenCV
+  - Use RetinaFace (vendored) para detectar faces
+  - Selecione a face principal (maior bbox)
+  - Use MiniFASNetV2 para classificar
+  - Retorne dict padronizado:
+    ```python
+    {
+      "success": True,
+      "adapter": "presentation_attack_detection",
+      "label": "real" | "fake",
+      "score": float,
+      "bbox": {"x": int, "y": int, "w": int, "h": int},
+      "inference_device": "cuda" | "cpu",
+      "label_image_path": str,  # imagem com bbox desenhado
+      "result_json_path": str
+    }
+    ```
+- Em caso de erro (sem face, falha de modelo):
+  ```python
+  {"success": False, "adapter": "...", "error": "NO_FACE_DETECTED", "message": "..."}
+  ```
+- Use run_with_device_fallback para GPU/CPU
+- Libere VRAM apos uso
+- NAO altere o algoritmo interno do Silent-Face-Anti-Spoofing (Regra Maxima 8)
+
+### 3. Backend - Vendor
+
+Em src/backend/core/legacy/pad/:
+- Copie os arquivos necessarios do repo original (detection.py, modelos, utils)
+- Crie clide_vendor.py equivalente para isolar imports com importlib
+- Preserve algoritmos intactos; apenas adapte paths e I/O
+
+### 4. Frontend
+
+Em src/frontend/src/pages/PresentationAttackDetectionAnalysis.tsx:
+- Reutilize AnalysisPageShell, ImageEvidenceSelector
+- Exiba formulario simples (threshold opcional)
+- Submeta job via services/analysis.ts
+- Faca polling de status
+- Exiba resultado: label, score, imagem com bbox
+- Ofereca "Salvar como derivado"
+
+Em src/frontend/src/config/imageAnalysisGroups.ts:
+- Adicione tecnica no grupo de imagens apropriado
+
+### 5. Testes
+
+Execute na ordem:
+
+```bash
+# Unitarios
+pytest tests/unit/test_presentation_attack_detection_*.py -v
+
+# Integracao
+pytest tests/integration/test_presentation_attack_detection_*.py -v
+
+# E2E
+pytest tests/e2e/test_presentation_attack_detection_e2e.py -v
+```
+
+Testes obrigatorios:
+- test_pad_plugin_registered
+- test_pad_validate_parameters_empty
+- test_pad_validate_parameters_custom_threshold
+- test_pad_validate_parameters_invalid_threshold
+- test_pad_detects_face_and_classifies_real
+- test_pad_detects_face_and_classifies_fake
+- test_pad_no_face_returns_error
+- test_pad_job_submission_creates_analysis_job
+- test_pad_worker_executes_job
+- test_pad_custody_record_created
+- test_pad_dashboard_navigation
+- test_pad_select_evidence_and_submit
+- test_pad_result_display
+- test_pad_regression_vs_original_repo
+
+SE FALHAR: corrija ate passar.
+
+### 6. Verificacao de Equivalencia (Regra Maxima 8)
+
+Compare a saida do adapter com a saida do test.py original do Silent-Face-Anti-Spoofing:
+- Mesmas entradas devem produzir mesmo label/score (dentro de tolerancia zero)
+- Documente qualquer diferenca encontrada
+
+### 7. Cadeia de Custodia
+
+Confirme que todo job PAD gera CustodyRecord com:
+- sha256_input (evidencia original)
+- sha256_output (result.json)
+- sha256_params (parametros canonicalizados)
+
+## Criterio de Pronto
+
+- [ ] Plugin registrado e listado em /analysis/techniques
+- [ ] Job executa via Celery na fila gpu
+- [ ] Resultado retorna label, score e bbox
+- [ ] Frontend exibe dashboard e resultado
+- [ ] Cadeia de custodia registra o job
+- [ ] Todos os testes passam (unit, integration, e2e)
+- [ ] Teste de regressao forense passa
+- [ ] Licenca e restricoes documentadas
+
+Gere relatorio de execucao com status de todos os testes.

@@ -870,12 +870,7 @@ class OggOpusAnalyzer:
         lines.append("═" * 80)
         
         return "\n".join(lines)
-    
-    
-    # ═══════════════════════════════════════════════════════════════════════
-    # MÉTODO PRINCIPAL
-    # ═══════════════════════════════════════════════════════════════════════
-    
+
     def analyze(self) -> str:
         """
         Realiza análise completa do arquivo Ogg/Opus
@@ -909,24 +904,15 @@ class OggOpusAnalyzer:
         except Exception as e:
             return f"ERRO ao analisar arquivo: {str(e)}"
 
-# --- Cell 2 ---
-# === ETAPA DE EXECUÇÃO ===
-
-# 👇 Insira o nome do seu arquivo aqui
-NOME_DO_ARQUIVO = 'WhatsApp Ptt 2025-09-30 at 13.20.51.ogg'
-
-try:
-    # Instanciar o analisador com o arquivo
-    analyzer = OggOpusAnalyzer(NOME_DO_ARQUIVO)
-
-    # Realizar a análise completa
-    report = analyzer.analyze()
-
-    # Exibir o relatório na tela
-    print(report)
-
-except FileNotFoundError:
-    print(f'\n[ERRO] Arquivo não encontrado: "{NOME_DO_ARQUIVO}"')
-    print("Verifique o nome do arquivo e o caminho informado.")
-except Exception as e:
-    print(f'\n[ERRO INESPERADO] Ocorreu um problema durante a análise: {e}')
+if __name__ == "__main__":
+    # Exemplo de uso local; substitua pelo caminho do arquivo de interesse.
+    NOME_DO_ARQUIVO = "exemplo.ogg"
+    try:
+        analyzer = OggOpusAnalyzer(NOME_DO_ARQUIVO)
+        report = analyzer.analyze()
+        print(report)
+    except FileNotFoundError:
+        print(f'\n[ERRO] Arquivo não encontrado: "{NOME_DO_ARQUIVO}"')
+        print("Verifique o nome do arquivo e o caminho informado.")
+    except Exception as e:
+        print(f'\n[ERRO INESPERADO] Ocorreu um problema durante a análise: {e}')

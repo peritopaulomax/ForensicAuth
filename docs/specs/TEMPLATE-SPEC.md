@@ -2,8 +2,6 @@
 
 > **Como usar:** Copie este arquivo para cada nova spec de módulo. Substitua os
 > placeholders `[MOD]`, `[Nome]`, etc. Remova seções que não se aplicam.
-> Após estabilizar, copie este template para a skill:
-> `~/.config/agents/skills/sddtdd-orchestrator/assets/spec-template.md`
 
 ---
 

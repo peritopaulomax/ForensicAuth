@@ -32,11 +32,16 @@ class DerivationLineageBuilder:
             "file_type": ev.file_type,
             "sha256": ev.sha256,
             "is_derived": is_derived,
+            "is_synthetic": bool(meta.get("is_synthetic")),
+            "synthetic_kind": meta.get("synthetic_kind"),
             "technique": meta.get("technique") if is_derived else None,
             "parameters": meta.get("parameters") if is_derived else None,
             "procedure_summary": meta.get("procedure_summary") if is_derived else None,
             "artifact_role": meta.get("artifact_role"),
             "derivation_step": meta.get("derivation_step"),
+            "source_job_id": meta.get("source_job_id"),
+            "derivation_group_id": meta.get("derivation_group_id"),
+            "legacy_provenance": bool(meta.get("legacy_provenance")),
         }
         if layer is not None:
             node["layer"] = layer
@@ -72,7 +77,17 @@ class DerivationLineageBuilder:
         return self.db.query(AnalysisJob).filter(AnalysisJob.id == jid).first()
 
     def _load_job_result(self, job_id: uuid.UUID) -> dict[str, Any]:
-        path = Path(self.settings.RESULTS_DIR) / str(job_id) / "result.json"
+        from services.job_service import build_job_result_dir
+
+        job = self._load_job(job_id)
+        if not job or not job.evidence:
+            return {}
+        path = build_job_result_dir(
+            self.settings.RESULTS_DIR,
+            job.evidence.case_id,
+            job.evidence_id,
+            job.id,
+        ) / "result.json"
         if not path.exists():
             return {}
         try:
@@ -89,15 +104,20 @@ class DerivationLineageBuilder:
         expanded: set[str] = set()
 
         self._walk_upstream(target, nodes_map, edges, edge_keys, expanded)
+        self._inject_lr_reference_node(target, nodes_map, edges, edge_keys)
 
         nodes = list(nodes_map.values())
         self._assign_layers(nodes, edges)
         operations = self._build_operations(nodes, edges)
         phases = self._build_phases(nodes, operations)
+        derivation_groups = self._collect_derivation_groups(target)
+        legacy_notes = self._collect_legacy_notes(nodes)
 
         layout_label = target.extra_metadata.get("procedure_summary") if target.extra_metadata else None
         if not layout_label:
             layout_label = target.original_filename
+        if legacy_notes:
+            layout_label = f"{layout_label} · {len(legacy_notes)} aviso(s) legado(s)"
 
         return {
             "target_id": str(target.id),
@@ -109,6 +129,8 @@ class DerivationLineageBuilder:
             "edges": edges,
             "operations": operations,
             "phases": phases,
+            "derivation_groups": derivation_groups,
+            "legacy_notes": legacy_notes,
         }
 
     def _walk_upstream(
@@ -122,8 +144,12 @@ class DerivationLineageBuilder:
         """Percorre ancestrais; registra todo insumo (derivado ou original) em nodes_map."""
         cid = str(child.id)
         nodes_map.setdefault(cid, self.evidence_to_node(child))
-
         meta = child.extra_metadata or {}
+        if self._needs_legacy_provenance_upgrade(child, meta):
+            upgraded = dict(nodes_map[cid])
+            upgraded["legacy_provenance"] = True
+            nodes_map[cid] = upgraded
+
         for parent, role in self._resolve_all_parents(child, meta):
             pid = str(parent.id)
             nodes_map.setdefault(pid, self.evidence_to_node(parent))
@@ -241,6 +267,8 @@ class DerivationLineageBuilder:
         outputs = meta.get("derivation_outputs") or {}
 
         edge_params: dict[str, Any] = {**params, "role": role, "derivation_step": step}
+        if meta.get("source_job_id"):
+            edge_params["source_job_id"] = meta.get("source_job_id")
         if role in ("fingerprint_input", "fingerprint") and outputs:
             edge_params["outputs"] = {
                 k: outputs[k]
@@ -258,13 +286,18 @@ class DerivationLineageBuilder:
             }
 
         procedure = self._procedure_for_edge(role, meta, child)
-        return {
+        edge: dict[str, Any] = {
             "from_evidence_id": str(parent.id),
             "to_evidence_id": str(child.id),
             "technique": technique,
             "parameters": edge_params,
             "procedure_summary": procedure,
         }
+        if meta.get("source_job_id"):
+            edge["source_job_id"] = meta.get("source_job_id")
+        if meta.get("derivation_step"):
+            edge["derivation_step"] = meta.get("derivation_step")
+        return edge
 
     @staticmethod
     def _procedure_for_edge(role: str, meta: dict[str, Any], child: Evidence) -> str:
@@ -272,6 +305,8 @@ class DerivationLineageBuilder:
             return "Referencia (padrao do sensor)"
         if role == "reference":
             return "Referencia estrutural (matriz)"
+        if role == "lr_reference_population":
+            return "Populacao LR (catalogo de referencia)"
         if role == "questioned":
             return "Evidencia questionada"
         if role in ("fingerprint_input", "fingerprint"):
@@ -285,6 +320,144 @@ class DerivationLineageBuilder:
         if step == "correlation_surface_C":
             return meta.get("procedure_summary") or "Correlacao → superficie C"
         return meta.get("procedure_summary") or child.original_filename
+
+    @staticmethod
+    def _needs_legacy_provenance_upgrade(child: Evidence, meta: dict[str, Any]) -> bool:
+        if meta.get("origin") != "derived":
+            return False
+        if meta.get("parent_inputs"):
+            return False
+        if meta.get("provenance_schema_version"):
+            return meta.get("technique") == "prnu"
+        return True
+
+    def _inject_lr_reference_node(
+        self,
+        target: Evidence,
+        nodes_map: dict[str, dict[str, Any]],
+        edges: list[dict[str, Any]],
+        edge_keys: set[tuple[str, str, str]],
+    ) -> None:
+        meta = target.extra_metadata or {}
+        technique = meta.get("technique")
+        if technique not in ("synthetic_image_detection", "sepael"):
+            return
+        outputs = meta.get("derivation_outputs") or {}
+        pop_hash = outputs.get("reference_population_hash")
+        pop_count = outputs.get("reference_population_count")
+        if not pop_hash and not pop_count:
+            ref_pop = (meta.get("parameters") or {}).get("reference_population")
+            if isinstance(ref_pop, dict) and ref_pop.get("items"):
+                from services.derivation_contract import reference_population_digest
+
+                pop_hash = reference_population_digest(ref_pop)
+                pop_count = len(ref_pop.get("items") or [])
+        if not pop_hash and not pop_count:
+            return
+
+        node_id = f"synthetic:lr_population:{pop_hash or pop_count}"
+        classifier = outputs.get("meta_classifier") or (meta.get("parameters") or {}).get("meta_classifier")
+        augmented = outputs.get("use_augmented_reference")
+        summary = f"Populacao LR · {pop_count or 0} subgrupo(s)"
+        if classifier:
+            summary += f" · meta {classifier}"
+        if augmented:
+            summary += " · augmentada"
+
+        nodes_map.setdefault(
+            node_id,
+            {
+                "evidence_id": node_id,
+                "original_filename": "Populacao LR (catalogo)",
+                "file_type": "referencia",
+                "sha256": pop_hash or "",
+                "is_derived": False,
+                "is_synthetic": True,
+                "synthetic_kind": "lr_reference_population",
+                "procedure_summary": summary,
+                "derivation_outputs": {
+                    "reference_population_count": pop_count,
+                    "reference_population_hash": pop_hash,
+                    "meta_classifier": classifier,
+                    "use_augmented_reference": augmented,
+                },
+            },
+        )
+        edge = {
+            "from_evidence_id": node_id,
+            "to_evidence_id": str(target.id),
+            "technique": technique,
+            "parameters": {
+                "role": "lr_reference_population",
+                "reference_population_hash": pop_hash,
+                "reference_population_count": pop_count,
+            },
+            "procedure_summary": "Populacao LR (catalogo de referencia)",
+            "derivation_step": meta.get("derivation_step"),
+            "source_job_id": meta.get("source_job_id"),
+        }
+        key = (edge["from_evidence_id"], edge["to_evidence_id"], "lr_reference_population")
+        if key not in edge_keys:
+            edge_keys.add(key)
+            edges.append(edge)
+
+    def _collect_derivation_groups(self, target: Evidence) -> list[dict[str, Any]]:
+        meta = target.extra_metadata or {}
+        group_id = meta.get("derivation_group_id") or meta.get("source_job_id")
+        if not group_id:
+            return []
+        rows = (
+            self.db.query(Evidence)
+            .filter(
+                Evidence.case_id == target.case_id,
+                Evidence.deleted_at.is_(None),
+                Evidence.extra_metadata.isnot(None),
+            )
+            .all()
+        )
+        siblings: list[dict[str, Any]] = []
+        for row in rows:
+            if str(row.id) == str(target.id):
+                continue
+            row_meta = row.extra_metadata or {}
+            if row_meta.get("origin") != "derived":
+                continue
+            row_group = row_meta.get("derivation_group_id") or row_meta.get("source_job_id")
+            if str(row_group) != str(group_id):
+                continue
+            siblings.append(
+                {
+                    "evidence_id": str(row.id),
+                    "original_filename": row.original_filename,
+                    "artifact_role": row_meta.get("artifact_role"),
+                    "derivation_step": row_meta.get("derivation_step"),
+                    "artifact_filename": row_meta.get("artifact_filename"),
+                }
+            )
+        if not siblings:
+            return []
+        siblings.sort(key=lambda item: str(item.get("original_filename") or ""))
+        return [
+            {
+                "derivation_group_id": str(group_id),
+                "source_job_id": meta.get("source_job_id"),
+                "member_count": len(siblings) + 1,
+                "siblings": siblings,
+            }
+        ]
+
+    @staticmethod
+    def _collect_legacy_notes(nodes: list[dict[str, Any]]) -> list[str]:
+        notes: list[str] = []
+        for node in nodes:
+            if not node.get("legacy_provenance"):
+                continue
+            label = node.get("original_filename") or node.get("evidence_id")
+            notes.append(
+                f"Proveniencia legada em '{label}': parent_inputs ausente ou formato antigo PRNU; "
+                "insumos reconstruidos por heuristica."
+            )
+        return notes
 
     @staticmethod
     def _assign_layers(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> None:

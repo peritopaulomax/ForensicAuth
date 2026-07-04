@@ -42,8 +42,7 @@ const techniqueSubtitles: Record<string, string> = {
   __audio_spectral__: "Espectrograma, ENF e LTAS",
   __audio_levels__: "Níveis e DC local",
   synthetic_image_detection:
-    "Ensemble CNN + Effort + SAFE + IAPL — difusao, FFT e probabilidade p",
-  distildire: FORENSIC_TECHNIQUE_META.distildire.cardSubtitle,
+    "ai-image-detector-deploy, sdxl-flux-detector v1.1, B-Free/Bias-free e Corvi2023",
   jpeg_structure_compare: FORENSIC_TECHNIQUE_META.jpeg_structure_compare.cardSubtitle,
   jpeg_ghosts: FORENSIC_TECHNIQUE_META.jpeg_ghosts.cardSubtitle,
   dct_quantization: FORENSIC_TECHNIQUE_META.dct_quantization.cardSubtitle,

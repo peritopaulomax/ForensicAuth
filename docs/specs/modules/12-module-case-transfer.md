@@ -4,7 +4,7 @@
 
 Permitir transferência forense de um caso completo entre instâncias ForensicAuth (outra instituição ou instalação standalone), com validação obrigatória antes da ingestão.
 
-## Formato VCP (VA Case Package)
+## Formato VCP (Verification Case Package)
 
 Arquivo ZIP com versão `vcp_schema_version: "1"`:
 

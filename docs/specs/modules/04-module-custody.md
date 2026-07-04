@@ -39,9 +39,16 @@ Garantir a rastreabilidade, integridade e imutabilidade de evidencias **originai
 - `GET /api/v1/audit/verify-case/{case_id}`
   - Verifica integridade da cadeia inteira do caso
 
-- `POST /api/v1/evidences/derivatives` *(futuro)*
-  - Entrada: `{job_id, artifact_filename, label?}` ou artefato + metadados do job congelado
+- `POST /api/v1/evidences/derivatives`
+  - Entrada: `{job_id, artifact_filename, label?, effective_parameters?}`
   - Acao: salva arquivo em pasta de derivados, calcula SHA-256, cria evidencia derivada, registra `derivative_saved`
+
+- `GET /api/v1/evidences/{evidence_id}/lineage`
+  - Saida: grafo DAG de proveniencia (insumos, operacoes merge, nos sinteticos LR, pacotes do mesmo job)
+  - Ver `14-module-derivation-lineage.md`
+
+- `GET /api/v1/analysis/provenance-contract`
+  - Matriz de insumos/parametros/artefatos por tecnica
 
 ### Servico Interno (CustodyService)
 
@@ -105,12 +112,20 @@ class CustodyService:
 ```
 
 O mesmo bloco fica em `evidences.extra_metadata.provenance` e em `custody_records.details` ao salvar derivado.
+
+Campos adicionais em derivados novos:
+
+- `derivation_group_id` — agrupa artefatos promovidos do mesmo job
+- `derivation_outputs` — metricas (PCE, LR, matriz N×M, etc.)
+- `algorithm.plugin` — adapter real (`ela`, `synthetic_image_detection`, …)
+
 5. Derivado aparece na aba **Derivados** do caso (agrupado por tipo: imagem, audio, etc.).
 
 ## UI prevista
 
-- **Aba Cadeia de Custodia** — timeline de eventos registrados (upload, derivados salvos, laudos, exclusoes).
-- **Aba Derivados** *(futuro)* — arquivos derivados salvos, separados por tipo, com link para proveniencia (evidencia original + job + params).
+- **Aba Cadeia de Custodia** — timeline de eventos registrados (upload, derivados salvos, laudos, exclusoes). Registros `derivative_saved` incluem link ao grafo de derivacao.
+- **Aba Derivados** — arquivos derivados salvos, separados por tipo, com grafo de proveniencia, pacotes do mesmo job e exportacao JSON/XML/PNG.
+- **Paginas de analise** — apos "Salvar derivado", banner com preview/link ao grafo e atalho para aba Derivados.
 
 ## Regras de Negocio
 

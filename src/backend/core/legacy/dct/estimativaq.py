@@ -1,12 +1,8 @@
-# Autor: Paulo Max Gil Innocencio Reis
-# Email: paulo.pmgir@dpf.gov.br
-# Instituiï¿½ï¿½o: Serviï¿½o de Perï¿½cias em Audiovisual e Eletrï¿½nicos - INC/DITEC
-#
-# Uso: Estimaï¿½ï¿½o da matriz de quantizaï¿½ï¿½o JPEG
-#
-# Tecnica: Imagens com compressao JPEG apresentao histogramas com 
-# coeficientes DCT com artefatos periodicos, cujo perï¿½odo equivale ao
-# fator de quantizaï¿½ï¿½o.
+"""Estimacao da matriz de quantizacao JPEG.
+
+Imagens com compressao JPEG apresentam histogramas com coeficientes DCT
+com artefatos periodicos, cujo periodo equivale ao fator de quantizacao.
+"""
 import numpy as np
 from PIL import Image
 from numpy.fft import fft, fftshift

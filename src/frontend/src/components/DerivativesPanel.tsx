@@ -14,6 +14,7 @@ interface Props {
   caseId: string;
   parentEvidences: Evidence[];
   refreshKey?: number;
+  initialGraphEvidenceId?: string | null;
 }
 
 function formatBytes(bytes: number): string {
@@ -41,13 +42,24 @@ function formatParams(meta: Record<string, unknown>): string {
   return "—";
 }
 
-export default function DerivativesPanel({ caseId, parentEvidences, refreshKey = 0 }: Props) {
+export default function DerivativesPanel({
+  caseId,
+  parentEvidences,
+  refreshKey = 0,
+  initialGraphEvidenceId = null,
+}: Props) {
   const [derivatives, setDerivatives] = useState<Evidence[]>([]);
   const [loading, setLoading] = useState(true);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [graphTarget, setGraphTarget] = useState<Evidence | null>(null);
   const [error, setError] = useState("");
   const [viewMode, setViewMode] = useFileListViewMode();
+
+  useEffect(() => {
+    if (!initialGraphEvidenceId || derivatives.length === 0) return;
+    const match = derivatives.find((item) => item.id === initialGraphEvidenceId);
+    if (match) setGraphTarget(match);
+  }, [initialGraphEvidenceId, derivatives]);
 
   const lookup = useMemo(() => {
     const map = new Map<string, Evidence>();
@@ -92,6 +104,18 @@ export default function DerivativesPanel({ caseId, parentEvidences, refreshKey =
 
   const { grouped, types } = useMemo(() => groupEvidencesByType(derivatives), [derivatives]);
 
+  const groupedByJob = useMemo(() => {
+    const buckets = new Map<string, Evidence[]>();
+    for (const ev of derivatives) {
+      const meta = ev.extra_metadata || {};
+      const key = String(meta.derivation_group_id || meta.source_job_id || ev.id);
+      const bucket = buckets.get(key) ?? [];
+      bucket.push(ev);
+      buckets.set(key, bucket);
+    }
+    return [...buckets.entries()].filter(([, items]) => items.length > 1);
+  }, [derivatives]);
+
   if (loading) {
     return <p style={{ color: "#6b7280", padding: "1rem 0" }}>Carregando derivados…</p>;
   }
@@ -119,6 +143,22 @@ export default function DerivativesPanel({ caseId, parentEvidences, refreshKey =
           }}
         >
           {error}
+        </div>
+      )}
+
+      {groupedByJob.length > 0 && (
+        <div
+          style={{
+            marginBottom: "1rem",
+            padding: "0.75rem 1rem",
+            borderRadius: 8,
+            background: "#f8fafc",
+            border: "1px solid #e2e8f0",
+            fontSize: "0.8rem",
+            color: "#334155",
+          }}
+        >
+          <strong>{groupedByJob.length}</strong> pacote(s) com multiplos artefatos do mesmo job
         </div>
       )}
 
@@ -169,6 +209,7 @@ export default function DerivativesPanel({ caseId, parentEvidences, refreshKey =
               {grouped[fileType].map((ev) => {
                 const meta = ev.extra_metadata || {};
                 const parentId = meta.parent_evidence_id as string | undefined;
+                const groupId = (meta.derivation_group_id || meta.source_job_id) as string | undefined;
                 const procedure =
                   (meta.procedure_summary as string) || formatParams(meta as Record<string, unknown>);
                 const showThumb = evidenceUsesThumbnail(ev.file_type, ev.original_filename, ev.mime_type);
@@ -208,6 +249,9 @@ export default function DerivativesPanel({ caseId, parentEvidences, refreshKey =
                         </div>
                         <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
                           {procedure} · {parentName(parentId)} · {formatBytes(ev.file_size)}
+                          {groupId && (
+                            <> · pacote job {groupId.slice(0, 8)}…</>
+                          )}
                         </div>
                       </div>
                       <button
@@ -308,6 +352,11 @@ export default function DerivativesPanel({ caseId, parentEvidences, refreshKey =
                       <div>
                         <strong>Origem:</strong> {parentName(parentId)}
                       </div>
+                      {groupId && (
+                        <div>
+                          <strong>Pacote job:</strong> {groupId.slice(0, 8)}…
+                        </div>
+                      )}
                       <div
                         style={{
                           fontFamily: "monospace",

@@ -303,3 +303,49 @@ class TestCustodyService:
         assert "reproducible" in result
         assert "original_hash" in result
         assert "new_hash" in result
+
+    def test_case_custody_seal_created_on_record(self, db_session, sample_case, test_user):
+        """Ao criar registro, o caso recebe selo de fechamento da cadeia."""
+        from services.custody_service import CustodyService
+
+        service = CustodyService(db_session)
+        record = service.create_record(
+            record_type="evidence_upload",
+            case_id=sample_case.id,
+            user_id=test_user.id,
+            details={},
+        )
+
+        db_session.refresh(sample_case)
+        assert sample_case.custody_seal is not None
+        assert sample_case.custody_seal_signature is not None
+        assert sample_case.custody_seal_record_hash == record.record_hash
+
+    def test_case_custody_seal_detects_deleted_last_record(self, db_session, sample_case, test_user):
+        """Remocao do ultimo registro invalida o selo de fechamento."""
+        from services.custody_service import CustodyService
+        from models.custody_record import CustodyRecord
+
+        service = CustodyService(db_session)
+        for _ in range(3):
+            service.create_record(
+                record_type="evidence_upload",
+                case_id=sample_case.id,
+                user_id=test_user.id,
+                details={},
+            )
+
+        assert service.verify_chain(sample_case.id)["valid"] is True
+
+        last = (
+            db_session.query(CustodyRecord)
+            .filter(CustodyRecord.case_id == sample_case.id)
+            .order_by(CustodyRecord.chain_sequence.desc())
+            .first()
+        )
+        db_session.delete(last)
+        db_session.commit()
+
+        result = service.verify_chain(sample_case.id)
+        assert result["valid"] is False
+        assert "custody_seal_invalid" in result["reason"]

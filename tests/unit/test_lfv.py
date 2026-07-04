@@ -12,17 +12,30 @@ WORKSPACE = Path(__file__).resolve().parents[2]
 
 def test_lfv_vendor_isolation_after_distildire():
     """LFV deve importar networks/xception mesmo apos DistilDIRE carregar networks."""
-    import importlib.util
-
     distildire = WORKSPACE / "vendor" / "distildire"
     if not distildire.is_dir():
         pytest.skip("vendor/distildire ausente")
 
-    from core.legacy.distildire.distildire_vendor import distildire_vendor_context
+    # O processo de testes carrega varios vendors com `networks`; isolamento por
+    # sys.path/sys.modules nao e confiavel. Verifica em subprocesso limpo.
+    import subprocess
 
-    with distildire_vendor_context():
-        spec = importlib.util.find_spec("networks.distill_model")
-        assert spec is not None and "distildire" in (spec.origin or "")
+    script = """
+import sys
+sys.path.insert(0, 'src/backend')
+from core.legacy.distildire.distildire_vendor import distildire_vendor_context
+with distildire_vendor_context():
+    import networks.distill_model as dm
+    print(dm.__file__)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=WORKSPACE,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "distildire" in result.stdout
 
     from core.legacy.lowres_fake_video.lfv_vendor import lfv_vendor_context
 

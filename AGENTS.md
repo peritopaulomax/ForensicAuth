@@ -1,3 +1,8 @@
+---
+description: 
+alwaysApply: true
+---
+
 # AGENTS.md - Regras Maximas do Projeto ForensicAuth
 
 Este arquivo contem as regras absolutas para execucao deste projeto.

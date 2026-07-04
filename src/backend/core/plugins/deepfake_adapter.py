@@ -60,10 +60,8 @@ class DeepfakeSimilarityAdapter(ForensicPlugin):
         if not _load_deps():
             return
 
-        # TODO: Load actual InsightFace model
-        # self._face_analysis = _insightface.app.FaceAnalysis()
-        # self._face_analysis.prepare(ctx_id=0 if torch.cuda.is_available() else -1)
-
+        # InsightFace weights are not wired yet; the adapter intentionally
+        # remains a no-op until models/MODELS_DIR/deepfake/ is populated.
         self._model_loaded = True
 
     def analyze(self, evidence_path: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
@@ -111,7 +109,7 @@ class DeepfakeSimilarityAdapter(ForensicPlugin):
             "similarity_scores": [],
             "artifacts": [],
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "note": "Pipeline completo implementado. Substituir placeholders por inferencia real quando os pesos estiverem disponiveis.",
+            "note": "InsightFace adapter is active but no inference was run (weights not configured).",
         }
 
         return result

@@ -318,6 +318,127 @@ def build_font_key_to_legend_num(fonts_in_order: List[str]) -> Dict[str, int]:
     return {name: i for i, name in enumerate(fonts_in_order, start=1)}
 
 
+# ---------------------------------------------------------------------------
+# Overlay por tamanho de fonte
+# ---------------------------------------------------------------------------
+
+
+def span_font_size(span: dict) -> float:
+    """Return the font size (points) reported by PyMuPDF for a span."""
+    size = span.get("size")
+    if size is None:
+        return 0.0
+    try:
+        return float(size)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def collect_font_sizes(doc: fitz.Document) -> List[float]:
+    """Return sorted unique font sizes seen in the document."""
+    seen: set[float] = set()
+    for page in doc:
+        td = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+        for block in td.get("blocks", []):
+            if block.get("type") != 0:
+                continue
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    size = span_font_size(span)
+                    if size > 0:
+                        seen.add(round(size, 2))
+    return sorted(seen)
+
+
+def _color_for_size(size: float, min_size: float, max_size: float) -> Tuple[int, int, int]:
+    """Map a font size to an RGB heatmap color (blue -> green -> yellow -> red)."""
+    if max_size <= min_size:
+        return (128, 128, 128)
+    # Normalize to 0..1
+    t = (size - min_size) / (max_size - min_size)
+    # Use HSV: blue (0.66) -> red (0.0)
+    hue = 0.66 * (1.0 - t)
+    r, g, b = colorsys.hsv_to_rgb(hue, 0.82, 0.95)
+    return (int(r * 255), int(g * 255), int(b * 255))
+
+
+def build_size_to_rgb255(sizes: List[float]) -> Dict[float, Tuple[int, int, int]]:
+    if not sizes:
+        return {}
+    min_size, max_size = sizes[0], sizes[-1]
+    return {size: _color_for_size(size, min_size, max_size) for size in sizes}
+
+
+def apply_size_overlays(
+    doc: fitz.Document,
+    size_to_rgb255: Dict[float, Tuple[int, int, int]],
+    fill_opacity: float,
+) -> int:
+    """Draw rectangles colored by font size over every text span."""
+    count = 0
+    sizes = sorted(size_to_rgb255.keys())
+    if not sizes:
+        return 0
+    min_size, max_size = sizes[0], sizes[-1]
+    for page in doc:
+        td = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+        for block in td.get("blocks", []):
+            if block.get("type") != 0:
+                continue
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    size = span_font_size(span)
+                    if size <= 0:
+                        continue
+                    bbox = span.get("bbox")
+                    if not bbox or len(bbox) != 4:
+                        continue
+                    text = str(span.get("text") or "")
+                    if not text.strip():
+                        continue
+                    rgb = _color_for_size(size, min_size, max_size)
+                    rect = fitz.Rect(bbox)
+                    if rect.is_empty or rect.width < 4 or rect.height < 4:
+                        continue
+                    annot = page.add_rect_annot(rect)
+                    fr, fg, fb = _norm255(rgb)
+                    annot.set_colors(stroke=(fr, fg, fb), fill=(fr, fg, fb))
+                    annot.set_border(width=0)
+                    annot.set_opacity(fill_opacity)
+                    try:
+                        annot.set_blendmode(fitz.PDF_BM_Multiply)
+                    except Exception:
+                        pass
+                    annot.update()
+                    count += 1
+    return count
+
+
+def write_size_legend(
+    path: Path,
+    sizes: List[float],
+    size_to_rgb255: Dict[float, Tuple[int, int, int]],
+    fill_opacity: float,
+    n_rects: int,
+) -> None:
+    lines = [
+        "# Legenda: tamanho da fonte (pt) → cor do realce",
+        f"# Modo: uma cor por tamanho de fonte",
+        f"# Opacidade do preenchimento: {fill_opacity:.2f}",
+        f"# Retângulos desenhados: {n_rects}",
+        f"# Tamanhos distintos: {len(sizes)}",
+        "# Escala: azul (menor) → verde → amarelo → vermelho (maior)",
+        "",
+    ]
+    for size in sizes:
+        rgb = size_to_rgb255[size]
+        lines.append(f"{size:.2f} pt")
+        lines.append(f"   RGB: {rgb[0]}, {rgb[1]}, {rgb[2]}")
+        lines.append(f"   HEX: {_hex(rgb)}")
+        lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def _legend_badge_rect(page: fitz.Page, anchor: fitz.Rect, label: str) -> Optional[fitz.Rect]:
     """Caixa fixa legível para o número da legenda (independente da altura do span)."""
     fs = 8.0
@@ -455,45 +576,60 @@ def run_font_color_overlay(
     legend_txt: str | Path,
     opacity: float = 0.42,
     by_subset: bool = True,
+    mode: str = "font",
 ) -> Dict[str, object]:
-    """Gera PDF com overlay de fontes e ficheiro de legenda (API para plugin)."""
+    """Gera PDF com overlay de fontes ou tamanhos e ficheiro de legenda (API para plugin)."""
     src = Path(input_pdf).expanduser().resolve()
     out_pdf = Path(output_pdf).expanduser().resolve()
     out_txt = Path(legend_txt).expanduser().resolve()
     op = max(0.05, min(1.0, float(opacity)))
+    mode = (mode or "font").lower()
 
     doc = fitz.open(src)
     font_metrics_cache: Dict = {}
     fonts_in_order: List[str] = []
+    sizes_in_order: List[float] = []
     n_rects = 0
     try:
-        glyph_cache: Optional[Dict[int, List[Tuple[fitz.Rect, str]]]] = None
-        if by_subset:
-            glyph_cache = build_glyph_runs_cache(doc, font_metrics_cache)
-        fonts_in_order = collect_font_order(doc, by_subset, font_metrics_cache, glyph_cache)
-        font_embed = build_font_embed_report(doc, fonts_in_order)
-        font_to_rgb255 = {name: _color_for_key(name, i) for i, name in enumerate(fonts_in_order)}
-        font_key_to_num = build_font_key_to_legend_num(fonts_in_order)
-        n_rects = apply_overlays(
-            doc,
-            font_to_rgb255,
-            font_key_to_num,
-            op,
-            by_subset,
-            font_metrics_cache,
-            glyph_cache,
-        )
+        if mode == "size":
+            sizes_in_order = collect_font_sizes(doc)
+            size_to_rgb255 = build_size_to_rgb255(sizes_in_order)
+            n_rects = apply_size_overlays(doc, size_to_rgb255, op)
+        else:
+            glyph_cache: Optional[Dict[int, List[Tuple[fitz.Rect, str]]]] = None
+            if by_subset:
+                glyph_cache = build_glyph_runs_cache(doc, font_metrics_cache)
+            fonts_in_order = collect_font_order(doc, by_subset, font_metrics_cache, glyph_cache)
+            font_embed = build_font_embed_report(doc, fonts_in_order)
+            font_to_rgb255 = {name: _color_for_key(name, i) for i, name in enumerate(fonts_in_order)}
+            font_key_to_num = build_font_key_to_legend_num(fonts_in_order)
+            n_rects = apply_overlays(
+                doc,
+                font_to_rgb255,
+                font_key_to_num,
+                op,
+                by_subset,
+                font_metrics_cache,
+                glyph_cache,
+            )
         out_pdf.parent.mkdir(parents=True, exist_ok=True)
         doc.save(out_pdf, garbage=4, deflate=True, clean=True)
     finally:
         doc.close()
 
-    write_legend(out_txt, fonts_in_order, font_to_rgb255, font_embed, op, n_rects, by_subset)
+    if mode == "size":
+        size_to_rgb255 = build_size_to_rgb255(sizes_in_order)
+        write_size_legend(out_txt, sizes_in_order, size_to_rgb255, op, n_rects)
+    else:
+        write_legend(out_txt, fonts_in_order, font_to_rgb255, font_embed, op, n_rects, by_subset)
+
     return {
         "fonts_count": len(fonts_in_order),
+        "sizes_count": len(sizes_in_order),
         "rectangles": n_rects,
         "fonts": fonts_in_order,
-        "mode": "subset" if by_subset else "family",
+        "sizes": sizes_in_order,
+        "mode": "size" if mode == "size" else ("subset" if by_subset else "family"),
     }
 
 

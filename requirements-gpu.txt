@@ -14,6 +14,7 @@ accelerate>=0.24.0
 peft>=0.10.0
 timm>=0.9.0
 open_clip_torch>=2.24.0
+clip @ git+https://github.com/openai/CLIP.git
 
 # MIML APSC-Net usa OpenMMLab legado vendorizado em vendor/MIML.
 # mmcv-lite 2.x é incompatível com esse mmseg legado.

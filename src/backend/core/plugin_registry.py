@@ -10,6 +10,9 @@ from core.forensic_plugin import ForensicPlugin
 # Tecnicas mantidas no codigo mas sem registro ativo (card/UI pendente).
 STANDBY_PLUGIN_NAMES = frozenset({
     "deepfake_similarity",
+    "distildire",
+    "fakevlm",
+    "clipbased_synthetic",
     "mp3_parser",
     "opus_parser",
     "wav_ima_adpcm",

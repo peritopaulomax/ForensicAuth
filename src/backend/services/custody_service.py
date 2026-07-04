@@ -43,6 +43,7 @@ def _allow_custody_record_updates(db: Session) -> Iterator[None]:
             db.execute(text(_SQLITE_CUSTODY_TRIGGER))
 
 
+from models.case import Case
 from models.custody_record import CustodyRecord
 from models.analysis_job import AnalysisJob
 from services.custody_signing_service import CustodySigningService
@@ -117,6 +118,107 @@ class CustodyService:
         if record.record_hash == self._compute_hash_legacy_no_sequence(record):
             return True
         return False
+
+    @staticmethod
+    def _compute_case_seal(record_hash: str, timestamp: datetime) -> str:
+        """Compute SHA-256 seal over the last record hash and a timestamp."""
+        payload = {
+            "record_hash": record_hash,
+            "timestamp": timestamp.replace(tzinfo=None).isoformat(),
+            "version": "1",
+        }
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def update_case_custody_seal(self, case_id: uuid.UUID) -> dict[str, Any] | None:
+        """Recompute and sign the chain-closure seal for a case.
+
+        Should be called whenever the custody chain is appended to.
+        """
+        case = self.db.query(Case).filter(Case.id == case_id).first()
+        if case is None:
+            return None
+
+        # Force flush so the just-added record is visible to the seal query.
+        self.db.flush()
+
+        last_record = (
+            self.db.query(CustodyRecord)
+            .filter(CustodyRecord.case_id == case_id)
+            .order_by(CustodyRecord.chain_sequence.desc())
+            .first()
+        )
+        if last_record is None:
+            case.custody_seal = None
+            case.custody_seal_signature = None
+            case.custody_seal_record_hash = None
+            case.custody_seal_timestamp = None
+            return None
+
+        timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+        seal = self._compute_case_seal(last_record.record_hash, timestamp)
+        signed = CustodySigningService().sign_digest_hex(seal)
+
+        case.custody_seal = seal
+        case.custody_seal_signature = signed["signature_b64"]
+        case.custody_seal_record_hash = last_record.record_hash
+        case.custody_seal_timestamp = timestamp
+
+        return {
+            "case_id": str(case_id),
+            "seal": seal,
+            "record_hash": last_record.record_hash,
+            "timestamp": timestamp.isoformat(),
+            "signing_key_id": signed["signing_key_id"],
+        }
+
+    def verify_case_custody_seal(self, case_id: uuid.UUID) -> dict[str, Any]:
+        """Verify the chain-closure seal for a case."""
+        case = self.db.query(Case).filter(Case.id == case_id).first()
+        if case is None:
+            return {"valid": False, "reason": "case_not_found"}
+
+        if not case.custody_seal or not case.custody_seal_signature:
+            return {"valid": False, "reason": "seal_missing"}
+
+        last_record = (
+            self.db.query(CustodyRecord)
+            .filter(CustodyRecord.case_id == case_id)
+            .order_by(CustodyRecord.chain_sequence.desc())
+            .first()
+        )
+        if last_record is None:
+            return {"valid": False, "reason": "chain_empty"}
+
+        if case.custody_seal_record_hash != last_record.record_hash:
+            return {
+                "valid": False,
+                "reason": "last_record_hash_mismatch",
+                "sealed_record_hash": case.custody_seal_record_hash,
+                "actual_record_hash": last_record.record_hash,
+            }
+
+        expected_seal = self._compute_case_seal(
+            last_record.record_hash,
+            case.custody_seal_timestamp.replace(tzinfo=None) if case.custody_seal_timestamp else datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+        if case.custody_seal != expected_seal:
+            return {
+                "valid": False,
+                "reason": "seal_hash_mismatch",
+                "sealed_hash": case.custody_seal,
+                "expected_hash": expected_seal,
+            }
+
+        signature_valid = CustodySigningService().verify_digest_hex(
+            case.custody_seal,
+            case.custody_seal_signature,
+            None,
+        )
+        if not signature_valid:
+            return {"valid": False, "reason": "signature_invalid"}
+
+        return {"valid": True, "record_hash": last_record.record_hash}
 
     @staticmethod
     def _canonical_genesis(records: list[CustodyRecord]) -> CustodyRecord | None:
@@ -291,6 +393,7 @@ class CustodyService:
             record.signing_key_id = signed["signing_key_id"]
 
             self.db.add(record)
+            self.update_case_custody_seal(case_id)
             if commit:
                 self.db.commit()
                 self.db.refresh(record)
@@ -373,10 +476,21 @@ class CustodyService:
                 }
             prev_hash = record.record_hash
 
+        seal_check = self.verify_case_custody_seal(case_id)
+        if not seal_check["valid"]:
+            return {
+                "valid": False,
+                "records_checked": len(records),
+                "first_invalid": None,
+                "reason": f"custody_seal_invalid:{seal_check.get('reason', 'unknown')}",
+                "seal_details": seal_check,
+            }
+
         return {
             "valid": True,
             "records_checked": len(records),
             "first_invalid": None,
+            "seal_valid": True,
         }
 
     def _sequence_assignable(self, record: CustodyRecord, sequence: int) -> bool:

@@ -158,15 +158,28 @@ class CaseDeletionService:
                     counts["evidence_files"] += 1
 
         for job_info in snapshot.get("jobs", []):
-            job_dir = Path(self.settings.RESULTS_DIR) / job_info["job_id"]
-            if job_dir.is_dir():
-                shutil.rmtree(job_dir, ignore_errors=True)
-                counts["job_result_dirs"] += 1
             job_row = (
                 self.db.query(AnalysisJob)
                 .filter(AnalysisJob.id == uuid.UUID(job_info["job_id"]))
                 .first()
             )
+            if job_row and job_row.evidence:
+                from services.job_service import build_job_result_dir
+
+                job_dir = build_job_result_dir(
+                    self.settings.RESULTS_DIR,
+                    job_row.evidence.case_id,
+                    job_row.evidence_id,
+                    job_row.id,
+                )
+                if job_dir.is_dir():
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                    counts["job_result_dirs"] += 1
+            else:
+                job_dir = Path(self.settings.RESULTS_DIR) / job_info["job_id"]
+                if job_dir.is_dir():
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                    counts["job_result_dirs"] += 1
             if job_row and job_row.result_path:
                 rp = Path(job_row.result_path)
                 if rp.is_file():

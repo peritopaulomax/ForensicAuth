@@ -23,11 +23,11 @@ export const ANALYSIS_ROUTE_META: Record<string, { technique: string; media: str
     media: "imagem",
     title: LEGACY_TECHNIQUE_LABELS.synthetic_image_detection,
   },
-  distildire: { technique: "distildire", media: "imagem", title: FORENSIC_TECHNIQUE_META.distildire.title },
   safire: { technique: "safire", media: "imagem", title: FORENSIC_TECHNIQUE_META.safire.title },
   noiseprint: { technique: "noiseprint", media: "imagem", title: FORENSIC_TECHNIQUE_META.noiseprint.title },
   prnu: { technique: "prnu", media: "imagem", title: FORENSIC_TECHNIQUE_META.prnu.title },
   audio: { technique: "audio_forensics", media: "audio", title: "Audio forense" },
+  audio_spoofing: { technique: "audio_spoofing_detection", media: "audio", title: FORENSIC_TECHNIQUE_META.audio_spoofing_detection.title },
   pdf_font_overlay: { technique: "pdf_font_color_overlay", media: "pdf", title: "PDF overlay por fonte" },
   pdf_structure_metrics: { technique: "pdf_structure_metrics", media: "pdf", title: "PDF estrutura (grafo)" },
   pdf_structure_similarity: { technique: "pdf_structure_similarity", media: "pdf", title: "PDF similaridade estrutural" },
@@ -79,7 +79,7 @@ const IMDL_DEDICATED_ROUTE_TECHNIQUES = [
   "co_transformers",
 ] as const;
 
-/** Tecnicas com pagina dedicada nao usam o painel inline "Executar" na aba Analises. */
+/** Tecnicas com pagina dedicada nao usam o painel inline "Executar" na aba Análises. */
 export const DEDICATED_ANALYSIS_TECHNIQUES = new Set([
   ...Object.values(ANALYSIS_ROUTE_META).map((m) => m.technique),
   ...AUDIO_FORENSICS_TECHNIQUES,
@@ -91,14 +91,13 @@ export function techniqueHasDedicatedPage(technique: string): boolean {
 }
 
 /** Tecnicas registradas mas ocultas na UI da aba Imagem (hub substituido por cards/metodos dedicados). */
-export const HIDDEN_IMAGE_TECHNIQUES = new Set(["mock_technique", "imdlbenco"]);
+export const HIDDEN_IMAGE_TECHNIQUES = new Set(["imdlbenco"]);
 
 /** Tecnicas registradas mas ocultas na UI da aba PDF. */
-export const HIDDEN_PDF_TECHNIQUES = new Set(["mock_technique"]);
+export const HIDDEN_PDF_TECHNIQUES = new Set<string>([]);
 
 /** Tecnicas registradas mas ocultas na UI da aba Audio. */
 export const HIDDEN_AUDIO_TECHNIQUES = new Set([
-  "mock_technique",
   "mp3_parser",
   "opus_parser",
   "wav_ima_adpcm",
@@ -194,6 +193,7 @@ export function navigateToDedicatedAnalysis(
   }
 
   const routes: Record<string, string> = {
+    audio_spoofing_detection: `/cases/${caseId}/analysis/audio_spoofing`,
     pdf_font_color_overlay: `/cases/${caseId}/analysis/pdf_font_overlay`,
     pdf_structure_metrics: `/cases/${caseId}/analysis/pdf_structure_metrics`,
     pdf_structure_similarity: `/cases/${caseId}/analysis/pdf_structure_similarity`,

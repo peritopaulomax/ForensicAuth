@@ -144,7 +144,7 @@ export default function PDFStructureMetricsAnalysis() {
           <p style={{ margin: 0, fontSize: "0.88rem" }}>
             Nos: {Number(result.node_count)} · Arestas: {Number(result.edge_count)}
             {result.layout_engine != null && (
-              <> · Layout: {String(result.layout_engine)}</>
+              <> · Motor de layout: {String(result.layout_engine)}</>
             )}
           </p>
         </AnalysisPanel>

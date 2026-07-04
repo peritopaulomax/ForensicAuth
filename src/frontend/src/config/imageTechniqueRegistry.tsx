@@ -21,7 +21,9 @@ const PRNUAnalysis = lazy(() => import("@/pages/PRNUAnalysis"));
 const NoiseprintAnalysis = lazy(() => import("@/pages/NoiseprintAnalysis"));
 const SafireAnalysis = lazy(() => import("@/pages/SafireAnalysis"));
 const SyntheticImageDetectionAnalysis = lazy(() => import("@/pages/SyntheticImageDetectionAnalysis"));
-const DistilDireAnalysis = lazy(() => import("@/pages/DistilDireAnalysis"));
+const PresentationAttackDetectionAnalysis = lazy(
+  () => import("@/pages/PresentationAttackDetectionAnalysis"),
+);
 const ImdlMethodAnalysis = lazy(() => import("@/pages/ImdlMethodAnalysis"));
 
 const PLUGIN_COMPONENTS: Record<string, ComponentType<ImageTechniqueComponentProps>> = {
@@ -41,7 +43,7 @@ const PLUGIN_COMPONENTS: Record<string, ComponentType<ImageTechniqueComponentPro
   noiseprint: NoiseprintAnalysis,
   safire: SafireAnalysis,
   synthetic_image_detection: SyntheticImageDetectionAnalysis,
-  distildire: DistilDireAnalysis,
+  presentation_attack_detection: PresentationAttackDetectionAnalysis,
 };
 
 export function resolveImageTechniqueComponent(

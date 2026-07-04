@@ -69,16 +69,25 @@ def resolve_models_dir() -> Optional[Path]:
 def _resolve_models_path(path: Path) -> Path:
     if path.is_absolute():
         return path.resolve()
+    if path.exists():
+        return path.resolve()
     return (_backend_root() / path).resolve()
+
+
+def _cache_has_hf_models(cache: Path) -> bool:
+    resolved = _resolve_models_path(cache)
+    return all((resolved / _hf_cache_folder(model_id)).is_dir() for model_id in HF_MODEL_IDS)
 
 
 def huggingface_cache_dir() -> Path:
     env_cache = os.environ.get("HF_HUB_CACHE") or os.environ.get("TRANSFORMERS_CACHE")
     if env_cache:
-        return _resolve_models_path(Path(env_cache))
+        env_path = Path(env_cache)
+        if _cache_has_hf_models(env_path):
+            return _resolve_models_path(env_path)
     for sub in (_MODELS_SUBDIR, _LEGACY_MODELS_SUBDIR):
         custom = _models_dir() / sub / "huggingface"
-        if custom.is_dir():
+        if _cache_has_hf_models(custom):
             return _resolve_models_path(custom)
     return _resolve_models_path(_models_dir() / "huggingface")
 

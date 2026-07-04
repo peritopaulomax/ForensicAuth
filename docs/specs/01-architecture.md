@@ -215,5 +215,5 @@
 ## Estrategia de Deploy
 
 - **Desenvolvimento**: Docker Compose com hot-reload (backend e frontend).
-- **Producao**: Docker Compose no servidor corporativo da PF. Volumes montados para upload de evidencias e resultados.
+- **Producao**: Docker Compose no servidor corporativo da instituicao. Volumes montados para upload de evidencias e resultados.
 - **Backup**: Dump diario do PostgreSQL + sincronizacao do volume de evidencias para OneDrive corporativo (excecao autorizada de nuvem).

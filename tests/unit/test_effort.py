@@ -79,6 +79,9 @@ class TestEffortRows:
             "core.legacy.effort.effort_warmup.effort_runtime_status",
             lambda *, variant: (False, "pesos ausentes"),
         )
-        result = warm_effort_models(device=__import__("torch").device("cpu"))
+        result = warm_effort_models(
+            variants=["genimage", "chameleon"],
+            device=__import__("torch").device("cpu"),
+        )
         assert result.loaded_variants == []
         assert len(result.skipped_variants) == 2

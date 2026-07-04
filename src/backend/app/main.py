@@ -1,7 +1,10 @@
 """FastAPI application entry point."""
 
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -13,6 +16,8 @@ from app.database import engine, Base
 from app.db_migrations import (
     ensure_analysis_job_progress_columns,
     ensure_analysis_job_reproducibility_columns,
+    ensure_case_custody_seal_columns,
+    ensure_case_custody_seal_values,
     ensure_case_soft_delete_columns,
     ensure_case_storage_mode_column,
     ensure_migrate_analista_to_perito,
@@ -28,11 +33,41 @@ from app.db_migrations import (
 settings = get_settings()
 
 
+def _run_alembic_upgrade() -> None:
+    """Run Alembic migrations in production environments."""
+    import subprocess
+    import sys
+
+    from app.config import get_settings
+
+    alembic_ini = Path(__file__).resolve().parents[3] / "alembic.ini"
+    if not alembic_ini.is_file():
+        logger.warning("alembic.ini nao encontrado; pulando migracoes")
+        return
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", str(alembic_ini), "upgrade", "head"],
+            check=True,
+            cwd=str(alembic_ini.parent),
+            capture_output=True,
+            text=True,
+        )
+        logger.info("Migracoes Alembic aplicadas com sucesso")
+    except subprocess.CalledProcessError as exc:
+        logger.error("Falha ao aplicar migracoes Alembic: %s", exc.stderr)
+        raise RuntimeError("Falha em migracoes Alembic") from exc
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
-    # Startup
-    Base.metadata.create_all(bind=engine)
+    if settings.ENVIRONMENT == "production":
+        _run_alembic_upgrade()
+    else:
+        # Dev/test: keep legacy bootstrap for compatibility
+        Base.metadata.create_all(bind=engine)
+
+    # Legacy data migrations and column additions remain idempotent
     ensure_password_set_column(engine)
     ensure_evidence_soft_delete_columns(engine)
     ensure_case_soft_delete_columns(engine)
@@ -43,12 +78,23 @@ async def lifespan(app: FastAPI):
     ensure_analysis_job_progress_columns(engine)
     ensure_analysis_job_reproducibility_columns(engine)
     ensure_case_storage_mode_column(engine)
+    ensure_case_custody_seal_columns(engine)
+    ensure_case_custody_seal_values(engine)
     ensure_migrate_analista_to_perito(engine)
     ensure_migrate_em_andamento_to_aberto(engine)
 
-    yield
-    # Shutdown
-    engine.dispose()
+    from core.preview_cleanup_scheduler import start_daily_preview_cleanup
+
+    cleanup_task = start_daily_preview_cleanup(settings)
+    try:
+        yield
+    finally:
+        if cleanup_task is not None:
+            cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await cleanup_task
+        # Shutdown
+        engine.dispose()
 
 
 app = FastAPI(
@@ -59,12 +105,22 @@ app = FastAPI(
 )
 
 # CORS
+cors_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+cors_headers = ["*"]
+if settings.ENVIRONMENT == "production":
+    cors_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    cors_headers = [
+        "Authorization",
+        "Content-Type",
+        "X-Requested-With",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=cors_methods,
+    allow_headers=cors_headers,
 )
 
 

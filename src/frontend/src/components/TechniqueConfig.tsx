@@ -16,7 +16,6 @@ const defaultParams: Record<string, Record<string, unknown>> = {
   dct_quantization: {},
   resampling: {},
   synthetic_image_detection: { generate_visuals: true, mode: "full" },
-  mock_technique: {},
 };
 
 export default function TechniqueConfig({ technique, onChange }: Props) {

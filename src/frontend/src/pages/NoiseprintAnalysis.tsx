@@ -64,10 +64,10 @@ export default function NoiseprintAnalysis() {
       : viewMode === "noiseprint"
         ? "Impressao digital (extracao)"
         : viewMode === "valid_mask"
-          ? "Mascara valid (branco = confiavel)"
+          ? "Máscara válida (branco = confiavel)"
           : viewMode === "valid_overlay"
-            ? "Overlay valid (vermelho = nao confiavel)"
-            : "Overlay heatmap blind";
+            ? "Sobreposição válida (vermelho = nao confiavel)"
+            : "Sobreposição do mapa de calor";
 
   const applyEvidence = useCallback(
     (id: string, _source: "original" | "derivative") => {
@@ -139,7 +139,7 @@ export default function NoiseprintAnalysis() {
     <AnalysisPageShell
       caseId={caseId!}
       title={FORENSIC_TECHNIQUE_META.noiseprint.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.noiseprint} />}
+      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.noiseprint} techniqueId="noiseprint" />}
       embedded={embedded}
     >
       {runtimeOk === false && (
@@ -157,7 +157,7 @@ export default function NoiseprintAnalysis() {
         )}
       </AnalysisPanel>
 
-      <AnalysisPanel title="Execucao">
+      <AnalysisPanel title="Execução">
         <ProcessButton
           running={running}
           progress={progress}
@@ -256,7 +256,7 @@ export default function NoiseprintAnalysis() {
                 <button
                   type="button"
                   disabled={saving}
-                  onClick={() => handleSave("valid_mask.png", "Mascara valid Noiseprint")}
+                  onClick={() => handleSave("valid_mask.png", "Máscara válida Noiseprint")}
                   style={btnSecondary}
                 >
                   Salvar valid
@@ -266,7 +266,7 @@ export default function NoiseprintAnalysis() {
                 <button
                   type="button"
                   disabled={saving}
-                  onClick={() => handleSave("valid_overlay.png", "Overlay valid Noiseprint")}
+                  onClick={() => handleSave("valid_overlay.png", "Sobreposição válida Noiseprint")}
                   style={btnSecondary}
                 >
                   Salvar valid overlay

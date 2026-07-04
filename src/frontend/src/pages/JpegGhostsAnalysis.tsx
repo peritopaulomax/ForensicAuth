@@ -159,7 +159,7 @@ export default function JpegGhostsAnalysis() {
     <AnalysisPageShell
       caseId={caseId}
       title={FORENSIC_TECHNIQUE_META.jpeg_ghosts.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.jpeg_ghosts} />}
+      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.jpeg_ghosts} techniqueId="jpeg_ghosts" />}
       embedded={embedded}
     >
       <AnalysisPanel title="Evidencia">

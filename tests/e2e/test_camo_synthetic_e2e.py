@@ -14,24 +14,14 @@ FIXTURE = WORKSPACE / "uploads-dev" / "7bab0877-d873-4b68-aad9-de2e79ca14e7.jpg"
 
 @pytest.mark.e2e
 class TestCamoSyntheticE2E:
-    def test_full_analysis_includes_camo_row_simulated(self, monkeypatch, tmp_path):
-        """Simula ensemble completo com CAMO mockado (sem pesos reais)."""
-        import torch
-
+    def test_full_analysis_excludes_camo_from_default_ensemble(self, monkeypatch, tmp_path):
+        """CAMO permanece legado, mas nao faz parte da aba synthetic_image_detection."""
         from core.legacy.camo.camo_runtime import MODEL_LABEL
         from core.legacy.synthetic_image_detection import pipeline as sp
 
         monkeypatch.setattr(
-            "core.legacy.camo.camo_pipeline.camo_runtime_status",
-            lambda: (True, ""),
-        )
-        monkeypatch.setattr(
-            "core.legacy.camo.camo_pipeline.run_with_device_fallback",
-            lambda fn, **_: (fn(torch.device("cpu")), torch.device("cpu")),
-        )
-        monkeypatch.setattr(
             "core.legacy.camo.camo_pipeline.infer_camo_from_pil",
-            lambda *_a, **_k: 0.55,
+            lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("CAMO should not run by default")),
         )
 
         sp._DETECTION_MODELS = None
@@ -53,8 +43,7 @@ class TestCamoSyntheticE2E:
 
         rows = sp.predict_ensemble(img)
         camo_rows = [r for r in rows if r[0] == MODEL_LABEL]
-        assert len(camo_rows) == 1
-        assert camo_rows[0][1] == "0.5500"
+        assert camo_rows == []
 
     def test_adapter_analyze_writes_model_scores_with_camo(self, monkeypatch, tmp_path):
         """Simula job do adapter com CAMO mockado e artefato model_scores.txt."""

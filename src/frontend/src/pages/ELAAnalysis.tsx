@@ -328,7 +328,7 @@ export default function ELAAnalysis() {
           {FORENSIC_TECHNIQUE_META.ela.title}
         </h1>
       )}
-      <TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.ela} />
+      <TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.ela} techniqueId="ela" />
 
       {caseId && showEvidencePicker && (
         <ImageEvidenceSelector

@@ -43,7 +43,7 @@ function DownloadIcon() {
 export default function TechniquePaperDownload({ techniqueId }: Props) {
   const [meta, setMeta] = useState<TechniquePaperMeta | null>(null);
   const [loading, setLoading] = useState(true);
-  const [downloading, setDownloading] = useState(false);
+  const [downloadingIndex, setDownloadingIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -76,21 +76,36 @@ export default function TechniquePaperDownload({ techniqueId }: Props) {
     return null;
   }
 
-  async function handleDownload() {
-    if (!meta?.available || downloading) return;
-    setDownloading(true);
+  async function handleDownload(index: number, filename: string) {
+    if (!meta?.available || downloadingIndex !== null) return;
+    setDownloadingIndex(index);
     setError(null);
     try {
-      await downloadTechniquePaper(techniqueId, meta.suggested_filename);
+      await downloadTechniquePaper(techniqueId, filename, index);
     } catch {
       setError("Falha ao baixar o PDF. Tente novamente.");
     } finally {
-      setDownloading(false);
+      setDownloadingIndex(null);
     }
   }
 
   const sizeLabel = formatPaperSize(meta?.size_bytes);
-  const disabled = loading || !meta?.available || downloading;
+  const papers =
+    meta?.files && meta.files.length > 0
+      ? meta.files
+      : meta
+        ? [
+            {
+              index: 0,
+              title: meta.title,
+              venue: meta.venue,
+              available: meta.available,
+              size_bytes: meta.size_bytes,
+              suggested_filename: meta.suggested_filename,
+            },
+          ]
+        : [];
+  const disabled = loading || !meta?.available || downloadingIndex !== null;
 
   return (
     <div
@@ -172,29 +187,43 @@ export default function TechniquePaperDownload({ techniqueId }: Props) {
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={handleDownload}
-        disabled={disabled}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "0.4rem",
-          padding: "0.5rem 0.95rem",
-          borderRadius: 8,
-          border: "none",
-          background: disabled ? "#94a3b8" : "linear-gradient(180deg, #0e7490 0%, #0369a1 100%)",
-          color: "#fff",
-          fontSize: "0.8rem",
-          fontWeight: 600,
-          cursor: disabled ? "not-allowed" : "pointer",
-          boxShadow: disabled ? "none" : "0 1px 2px rgba(3, 105, 161, 0.25)",
-          flexShrink: 0,
-        }}
-      >
-        <DownloadIcon />
-        {downloading ? "Baixando…" : "Baixar PDF"}
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+        {papers.map((paper) => {
+          const paperSize = formatPaperSize(paper.size_bytes);
+          const paperDisabled = disabled || !paper.available;
+          return (
+            <button
+              key={paper.index}
+              type="button"
+              onClick={() => handleDownload(paper.index, paper.suggested_filename)}
+              disabled={paperDisabled}
+              title={paper.title ?? undefined}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.5rem 0.95rem",
+                borderRadius: 8,
+                border: "none",
+                background: paperDisabled ? "#94a3b8" : "linear-gradient(180deg, #0e7490 0%, #0369a1 100%)",
+                color: "#fff",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                cursor: paperDisabled ? "not-allowed" : "pointer",
+                boxShadow: paperDisabled ? "none" : "0 1px 2px rgba(3, 105, 161, 0.25)",
+                flexShrink: 0,
+              }}
+            >
+              <DownloadIcon />
+              {downloadingIndex === paper.index
+                ? "Baixando…"
+                : papers.length > 1
+                  ? `PDF ${paper.index + 1}${paperSize ? ` · ${paperSize}` : ""}`
+                  : "Baixar PDF"}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

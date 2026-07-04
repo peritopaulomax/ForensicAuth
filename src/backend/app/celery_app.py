@@ -21,13 +21,22 @@ celery_app.conf.update(
     timezone="America/Sao_Paulo",
     enable_utc=True,
     task_track_started=True,
-    task_time_limit=3600,
-    task_soft_time_limit=3300,
     worker_prefetch_multiplier=1,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     task_routes={
-        "tasks.analysis_tasks.run_forensic_analysis": {"queue": "celery"},
+        "tasks.analysis_tasks.run_forensic_analysis_cpu": {"queue": "celery"},
+        "tasks.analysis_tasks.run_forensic_analysis_gpu": {"queue": "gpu"},
+    },
+    task_annotations={
+        "tasks.analysis_tasks.run_forensic_analysis_cpu": {
+            "time_limit": 600,
+            "soft_time_limit": 540,
+        },
+        "tasks.analysis_tasks.run_forensic_analysis_gpu": {
+            "time_limit": 3600,
+            "soft_time_limit": 3300,
+        },
     },
 )
 

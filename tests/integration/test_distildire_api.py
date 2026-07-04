@@ -1,10 +1,8 @@
-"""Integracao API: job DistilDIRE via HTTP (frontend → backend)."""
+"""Integracao API: DistilDIRE removido das tecnicas ativas."""
 
 from __future__ import annotations
 
-import json
 import uuid
-from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -12,14 +10,14 @@ from PIL import Image
 
 @pytest.mark.integration
 class TestDistilDireApiIntegration:
-    def test_techniques_lists_distildire(self, client, auth_headers):
+    def test_techniques_does_not_list_distildire(self, client, auth_headers):
         res = client.get("/api/v1/analysis/techniques", headers=auth_headers)
         assert res.status_code == 200
         names = {t["name"] for t in res.json()}
-        assert "distildire" in names
+        assert "distildire" not in names
 
-    def test_post_analysis_job_distildire_mocked(
-        self, client, auth_headers, db_session, sample_case, test_user, tmp_path, monkeypatch
+    def test_post_analysis_job_distildire_is_rejected(
+        self, client, auth_headers, db_session, sample_case, test_user, tmp_path
     ):
         from models.evidence import Evidence
 
@@ -41,27 +39,6 @@ class TestDistilDireApiIntegration:
         db_session.add(evidence)
         db_session.commit()
 
-        from core.legacy.distildire.distildire_pipeline import DistilDireAnalysis
-
-        preview = Image.open(img_path).convert("RGB")
-
-        def fake_run(*_a, **_k):
-            return DistilDireAnalysis(
-                df_probability=0.77,
-                prediction="FAKE",
-                threshold=0.5,
-                checkpoint="imagenet",
-                input_image=preview,
-                eps_heatmap=preview,
-                inference_device="CPU",
-            )
-
-        monkeypatch.setattr("api.v1.endpoints.analysis.run_job_in_background", lambda _job_id: None)
-        monkeypatch.setattr(
-            "core.legacy.distildire.distildire_pipeline.run_distildire_analysis",
-            fake_run,
-        )
-
         create = client.post(
             "/api/v1/analysis",
             headers=auth_headers,
@@ -71,30 +48,5 @@ class TestDistilDireApiIntegration:
                 "parameters": {"checkpoint": "imagenet", "threshold": 0.5},
             },
         )
-        assert create.status_code == 201, create.text
-        job_id = create.json()["job_id"]
-
-        from services.job_service import JobService
-
-        JobService(db_session).run_job(uuid.UUID(job_id))
-        db_session.expire_all()
-
-        detail = client.get(f"/api/v1/analysis/{job_id}", headers=auth_headers)
-        assert detail.status_code == 200
-        assert detail.json()["status"] == "completed"
-
-        result = client.get(f"/api/v1/analysis/{job_id}/result", headers=auth_headers)
-        assert result.status_code == 200
-        body = result.json()
-        assert body.get("success") is True
-        assert body.get("prediction") == "FAKE"
-        assert isinstance(body.get("df_probability"), float)
-
-        report_file = client.get(
-            f"/api/v1/analysis/{job_id}/result/file?filename=distildire_report.json",
-            headers=auth_headers,
-        )
-        assert report_file.status_code == 200
-        report = json.loads(report_file.content)
-        assert report["technique"] == "distildire"
-        assert report["prediction"] == "FAKE"
+        assert create.status_code == 422, create.text
+        assert "distildire" in create.text

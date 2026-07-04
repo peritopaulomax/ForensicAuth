@@ -13,7 +13,7 @@ BACKEND="$ROOT/src/backend"
 FRONTEND="$ROOT/src/frontend"
 PID_DIR="$ROOT/.dev-pids"
 LOG_DIR="$ROOT/.dev-logs"
-CONDA_ENV="${FORENSIC_AUTH_CONDA_ENV:-forensicauth}"
+CONDA_ENV="${FORENSICAUTH_CONDA_ENV:-forensicauth}"
 
 mkdir -p "$PID_DIR" "$LOG_DIR"
 mkdir -p "$ROOT/uploads-dev" "$ROOT/results-dev" "$ROOT/derivatives-dev" \

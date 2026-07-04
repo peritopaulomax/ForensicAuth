@@ -44,6 +44,25 @@ def is_case_evidence(evidence: Evidence) -> bool:
     return True
 
 
+def reference_scope(evidence: Evidence) -> str:
+    """Return 'global' for user-uploaded global references, 'plugin' otherwise."""
+    meta = evidence_metadata(evidence)
+    return str(meta.get("reference_scope", "plugin")).lower()
+
+
+def is_global_reference(evidence: Evidence) -> bool:
+    return is_reference(evidence) and reference_scope(evidence) == "global"
+
+
+def is_plugin_reference(evidence: Evidence) -> bool:
+    return is_reference(evidence) and reference_scope(evidence) != "global"
+
+
+def reference_type(evidence: Evidence) -> Optional[str]:
+    meta = evidence_metadata(evidence)
+    return meta.get("reference_type")
+
+
 def reference_technique(evidence: Evidence) -> Optional[str]:
     meta = evidence_metadata(evidence)
     return meta.get("reference_technique") or meta.get("for_technique")
@@ -67,10 +86,10 @@ def reference_display_label(technique: str, group_label: str) -> str:
 
 
 def group_references(evidences: list[Evidence]) -> list[dict]:
-    """Group reference evidences by technique + rotulo."""
+    """Group plugin reference evidences by technique + rotulo."""
     buckets: dict[tuple[str, str], list[Evidence]] = {}
     for ev in evidences:
-        if not is_reference(ev):
+        if not is_reference(ev) or is_global_reference(ev):
             continue
         tech = reference_technique(ev) or "unknown"
         label = reference_group_label(ev)
@@ -84,6 +103,31 @@ def group_references(evidences: list[Evidence]) -> list[dict]:
                 "technique": tech,
                 "group_label": label,
                 "display_label": reference_display_label(tech, label),
+                "evidences": sorted(items, key=lambda e: e.created_at or "", reverse=True),
+            }
+        )
+    return groups
+
+
+def group_global_references(evidences: list[Evidence]) -> list[dict]:
+    """Group global reference evidences by reference_type + rotulo."""
+    buckets: dict[tuple[str, str], list[Evidence]] = {}
+    for ev in evidences:
+        if not is_global_reference(ev):
+            continue
+        ref_type = reference_type(ev) or ev.file_type or "unknown"
+        label = reference_group_label(ev)
+        key = (ref_type, label)
+        buckets.setdefault(key, []).append(ev)
+
+    groups = []
+    for (ref_type, label), items in sorted(buckets.items(), key=lambda x: (x[0][0], x[0][1])):
+        display = f"{label} ({ref_type.upper()})"
+        groups.append(
+            {
+                "reference_type": ref_type,
+                "group_label": label,
+                "display_label": display,
                 "evidences": sorted(items, key=lambda e: e.created_at or "", reverse=True),
             }
         )

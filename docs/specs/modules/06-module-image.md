@@ -71,8 +71,8 @@ class PRNUAdapter(ForensicPlugin):
 4. Extrai resíduos de ruido: mediana, NLM, NPR
 5. Aplica FFT aos residuos
 6. Extrai features GLCM do espectro FFT
-7. Executa modelos: huggingface model, sdxl-flux-detector, modelo NPR ResNet-50
-8. Executa Modelo 1 (XGBoost) e Modelo 2 (ensemble ponderado log-odds)
+7. Executa modelos: ai-image-detector-deploy, sdxl-flux-detector v1.1, B-Free/Bias-free e Corvi2023/DMimageDetection
+8. Para Corvi2023, divide imagens maiores que 1024px em tiles padronizados e agrega os logits
 9. Gera visualizacoes: residuos, espectros FFT, ELA
 10. Retorna dict com scores de cada modelo, score agregado, classificacao final, artifacts
 

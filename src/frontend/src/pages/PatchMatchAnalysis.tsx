@@ -76,7 +76,7 @@ export default function PatchMatchAnalysis() {
               fetchImage(jobId, "vectors.png"),
               fetchImage(jobId, "colored_overlay.png"),
               fetchImage(jobId, "mask.png"),
-              fetchImage(jobId, "dist_field.png"),
+              fetchImage(jobId, "Campo de distância.png"),
               fetchImage(jobId, "vect_field_i.png"),
               fetchImage(jobId, "vect_field_j.png"),
             ]);
@@ -128,7 +128,7 @@ export default function PatchMatchAnalysis() {
     <AnalysisPageShell
       caseId={caseId}
       title={FORENSIC_TECHNIQUE_META.patchmatch.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.patchmatch} />}
+      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.patchmatch} techniqueId="patchmatch" />}
       embedded={embedded}
     >
       <AnalysisPanel title="Evidencia">
@@ -230,19 +230,19 @@ export default function PatchMatchAnalysis() {
             {vectIUrl && (
               <figure>
                 <img src={vectIUrl} alt="Componente i" style={imgStyle} />
-                <figcaption style={capStyle}>Campo vect — componente i</figcaption>
+                <figcaption style={capStyle}>Campo vetorial — componente i</figcaption>
               </figure>
             )}
             {vectJUrl && (
               <figure>
                 <img src={vectJUrl} alt="Componente j" style={imgStyle} />
-                <figcaption style={capStyle}>Campo vect — componente j</figcaption>
+                <figcaption style={capStyle}>Campo vetorial — componente j</figcaption>
               </figure>
             )}
             {distUrl && (
               <figure>
                 <img src={distUrl} alt="Distancia" style={imgStyle} />
-                <figcaption style={capStyle}>dist_field</figcaption>
+                <figcaption style={capStyle}>Campo de distância</figcaption>
               </figure>
             )}
           </div>

@@ -55,6 +55,7 @@ def db_session() -> Session:
 
     from app.db_migrations import (
         ensure_analysis_job_progress_columns,
+        ensure_case_custody_seal_columns,
         ensure_custody_lifecycle_tables,
         ensure_custody_signing_columns,
     )
@@ -62,6 +63,7 @@ def db_session() -> Session:
     ensure_custody_signing_columns(engine)
     ensure_custody_lifecycle_tables(engine)
     ensure_analysis_job_progress_columns(engine)
+    ensure_case_custody_seal_columns(engine)
 
     # Install SQLite trigger for immutability of custody_records
     if engine.dialect.name == "sqlite":
@@ -243,7 +245,7 @@ def sample_evidence(db_session, sample_case, test_user):
         case_id=sample_case.id,
         filename="teste.jpg",
         original_filename="foto_original.jpg",
-        file_path="/uploads/teste.jpg",
+        file_path="./uploads/teste.jpg",
         file_size=1024,
         file_type="imagem",
         mime_type="image/jpeg",

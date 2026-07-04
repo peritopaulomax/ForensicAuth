@@ -5,7 +5,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from services.derivation_contract import PROVENANCE_SCHEMA_VERSION, build_derivation_metadata, parent_ref
+from services.derivation_contract import (
+    PROVENANCE_SCHEMA_VERSION,
+    TECHNIQUE_PROVENANCE_CONTRACT,
+    build_derivation_metadata,
+    parent_ref,
+    reference_population_digest,
+)
 from services.derivation_lineage import DerivationLineageBuilder
 
 
@@ -56,6 +62,17 @@ class TestDerivationContract:
         assert meta["parent_roles"]["questioned"] == "id1"
         assert meta["derivation_step"] == "correlation_surface_C"
         assert meta["provenance_schema_version"] == PROVENANCE_SCHEMA_VERSION
+
+    def test_reference_population_digest_stable(self):
+        digest = reference_population_digest(
+            {"items": [{"base_group": "genimage", "subgroup": "sdv1.4", "key": "a"}]}
+        )
+        assert digest and len(digest) == 64
+
+    def test_provenance_contract_has_synthetic(self):
+        contract = TECHNIQUE_PROVENANCE_CONTRACT["synthetic_image_detection"]
+        assert "lr_reference_population" in contract["parent_roles"]
+        assert "conceptual_inputs" in contract
 
 
 class TestDerivationLineageBuilder:
@@ -174,3 +191,103 @@ class TestDerivationLineageBuilder:
         orig_node = next(n for n in graph["nodes"] if n["evidence_id"] == str(orig_id))
         deriv_node = next(n for n in graph["nodes"] if n["evidence_id"] == str(deriv_id))
         assert orig_node["layer"] < deriv_node["layer"]
+
+    def test_derived_node_exposes_source_job_id(self):
+        orig_id, deriv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        original = _evidence(orig_id, "evidencia.jpg")
+        derived = _evidence(
+            deriv_id,
+            "ela_heatmap.png",
+            origin="derived",
+            extra={
+                "technique": "ela",
+                "parent_evidence_id": str(orig_id),
+                "source_job_id": str(job_id),
+                "derivation_step": "ela_artifact_save",
+                "procedure_summary": "ELA RGB Q95",
+            },
+        )
+        store = {orig_id: original, deriv_id: derived}
+        builder = DerivationLineageBuilder(MagicMock())
+        builder._load_evidence = lambda eid: store.get(
+            eid if isinstance(eid, uuid.UUID) else uuid.UUID(str(eid))
+        )
+        graph = builder.build(derived)
+        deriv_node = next(n for n in graph["nodes"] if n["evidence_id"] == str(deriv_id))
+        assert deriv_node["source_job_id"] == str(job_id)
+        edge = next(e for e in graph["edges"] if e["to_evidence_id"] == str(deriv_id))
+        assert edge.get("source_job_id") == str(job_id)
+
+    def test_synthetic_lr_population_node(self):
+        orig_id, deriv_id = uuid.uuid4(), uuid.uuid4()
+        pop_hash = "a" * 64
+        original = _evidence(orig_id, "q.jpg")
+        derived = _evidence(
+            deriv_id,
+            "synthetic_scores.txt",
+            origin="derived",
+            extra={
+                "technique": "synthetic_image_detection",
+                "parent_evidence_id": str(orig_id),
+                "parent_inputs": [{"evidence_id": str(orig_id), "role": "input"}],
+                "derivation_outputs": {
+                    "reference_population_count": 3,
+                    "reference_population_hash": pop_hash,
+                    "meta_classifier": "logistic",
+                },
+            },
+        )
+        store = {orig_id: original, deriv_id: derived}
+        builder = DerivationLineageBuilder(MagicMock())
+        builder._load_evidence = lambda eid: store.get(
+            eid if isinstance(eid, uuid.UUID) else uuid.UUID(str(eid))
+        )
+        graph = builder.build(derived)
+        synthetic = next((n for n in graph["nodes"] if n.get("is_synthetic")), None)
+        assert synthetic is not None
+        assert synthetic["synthetic_kind"] == "lr_reference_population"
+        assert any(
+            e["from_evidence_id"].startswith("synthetic:lr_population:")
+            for e in graph["edges"]
+            if e["to_evidence_id"] == str(deriv_id)
+        )
+
+    def test_derivation_group_lists_siblings(self):
+        target_id, sibling_id, orig_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        job_id = uuid.uuid4()
+        original = _evidence(orig_id, "q.jpg")
+        target = _evidence(
+            target_id,
+            "heatmap.png",
+            origin="derived",
+            extra={
+                "technique": "ela",
+                "source_job_id": str(job_id),
+                "derivation_group_id": str(job_id),
+                "parent_inputs": [{"evidence_id": str(orig_id), "role": "input"}],
+            },
+        )
+        sibling = _evidence(
+            sibling_id,
+            "overlay.png",
+            origin="derived",
+            extra={
+                "technique": "ela",
+                "source_job_id": str(job_id),
+                "derivation_group_id": str(job_id),
+                "parent_inputs": [{"evidence_id": str(orig_id), "role": "input"}],
+            },
+        )
+        sibling.case_id = target.case_id
+        store = {orig_id: original, target_id: target, sibling_id: sibling}
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [target, sibling, original]
+        builder = DerivationLineageBuilder(mock_db)
+        builder._load_evidence = lambda eid: store.get(
+            eid if isinstance(eid, uuid.UUID) else uuid.UUID(str(eid))
+        )
+        graph = builder.build(target)
+        assert graph["derivation_groups"]
+        assert graph["derivation_groups"][0]["member_count"] == 2
+        assert graph["derivation_groups"][0]["siblings"][0]["evidence_id"] == str(sibling_id)

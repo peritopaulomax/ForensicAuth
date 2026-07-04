@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { listCaseAudioMetadata, listCaseEvidences } from "@/services/evidence";
 import EvidenceFileGrid from "@/components/EvidenceFileGrid";
 import FileListViewHeader from "@/components/FileListViewHeader";
+import GlobalReferencesSelector from "@/components/GlobalReferencesSelector";
 import PeritusAnalysisFileSection from "@/components/PeritusAnalysisFileSection";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
 import { resolvePeritusFileForAnalysis } from "@/services/peritus";
@@ -208,6 +209,14 @@ export default function AudioEvidenceSelector({ caseId, selectedId, onSelect }: 
           )}
         </>
       )}
+
+      <GlobalReferencesSelector
+        caseId={caseId}
+        fileType="audio"
+        selectedId={vaSelectedId}
+        onSelect={(id) => handleSelectVa(id, "")}
+        radioName="audio-global-reference"
+      />
 
       <PeritusAnalysisFileSection
         caseId={caseId}

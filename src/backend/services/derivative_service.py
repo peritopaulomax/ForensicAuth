@@ -23,6 +23,7 @@ from services.derivation_contract import (
     compute_sha256_params,
     parent_ref_from_evidence,
     provenance_to_custody_details,
+    reference_population_digest,
 )
 from core.preview_effective import (
     load_job_result_json as _load_result_json_from_dir,
@@ -44,6 +45,14 @@ class DerivativeSaveError(Exception):
     """Raised when saving a derivative fails validation."""
 
 
+class DerivativeAlreadySaved(Exception):
+    """Raised when the same promoted derivative already exists."""
+
+    def __init__(self, evidence: Evidence):
+        super().__init__("Este artefato ja foi salvo como evidencia derivada")
+        self.evidence = evidence
+
+
 class DerivativeService:
     """Persist job artifacts as derived evidences."""
 
@@ -58,6 +67,54 @@ class DerivativeService:
             for chunk in iter(lambda: f.read(8192), b""):
                 sha256.update(chunk)
         return sha256.hexdigest()
+
+    @staticmethod
+    def _canonical_json(value: Any) -> str:
+        return json.dumps(value or {}, sort_keys=True, separators=(",", ":"), default=str)
+
+    def _find_existing_job_derivative(
+        self,
+        *,
+        case_id: uuid.UUID,
+        job_id: uuid.UUID,
+        artifact_filename: str,
+        params: dict[str, Any],
+    ) -> Evidence | None:
+        """Return an existing derivative for the same job artifact and parameters."""
+        expected_params = self._canonical_json(params)
+        rows = (
+            self.db.query(Evidence)
+            .filter(
+                Evidence.case_id == case_id,
+                Evidence.deleted_at.is_(None),
+                Evidence.extra_metadata.isnot(None),
+            )
+            .all()
+        )
+        for row in rows:
+            meta = row.extra_metadata or {}
+            if meta.get("source_job_id") != str(job_id):
+                continue
+            if meta.get("artifact_filename") != artifact_filename:
+                continue
+            if self._canonical_json(meta.get("parameters") or {}) == expected_params:
+                return row
+        return None
+
+    @staticmethod
+    def _remove_promoted_preview_artifact(artifact_path: Path, results_dir: Path) -> None:
+        """Remove the promoted preview copy; the derivative is already persisted."""
+        try:
+            resolved = artifact_path.resolve()
+            root = results_dir.resolve()
+        except OSError:
+            return
+        if resolved == root or not resolved.is_relative_to(root):
+            return
+        if resolved.name == "result.json":
+            return
+        if resolved.is_file():
+            resolved.unlink(missing_ok=True)
 
     def _procedure_summary(self, job: AnalysisJob) -> str:
         params = job.parameters or {}
@@ -142,6 +199,65 @@ class DerivativeService:
             .filter(Evidence.id == eid, Evidence.deleted_at.is_(None))
             .first()
         )
+
+    def _dct_parent_inputs(self, job: AnalysisJob, questioned: Evidence) -> List[dict[str, Any]]:
+        """Insumos DCT: questionada + referencia estrutural no modo reference."""
+        params = job.parameters or {}
+        parent_inputs = [parent_ref_from_evidence(questioned, "questioned")]
+        if params.get("mode") == "reference":
+            reference = self._load_evidence(params.get("reference_evidence_id"))
+            if reference:
+                parent_inputs.append(parent_ref_from_evidence(reference, "reference"))
+        return parent_inputs
+
+    @staticmethod
+    def _dct_artifact_role(artifact_filename: str) -> tuple[str, str]:
+        lower = artifact_filename.lower()
+        if "estimated_matrix" in lower or "jpegio_matrix" in lower:
+            return "dct_matrix_image", "dct_quantization_matrix_save"
+        if "artifacts" in lower:
+            return "dct_artifact_heatmap", "dct_quantization_artifact_save"
+        return "dct_result", "dct_quantization_artifact_save"
+
+    @staticmethod
+    def _synthetic_lr_outputs_metrics(
+        params: dict[str, Any], job_result: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Metadados LR/populacao para o grafo de derivacao sintetica."""
+        ref_pop = params.get("reference_population")
+        population_items = None
+        if isinstance(ref_pop, dict):
+            items = ref_pop.get("items")
+            if isinstance(items, list):
+                population_items = [
+                    {
+                        "base_group": item.get("base_group"),
+                        "subgroup": item.get("subgroup"),
+                    }
+                    for item in items
+                    if isinstance(item, dict)
+                ]
+        lr_report = job_result.get("reference_lr")
+        lr_summary: dict[str, Any] | None = None
+        if isinstance(lr_report, dict) and lr_report.get("success") is not False:
+            questioned = lr_report.get("questioned") or {}
+            lr_summary = {
+                "meta_classifier": lr_report.get("meta_classifier"),
+                "meta_classifier_label": lr_report.get("meta_classifier_label"),
+                "selected_count": lr_report.get("selected_count"),
+                "augmented_reference": lr_report.get("augmented_reference"),
+                "log10_lr": questioned.get("log10_lr"),
+                "lr": questioned.get("lr"),
+            }
+        return {
+            "selected_analyses": params.get("selected_analyses") or job_result.get("selected_analyses"),
+            "reference_population_count": len(population_items or []),
+            "reference_population": population_items,
+            "reference_population_hash": reference_population_digest(ref_pop if isinstance(ref_pop, dict) else None),
+            "meta_classifier": params.get("meta_classifier") or job_result.get("meta_classifier"),
+            "use_augmented_reference": params.get("use_augmented_reference"),
+            "reference_lr": lr_summary,
+        }
 
     def _collect_similarity_matrix_parents(
         self, job: AnalysisJob, fallback: Evidence
@@ -325,7 +441,43 @@ class DerivativeService:
             prefix = "synthetic_image_detection"
             if "model_scores" in lower:
                 return parent_inputs, f"{prefix}_model_scores_save", f"{prefix}_model_scores"
+            if "lr_reference" in lower:
+                if lower.endswith(".txt"):
+                    return parent_inputs, f"{prefix}_lr_summary_save", f"{prefix}_lr_summary"
+                return parent_inputs, f"{prefix}_lr_plot_save", f"{prefix}_lr_plot"
             return parent_inputs, f"{prefix}_visual_save", f"{prefix}_visual"
+
+        if job.technique == "dct_quantization":
+            parent_inputs = self._dct_parent_inputs(job, questioned)
+            artifact_role, step = self._dct_artifact_role(artifact_filename)
+            return parent_inputs, step, artifact_role
+
+        if job.technique == "audio_spoofing_detection":
+            parent_inputs = [parent_ref_from_evidence(questioned, "input")]
+            lower = artifact_filename.lower()
+            if "detector_scores" in lower or "model_scores" in lower:
+                return parent_inputs, "audio_spoofing_scores_save", "audio_spoofing_detector_scores"
+            if "details" in lower:
+                return parent_inputs, "audio_spoofing_details_save", "audio_spoofing_details"
+            return parent_inputs, "audio_spoofing_plot_save", "audio_spoofing_plot"
+
+        if job.technique == "stil_video_detection":
+            parent_inputs = [parent_ref_from_evidence(questioned, "input")]
+            lower = artifact_filename.lower()
+            if "chart" in lower and lower.endswith(".png"):
+                return parent_inputs, "stil_video_chart_save", "stil_scores_chart"
+            if lower.endswith(".txt"):
+                return parent_inputs, "stil_video_summary_save", "stil_summary"
+            return parent_inputs, "stil_video_report_save", "stil_report"
+
+        if job.technique == "lowres_fake_video":
+            parent_inputs = [parent_ref_from_evidence(questioned, "input")]
+            lower = artifact_filename.lower()
+            if "chart" in lower and lower.endswith(".png"):
+                return parent_inputs, "lowres_fake_video_chart_save", "lfv_scores_chart"
+            if lower.endswith(".txt"):
+                return parent_inputs, "lowres_fake_video_summary_save", "lfv_summary"
+            return parent_inputs, "lowres_fake_video_report_save", "lfv_report"
 
         parent_inputs = [parent_ref_from_evidence(questioned, "input")]
         if job.technique == "metadata" or "metadata_report" in artifact_filename.lower():
@@ -406,9 +558,24 @@ class DerivativeService:
         if not parent:
             raise DerivativeSaveError("Evidencia de origem nao encontrada")
 
-        results_dir = Path(self.settings.RESULTS_DIR) / str(job.id)
+        from services.job_service import build_job_result_dir
+
+        results_dir = build_job_result_dir(
+            self.settings.RESULTS_DIR,
+            parent.case_id,
+            job.evidence_id,
+            job.id,
+        )
         job_result = self._load_job_result_json(job.id)
         params = merge_effective_parameters(job, job_result, override=effective_parameters)
+        existing = self._find_existing_job_derivative(
+            case_id=parent.case_id,
+            job_id=job.id,
+            artifact_filename=artifact_filename,
+            params=params,
+        )
+        if existing is not None:
+            raise DerivativeAlreadySaved(existing)
 
         try:
             materialize_preview_artifact(job.technique, results_dir, artifact_filename, params)
@@ -490,6 +657,8 @@ class DerivativeService:
             lower = artifact_filename.lower()
             if "model_scores" in lower:
                 procedure_summary = "Detecção de imagens sintéticas — escores dos modelos"
+            elif "lr_reference" in lower:
+                procedure_summary = "Detecção de imagens sintéticas — calibracao LR"
             else:
                 stem = Path(artifact_filename).stem.replace("_", " ")
                 procedure_summary = f"Detecção de imagens sintéticas — visual ({stem})"
@@ -497,6 +666,54 @@ class DerivativeService:
                 "inference_device": job_result.get("inference_device"),
                 "mode": job_result.get("mode") or params.get("mode"),
                 "generate_visuals": job_result.get("generate_visuals"),
+                **self._synthetic_lr_outputs_metrics(params, job_result),
+            }
+        elif job.technique == "dct_quantization":
+            mode = params.get("mode") or job_result.get("mode") or "estimate"
+            procedure_summary = f"DCT quantizacao · modo {mode}"
+            outputs_metrics = {
+                "mode": mode,
+                "reference_evidence_id": params.get("reference_evidence_id"),
+                "input_count": len(parent_inputs),
+            }
+        elif job.technique == "audio_spoofing_detection":
+            label = job_result.get("label") or "incerto"
+            procedure_summary = (
+                f"Audio spoofing · {label} · spoof {float(job_result.get('score_spoof', 0)):.0%}"
+            )
+            outputs_metrics = {
+                "label": label,
+                "score_spoof": job_result.get("score_spoof"),
+                "score_bonafide": job_result.get("score_bonafide"),
+                "window_count": job_result.get("window_count"),
+                "window_seconds": params.get("window_seconds"),
+                "selected_analyses": params.get("selected_analyses") or job_result.get("selected_analyses"),
+                "detector_scores": job_result.get("detector_scores"),
+                "inference_device": job_result.get("inference_device"),
+            }
+        elif job.technique == "stil_video_detection":
+            procedure_summary = (
+                f"STIL video · {job_result.get('video_decision', '—')} "
+                f"· score max {job_result.get('max_score', '—')}"
+            )
+            outputs_metrics = {
+                "video_decision": job_result.get("video_decision"),
+                "mean_score": job_result.get("mean_score"),
+                "max_score": job_result.get("max_score"),
+                "max_start_frame": job_result.get("max_start_frame"),
+                "inference_device": job_result.get("inference_device"),
+            }
+        elif job.technique == "lowres_fake_video":
+            procedure_summary = (
+                f"LFV video · {job_result.get('video_decision', '—')} "
+                f"· score max {job_result.get('max_score', '—')}"
+            )
+            outputs_metrics = {
+                "video_decision": job_result.get("video_decision"),
+                "mean_score": job_result.get("mean_score"),
+                "max_score": job_result.get("max_score"),
+                "max_frame_idx": job_result.get("max_frame_idx"),
+                "inference_device": job_result.get("inference_device"),
             }
         elif job.technique == "prnu" and "localized" in artifact_filename.lower():
             procedure_summary = "PRNU mapas localizados"
@@ -557,6 +774,7 @@ class DerivativeService:
             job_completed_at=job_completed_at,
             outputs_metrics=outputs_metrics,
             procedure_summary=procedure_summary,
+            plugin_id=str(job_result.get("adapter") or provenance_technique),
             runtime=job_receipt.get("runtime"),
             artifact_sha256=promoted_repro["artifact_sha256"],
             determinism_profile=promoted_repro.get("determinism_profile"),
@@ -585,6 +803,7 @@ class DerivativeService:
             artifact_filename=artifact_filename,
             derivation_outputs=outputs_metrics,
             source_job_id=str(job.id),
+            derivation_group_id=str(job.id),
             label=label,
             provenance=provenance,
             extra={"reproducibility": promoted_repro},
@@ -625,6 +844,7 @@ class DerivativeService:
 
         self.db.commit()
         self.db.refresh(derivative)
+        self._remove_promoted_preview_artifact(artifact_path, results_dir)
 
         from models.case import Case as CaseModel
         from services.peritus_va_materializer import mark_peritus_binding_modified
@@ -751,7 +971,17 @@ class DerivativeService:
         return derivative
 
     def _load_job_result_json(self, job_id: uuid.UUID) -> Dict[str, Any]:
-        path = Path(self.settings.RESULTS_DIR) / str(job_id) / "result.json"
+        from services.job_service import build_job_result_dir
+
+        job = self.db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
+        if not job or not job.evidence:
+            return {}
+        path = build_job_result_dir(
+            self.settings.RESULTS_DIR,
+            job.evidence.case_id,
+            job.evidence_id,
+            job.id,
+        ) / "result.json"
         if not path.exists():
             return {}
         try:
