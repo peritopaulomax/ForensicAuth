@@ -818,7 +818,7 @@ export default function AudioForensicsHub() {
               >
                 <option value="60">60 (Américas)</option>
                 <option value="50">50 (Europa/BR rede)</option>
-                <option value="custom">Customizada</option>
+                <option value="custom">Personalizada</option>
               </select>
             </label>
             {fnomPreset === "custom" && (

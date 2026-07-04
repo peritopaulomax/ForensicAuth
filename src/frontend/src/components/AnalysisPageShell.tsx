@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState, type ReactNode } from "react";
+import { DerivativeSaveProvider } from "@/components/DerivativeSaveNotifier";
 import { getCase } from "@/services/cases";
 import {
   buildCaseAnalysesUrl,
@@ -52,21 +53,24 @@ export default function AnalysisPageShell({
 
   if (embedded) {
     return (
-      <div className="analysis-page-shell analysis-page-shell--embedded">
-        {intro}
-        {children}
-      </div>
+      <DerivativeSaveProvider caseId={caseId}>
+        <div className="analysis-page-shell analysis-page-shell--embedded">
+          {intro}
+          {children}
+        </div>
+      </DerivativeSaveProvider>
     );
   }
 
   return (
+    <DerivativeSaveProvider caseId={caseId}>
     <div className="analysis-page-shell">
-      <nav className="analysis-breadcrumb" aria-label="Navegacao">
+      <nav className="analysis-breadcrumb" aria-label="Navegação">
         <Link to="/">Casos</Link>
         <span className="analysis-breadcrumb__sep">›</span>
         <Link to={`/cases/${caseId}`}>{caseTitle || `Caso ${caseId.slice(0, 8)}…`}</Link>
         <span className="analysis-breadcrumb__sep">›</span>
-        <Link to={analysesHref}>Analises</Link>
+        <Link to={analysesHref}>Análises</Link>
         <span className="analysis-breadcrumb__sep">›</span>
         <span aria-current="page">{title}</span>
       </nav>
@@ -91,6 +95,7 @@ export default function AnalysisPageShell({
       {intro ?? (subtitle ? <p className="analysis-page-shell__subtitle">{subtitle}</p> : null)}
       {children}
     </div>
+    </DerivativeSaveProvider>
   );
 }
 

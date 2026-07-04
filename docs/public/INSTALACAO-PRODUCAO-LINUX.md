@@ -88,7 +88,7 @@ sudo mkdir -p /opt/forensicauth
 sudo chown $USER:$USER /opt/forensicauth
 cd /opt/forensicauth
 
-git clone https://github.com/SEU_ORGANIZACAO/forensicauth.git .
+git clone <URL_DO_REPOSITORIO> .
 # ou: git clone <URL do repositório público> .
 ```
 
@@ -267,7 +267,7 @@ docker compose run --rm \
 
 Alternativa: instale `requirements.txt` no host, exporte `DATABASE_URL` apontando para `localhost:5432` (se o Postgres estiver publicado só em loopback) e rode `python scripts/seed_users.py`.
 
-Edite `scripts/seed_users.py` antes se quiser outro username além de `paulo.pmgir`.
+Edite `scripts/seed_users.py` antes se quiser alterar o username padrao do administrador.
 
 Acesse a interface web → **Primeiro Acesso** → defina a senha do administrador.
 

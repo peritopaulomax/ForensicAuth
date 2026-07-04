@@ -1,5 +1,14 @@
 import api from "@/services/api";
 
+export interface TechniquePaperFileMeta {
+  index: number;
+  title: string | null;
+  venue: string | null;
+  available: boolean;
+  size_bytes: number | null;
+  suggested_filename: string;
+}
+
 export interface TechniquePaperMeta {
   technique_id: string;
   title: string | null;
@@ -9,6 +18,7 @@ export interface TechniquePaperMeta {
   available: boolean;
   size_bytes: number | null;
   suggested_filename: string;
+  files?: TechniquePaperFileMeta[];
 }
 
 export async function fetchTechniquePaperMeta(techniqueId: string): Promise<TechniquePaperMeta> {
@@ -16,8 +26,13 @@ export async function fetchTechniquePaperMeta(techniqueId: string): Promise<Tech
   return res.data;
 }
 
-export async function downloadTechniquePaper(techniqueId: string, filename: string): Promise<void> {
-  const res = await api.get(`/references/papers/imdl/${encodeURIComponent(techniqueId)}/file`, {
+export async function downloadTechniquePaper(
+  techniqueId: string,
+  filename: string,
+  paperIndex?: number,
+): Promise<void> {
+  const suffix = paperIndex == null || paperIndex === 0 ? "/file" : `/file/${paperIndex}`;
+  const res = await api.get(`/references/papers/imdl/${encodeURIComponent(techniqueId)}${suffix}`, {
     responseType: "blob",
   });
   const blob = res.data as Blob;

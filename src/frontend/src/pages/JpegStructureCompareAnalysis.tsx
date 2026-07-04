@@ -359,7 +359,7 @@ export default function JpegStructureCompareAnalysis() {
     <AnalysisPageShell
       caseId={caseId}
       title={FORENSIC_TECHNIQUE_META.jpeg_structure_compare.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.jpeg_structure_compare} />}
+      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.jpeg_structure_compare} techniqueId="jpeg_structure_compare" />}
       embedded={embedded}
     >
       <div data-testid="jpeg-structure-compare-page">

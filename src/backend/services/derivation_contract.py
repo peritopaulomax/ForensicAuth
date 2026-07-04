@@ -226,6 +226,7 @@ def build_derivation_metadata(
     artifact_filename: str | None = None,
     derivation_outputs: dict[str, Any] | None = None,
     source_job_id: str | None = None,
+    derivation_group_id: str | None = None,
     label: str | None = None,
     extra: dict[str, Any] | None = None,
     provenance: dict[str, Any] | None = None,
@@ -299,8 +300,135 @@ def build_derivation_metadata(
         meta["derivation_outputs"] = derivation_outputs
     if source_job_id:
         meta["source_job_id"] = source_job_id
+    if derivation_group_id:
+        meta["derivation_group_id"] = derivation_group_id
     if label:
         meta["label"] = label
     if extra:
         meta.update(extra)
     return meta
+
+
+def reference_population_digest(selection: dict[str, Any] | list[Any] | None) -> str | None:
+    """Hash canonico da selecao de populacao LR (insumo conceitual no grafo)."""
+    if not selection:
+        return None
+    if isinstance(selection, dict):
+        items = selection.get("items")
+        if not isinstance(items, list):
+            return None
+        payload = [
+            {
+                "base_group": item.get("base_group"),
+                "subgroup": item.get("subgroup"),
+                "key": item.get("key"),
+            }
+            for item in items
+            if isinstance(item, dict)
+        ]
+    elif isinstance(selection, list):
+        payload = [
+            {
+                "base_group": item.get("base_group"),
+                "subgroup": item.get("subgroup"),
+                "key": item.get("key"),
+            }
+            for item in selection
+            if isinstance(item, dict)
+        ]
+    else:
+        return None
+    if not payload:
+        return None
+    payload.sort(key=lambda x: (str(x.get("base_group")), str(x.get("subgroup")), str(x.get("key"))))
+    return hash_canonical_json({"reference_population": payload})
+
+
+# Matriz de contrato: insumos, parametros minimos e artefatos promoviveis por tecnica.
+TECHNIQUE_PROVENANCE_CONTRACT: dict[str, dict[str, Any]] = {
+    "ela": {
+        "parent_roles": ["input"],
+        "min_parameters": ["quality", "channel_mode", "gain"],
+        "savable_artifacts": ["heatmap.png"],
+    },
+    "dct_quantization": {
+        "parent_roles": ["questioned", "reference"],
+        "parent_roles_by_mode": {"reference": ["questioned", "reference"], "estimate": ["questioned"]},
+        "min_parameters": ["mode"],
+        "savable_artifacts": ["artifacts_upscaled.png", "estimated_matrix.png", "jpegio_matrix.png"],
+    },
+    "metadata": {
+        "parent_roles": ["input"],
+        "min_parameters": [],
+        "savable_artifacts": ["metadata_report.json", "metadata_report.txt"],
+    },
+    "prnu": {
+        "parent_roles": ["questioned", "fingerprint", "reference_input"],
+        "min_parameters": ["mode"],
+        "savable_artifacts": [
+            "correlation_surface.html",
+            "localized_map.png",
+            "localized_overlay.png",
+            "localized_positive.png",
+        ],
+    },
+    "jpeg_structure_compare": {
+        "parent_roles": ["questioned", "reference"],
+        "min_parameters": ["mode", "questioned_evidence_ids"],
+        "savable_artifacts": [
+            "jpeg_structure_matrix.json",
+            "jpeg_structure_matrix.png",
+            "jpeg_structure_grid.json",
+        ],
+    },
+    "pdf_structure_similarity": {
+        "parent_roles": ["questioned", "reference"],
+        "min_parameters": ["mode", "questioned_evidence_ids"],
+        "savable_artifacts": ["similarity_matrices.json", "similarity_jaccard.png", "similarity_wl_kernel.png"],
+    },
+    "isomedia_compare": {
+        "parent_roles": ["questioned", "reference"],
+        "min_parameters": ["mode", "questioned_evidence_ids"],
+        "savable_artifacts": ["similarity_matrices.json", "similarity_jaccard.png", "similarity_wl_kernel.png"],
+    },
+    "synthetic_image_detection": {
+        "parent_roles": ["input", "lr_reference_population"],
+        "min_parameters": ["selected_analyses", "reference_population", "meta_classifier"],
+        "savable_artifacts": [
+            "model_scores.txt",
+            "lr_reference_summary.txt",
+            "lr_reference_tippett.png",
+            "nlm_residue.png",
+            "median_residue.png",
+        ],
+        "conceptual_inputs": ["lr_reference_population"],
+    },
+    "audio_spoofing_detection": {
+        "parent_roles": ["input"],
+        "min_parameters": ["window_seconds", "selected_analyses"],
+        "savable_artifacts": [
+            "audio_spoofing_details.json",
+            "audio_spoofing_plot.json",
+            "detector_scores.txt",
+        ],
+    },
+    "stil_video_detection": {
+        "parent_roles": ["input"],
+        "min_parameters": ["sample_every", "max_frames"],
+        "savable_artifacts": ["stil_report.json", "stil_scores_chart.png", "stil_summary.txt"],
+    },
+    "lowres_fake_video": {
+        "parent_roles": ["input"],
+        "min_parameters": ["sample_every", "max_frames"],
+        "savable_artifacts": ["lfv_report.json", "lfv_scores_chart.png", "lfv_summary.txt"],
+    },
+    "videofact": {
+        "parent_roles": ["input"],
+        "min_parameters": ["mode"],
+        "savable_artifacts": ["videofact_report.json", "videofact_summary.txt", "videofact_xfer_scores.png"],
+    },
+}
+
+
+def provenance_contract_for_technique(technique: str) -> dict[str, Any] | None:
+    return TECHNIQUE_PROVENANCE_CONTRACT.get(technique)

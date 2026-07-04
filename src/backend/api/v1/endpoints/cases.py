@@ -14,6 +14,7 @@ from models.case import Case
 from models.user import User
 from services.case_access import (
     assert_can_create_case,
+    assert_can_edit_case,
     cases_query_for_user,
     get_accessible_case,
 )
@@ -33,14 +34,13 @@ class CreateCaseRequest(BaseModel):
 
 
 class UpdateCaseRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     protocol_number: Optional[str] = Field(None, min_length=1)
     inquiry_number: Optional[str] = None
     process_number: Optional[str] = None
     title: Optional[str] = Field(None, min_length=1)
     description: Optional[str] = None
-    status: Optional[str] = Field(
-        None, pattern="^(aberto|fechamento_pendente|fechado)$"
-    )
     assigned_to: Optional[str] = None
 
 
@@ -221,6 +221,7 @@ def update_case(
 ):
     """Update an existing case."""
     case = get_accessible_case(db, case_id, current_user)
+    assert_can_edit_case(db, case, current_user)
 
     if request.protocol_number is not None:
         case.protocol_number = request.protocol_number
@@ -232,8 +233,6 @@ def update_case(
         case.title = request.title
     if request.description is not None:
         case.description = request.description
-    if request.status is not None:
-        case.status = "aberto" if request.status == "em_andamento" else request.status
     if request.assigned_to is not None:
         case.assigned_to = uuid.UUID(request.assigned_to)
 

@@ -47,7 +47,7 @@ def run_forensic_analysis(self, job_id: str):
 ## Dependencias de Outros Modulos
 
 - **Core**: `ForensicPlugin`, `PLUGINS` registry, `Settings`
-- **Custody**: `CustodyService` para registrar inicio/fim de analise
+- **Custody**: Jobs sao execucoes exploratorias (preview) e NAO geram `CustodyRecord`; a cadeia e registrada apenas em upload, derivados salvos e fechamento/laudos.
 - **Database**: Models `AnalysisJob`, `Evidence`, sessao SQLAlchemy
 - **Adapters**: Implementacoes concretas de `ForensicPlugin`
 
@@ -60,9 +60,10 @@ def run_forensic_analysis(self, job_id: str):
 4. Chama `plugin.validate_parameters(parameters)`
 5. Se invalido: retorna 422 com mensagem
 6. Cria `AnalysisJob` no banco (status=pending)
-7. Registra `CustodyRecord` (analysis_started)
-8. Publica task Celery `run_forensic_analysis.delay(job_id)`
-9. Retorna job_id ao cliente
+7. Publica task Celery `run_forensic_analysis.delay(job_id)`
+8. Retorna job_id ao cliente
+
+> Nota: jobs sao previews exploratorios e, portanto, nao geram `CustodyRecord` neste estagio. A cadeia de custodia e atualizada apenas quando um artefato e promovido a derivado ou incluido em um laudo.
 
 ### Execucao do Worker
 1. Worker Celery recebe task `run_forensic_analysis`
@@ -75,16 +76,18 @@ def run_forensic_analysis(self, job_id: str):
    - Libera lock
 6. Se tecnica nao usa GPU: executa diretamente
 7. Plugin retorna resultado (artefatos, metricas, logs)
-8. Salva artefatos em disco (RESULTS_DIR/job_id/)
+8. Salva artefatos em disco (`RESULTS_DIR/{case_id}/{evidence_id}/{job_id}/`)
 9. Calcula SHA-256 de cada artefato
 10. Atualiza `AnalysisJob`:
     - status = completed (ou failed)
     - result_path = diretorio dos artefatos
     - result_sha256 = hash do resultado principal (ou dict de hashes)
+    - artifact_sha256 = hash do artefato canônico, quando aplicável
     - completed_at = now()
     - error_message = null (ou mensagem se falhou)
-11. Registra `CustodyRecord` (analysis_completed)
-12. Retorna resultado para Celery backend
+11. Retorna resultado para Celery backend
+
+> Nota: a conclusao do job tambem nao gera `CustodyRecord`. O registro na cadeia ocorre apenas na promocao do artefato a derivado.
 
 ### Consulta de Resultado
 1. Cliente faz GET /analysis/{job_id}/result
@@ -94,10 +97,9 @@ def run_forensic_analysis(self, job_id: str):
 
 ## Regras de Negocio Especificas
 
-- **RN-JOB-01**: Jobs com tecnicas que usam GPU (deepfake, sepael, prnu) DEVEM ser serializados via semaforo Redis.
+- **RN-JOB-01**: Jobs com tecnicas que usam GPU (synthetic_image_detection, safire, noiseprint, imdlbenco, videofact, stil_video_detection, lowres_fake_video, distildire, presentation_attack_detection, fakevlm, clipbased_synthetic) DEVEM ser serializados via semaforo Redis.
 - **RN-JOB-02**: Cada job tem maximo de 3 retries automaticos em caso de falha (exceto falhas de validacao).
-- **RN-JOB-03**: Artefatos de resultado DEVEM ser armazenados em subdiretorio exclusivo por job_id.
-- **RN-JOB-04**: O path do resultado deve seguir padrao: `{RESULTS_DIR}/{case_id}/{evidence_id}/{job_id}/`
+- **RN-JOB-03**: Artefatos de resultado DEVEM ser armazenados em subdiretorio exclusivo por job, seguindo o padrao `{RESULTS_DIR}/{case_id}/{evidence_id}/{job_id}/`.
 - **RN-JOB-05**: Jobs pendentes por mais de 24 horas sem worker disponivel devem ser marcados como failed.
 
 ## Tratamento de Erros

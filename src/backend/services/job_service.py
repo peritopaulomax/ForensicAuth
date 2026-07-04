@@ -14,7 +14,6 @@ from app.config import get_settings
 from core.plugin_registry import PluginRegistry
 from core.job_artifacts import cleanup_ephemeral_artifact_sources, stage_plugin_artifacts
 from core.job_staging import inject_job_staging
-from core.preview_cleanup_policy import maybe_cleanup_expired_job_previews
 from core.reproducibility import (
     REPRODUCIBILITY_REGISTRY,
     build_job_execution_receipt,
@@ -29,6 +28,17 @@ from core.technique_ids import resolve_technique_id
 from core.technique_runtime import technique_runtime_status
 from models.analysis_job import AnalysisJob
 from models.evidence import Evidence
+from services.case_access import assert_case_not_closed
+
+
+def build_job_result_dir(
+    results_dir: str | Path,
+    case_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+    job_id: uuid.UUID,
+) -> Path:
+    """Return canonical result directory for a job: RESULTS_DIR/case/evidence/job."""
+    return Path(results_dir) / str(case_id) / str(evidence_id) / str(job_id)
 
 
 class JobService:
@@ -206,6 +216,9 @@ class JobService:
                 detail="Evidencia nao encontrada",
             )
 
+        # Validate case state: jobs cannot be submitted on closed/pending-closure cases
+        assert_case_not_closed(evidence.case)
+
         technique = resolve_technique_id(technique)
 
         # 2. Validate technique exists in registry
@@ -275,9 +288,19 @@ class JobService:
                 self._resolve_jpeg_structure_compare_params(resolved_parameters)
             )
 
-        # 3. Validate parameters
+        # 3. Validate media type compatibility
         plugin_cls = self.registry.PLUGINS[technique]
         plugin = plugin_cls()
+        if evidence.file_type not in plugin.supported_types:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"Tecnica '{technique}' nao suporta evidencias do tipo "
+                    f"'{evidence.file_type}'. Tipos suportados: {plugin.supported_types}"
+                ),
+            )
+
+        # 4. Validate parameters
         valid, msg = plugin.validate_parameters(resolved_parameters)
         if not valid:
             raise HTTPException(
@@ -319,6 +342,8 @@ class JobService:
             techniques.append({
                 "name": plugin.name,
                 "supported_types": plugin.supported_types,
+                "description": plugin.description,
+                "parameters_schema": plugin.parameters_schema,
                 "available": available,
                 "unavailable_reason": reason if not available else None,
             })
@@ -433,7 +458,12 @@ class JobService:
             )
 
         original_result: dict[str, Any] = {}
-        result_path = Path(self.settings.RESULTS_DIR) / str(job.id) / "result.json"
+        result_path = build_job_result_dir(
+            self.settings.RESULTS_DIR,
+            job.evidence.case_id,
+            job.evidence_id,
+            job.id,
+        ) / "result.json"
         if result_path.is_file():
             import json
 
@@ -524,10 +554,13 @@ class JobService:
         reporter(2, "Preparando plugin")
 
         try:
-            maybe_cleanup_expired_job_previews(self.db)
-
             reporter(5, f"Executando {job.technique}")
-            result_dir = Path(self.settings.RESULTS_DIR) / str(job.id)
+            result_dir = build_job_result_dir(
+                self.settings.RESULTS_DIR,
+                job.evidence.case_id,
+                job.evidence_id,
+                job.id,
+            )
             result_dir.mkdir(parents=True, exist_ok=True)
             result = self._execute_plugin_analysis(
                 job,
@@ -596,16 +629,23 @@ class JobService:
             with open(result_path, "w", encoding="utf-8") as f:
                 json.dump(result, f, ensure_ascii=False, indent=2, default=self._json_default)
 
-            sha256 = hashlib.sha256()
+            result_path_hash = hashlib.sha256()
             with open(result_path, "rb") as f:
-                sha256.update(f.read())
+                result_path_hash.update(f.read())
+
+            # Compute canonical artifact hash for reproducibility verification
+            from core.reproducibility import compute_artifact_sha256
+
+            artifact_sha256, _, _ = compute_artifact_sha256(
+                job.technique, result_dir, result
+            )
 
             job.status = "completed"
             job.progress = 100
             job.progress_message = "Concluido"
             job.result_path = str(result_dir)
-            job.result_sha256 = sha256.hexdigest()
-            job.artifact_sha256 = None
+            job.result_sha256 = result_path_hash.hexdigest()
+            job.artifact_sha256 = artifact_sha256
             job.runtime_manifest = job_receipt
             job.determinism_profile = job_receipt.get("determinism_profile")
             job.completed_at = datetime.now(timezone.utc)

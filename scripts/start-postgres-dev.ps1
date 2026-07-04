@@ -8,9 +8,10 @@ $InitDb = Join-Path $env:CONDA_PREFIX "Library\bin\initdb.exe"
 $Psql = Join-Path $env:CONDA_PREFIX "Library\bin\psql.exe"
 
 if (-not (Test-Path $PgCtl)) {
-    $PgCtl = "C:\Users\Paulo\miniconda3\Library\bin\pg_ctl.exe"
-    $InitDb = "C:\Users\Paulo\miniconda3\Library\bin\initdb.exe"
-    $Psql = "C:\Users\Paulo\miniconda3\Library\bin\psql.exe"
+    $FallbackConda = "C:\Users\<USER>\miniconda3"
+    $PgCtl = Join-Path $FallbackConda "Library\bin\pg_ctl.exe"
+    $InitDb = Join-Path $FallbackConda "Library\bin\initdb.exe"
+    $Psql = Join-Path $FallbackConda "Library\bin\psql.exe"
 }
 
 if (-not (Test-Path $DataDir)) {

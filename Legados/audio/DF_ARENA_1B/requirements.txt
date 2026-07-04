@@ -1,0 +1,12 @@
+# PyTorch >= 2.6: necessário para carregar pytorch_model.bin com transformers recente.
+# Sempre mantenha torch, torchvision e torchaudio na mesma “geração” (mesmo índice CUDA).
+# Se aparecer: RuntimeError: operator torchvision::nms does not exist → atualize torchvision/torchaudio:
+#   pip install --upgrade torchvision torchaudio
+#
+# GPU: https://pytorch.org/get-started/locally/ (escolha CUDA e copie o pip completo).
+torch>=2.6,<3
+torchvision>=0.21.0
+torchaudio>=2.6.0
+transformers>=4.40
+safetensors>=0.4.0
+librosa>=0.10.0

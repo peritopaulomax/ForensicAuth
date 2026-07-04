@@ -13,6 +13,8 @@ from models.analysis_job import AnalysisJob
 from models.custody_record import CustodyRecord
 from models.evidence import Evidence
 
+from services.job_service import build_job_result_dir
+
 
 def _seed_job_preview(
     *,
@@ -67,7 +69,7 @@ class TestDerivativeService:
 
         settings = get_settings()
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         base = np.full((8, 8, 3), 40, dtype=np.uint8)
         cv2.imwrite(str(result_dir / "heatmap_base.png"), base)
@@ -109,6 +111,7 @@ class TestDerivativeService:
         assert derivative.extra_metadata["source_job_id"] == str(job_id)
         assert derivative.extra_metadata.get("provenance_schema_version") == "1"
         assert Path(derivative.file_path).exists()
+        assert not artifact.exists()
 
         parent_inputs = derivative.extra_metadata["parent_inputs"]
         assert len(parent_inputs) == 1
@@ -127,6 +130,51 @@ class TestDerivativeService:
         assert custody.details["parent_inputs"][0]["sha256"] == sample_evidence.sha256
         assert custody.details["operation"]["technique"] == "ela"
 
+    def test_save_same_derivative_is_idempotent(
+        self, db_session, sample_case, test_user, sample_evidence
+    ):
+        from app.config import get_settings
+        from services.derivative_service import DerivativeAlreadySaved, DerivativeService
+
+        settings = get_settings()
+        job_id = uuid.uuid4()
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
+        result_dir.mkdir(parents=True, exist_ok=True)
+        base = np.full((8, 8, 3), 40, dtype=np.uint8)
+        cv2.imwrite(str(result_dir / "heatmap_base.png"), base)
+        cv2.imwrite(str(result_dir / "heatmap.png"), base)
+        params = {"quality": 95, "channel_mode": "rgb", "gain": 1.0}
+        receipt = _seed_job_preview(
+            job_id=job_id,
+            result_dir=result_dir,
+            technique="ela",
+            parameters=params,
+            evidence_sha256=sample_evidence.sha256,
+        )
+        job = AnalysisJob(
+            id=job_id,
+            evidence_id=sample_evidence.id,
+            technique="ela",
+            status="completed",
+            parameters=params,
+            result_path=str(result_dir),
+            runtime_manifest=receipt,
+            created_by=test_user.id,
+        )
+        db_session.add(job)
+        db_session.commit()
+
+        service = DerivativeService(db_session)
+        first = service.save_from_job(job_id, "heatmap.png", test_user.id)
+        with pytest.raises(DerivativeAlreadySaved) as exc:
+            service.save_from_job(job_id, "heatmap.png", test_user.id)
+
+        assert exc.value.evidence.id == first.id
+        saved_records = db_session.query(CustodyRecord).filter(
+            CustodyRecord.record_type == "derivative_saved"
+        )
+        assert saved_records.count() == 1
+
     def test_save_imdl_mask_uses_effective_threshold(
         self, db_session, sample_case, test_user, sample_evidence
     ):
@@ -135,7 +183,7 @@ class TestDerivativeService:
 
         settings = get_settings()
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         scores = np.array([[30, 200]], dtype=np.uint8)
         cv2.imwrite(str(result_dir / "score_map.png"), scores)
@@ -161,7 +209,7 @@ class TestDerivativeService:
         db_session.add(job)
         db_session.commit()
 
-        DerivativeService(db_session).save_from_job(
+        derivative = DerivativeService(db_session).save_from_job(
             job_id=job_id,
             artifact_filename="mask.png",
             user_id=test_user.id,
@@ -170,7 +218,7 @@ class TestDerivativeService:
 
         db_session.refresh(job)
         assert job.parameters["threshold"] == 0.7
-        mask = cv2.imread(str(result_dir / "mask.png"), cv2.IMREAD_GRAYSCALE)
+        mask = cv2.imread(str(derivative.file_path), cv2.IMREAD_GRAYSCALE)
         assert int(mask[0, 0]) == 0
         assert int(mask[0, 1]) == 255
 
@@ -182,7 +230,7 @@ class TestDerivativeService:
 
         settings = get_settings()
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         base = np.full((8, 8, 3), 50, dtype=np.uint8)
         cv2.imwrite(str(result_dir / "heatmap_base.png"), base)
@@ -231,7 +279,7 @@ class TestDerivativeService:
 
         settings = get_settings()
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         gray = np.random.default_rng(9).integers(30, 200, (64, 64), dtype=np.uint8)
         npz_path = result_dir / "wnr_dwt_coefficients.npz"
@@ -266,7 +314,7 @@ class TestDerivativeService:
             effective_parameters={"blocksize": 3, "thr": 64, "post": True, "order": 8},
         )
 
-        overlay = cv2.imread(str(result_dir / "overlay.png"))
+        overlay = cv2.imread(str(derivative.file_path))
         assert overlay is not None
         assert int(np.max(overlay)) > 0
         assert derivative.extra_metadata["provenance"]["operation"]["parameters"]["thr"] == 64
@@ -298,7 +346,7 @@ class TestDerivativeService:
         db_session.add(fp_evidence)
 
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         artifact = result_dir / "localized_map.png"
         cv2.imwrite(str(artifact), np.zeros((8, 8), dtype=np.uint8))
@@ -348,7 +396,7 @@ class TestDerivativeService:
 
         settings = get_settings()
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         artifact = result_dir / "heatmap.png"
         artifact.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
@@ -400,7 +448,7 @@ class TestDerivativeService:
 
         settings = get_settings()
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         (result_dir / "overlay.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
         params = {"mode": "binary"}
@@ -457,7 +505,7 @@ class TestDerivativeService:
         db_session.commit()
 
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, pdf_parent.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         artifact = result_dir / "images" / "image_00001.jpg"
         artifact.parent.mkdir(parents=True, exist_ok=True)
@@ -539,7 +587,7 @@ class TestDerivativeService:
 
         all_ids = [sample_evidence.id, extra_videos[0].id, extra_videos[1].id]
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         artifact = result_dir / "similarity_wl_kernel.png"
         artifact.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
@@ -632,7 +680,7 @@ class TestDerivativeService:
         q_ids = [sample_evidence.id, extra.id]
         r_ids = [ref_ev.id]
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         params = {
             "mode": "with_reference",
@@ -724,7 +772,7 @@ class TestDerivativeService:
         q_ids = [sample_evidence.id, extra.id]
         r_ids = [ref_ev.id]
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         params = {
             "mode": "with_reference",
@@ -774,6 +822,75 @@ class TestDerivativeService:
         assert derivative.file_type == "documento"
         assert derivative.mime_type == "application/json"
 
+    def test_save_dct_reference_mode_registers_reference_parent(
+        self, db_session, sample_case, test_user, sample_evidence, tmp_path
+    ):
+        from app.config import get_settings
+        from services.derivative_service import DerivativeService
+
+        settings = get_settings()
+        ref_ev = Evidence(
+            id=uuid.uuid4(),
+            case_id=sample_case.id,
+            filename="ref.jpg",
+            original_filename="ref.jpg",
+            file_path=str(tmp_path / "ref.jpg"),
+            file_size=128,
+            file_type="imagem",
+            mime_type="image/jpeg",
+            sha256="e" * 64,
+            uploaded_by=test_user.id,
+            extra_metadata={"is_reference": True},
+        )
+        db_session.add(ref_ev)
+        db_session.commit()
+
+        job_id = uuid.uuid4()
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
+        result_dir.mkdir(parents=True, exist_ok=True)
+        params = {
+            "mode": "reference",
+            "reference_evidence_id": str(ref_ev.id),
+        }
+        receipt = _seed_job_preview(
+            job_id=job_id,
+            result_dir=result_dir,
+            technique="dct_quantization",
+            parameters=params,
+            extra_result={"mode": "reference"},
+            evidence_sha256=sample_evidence.sha256,
+        )
+        artifact = result_dir / "artifacts_upscaled.png"
+        cv2.imwrite(str(artifact), np.full((8, 8, 3), 20, dtype=np.uint8))
+
+        job = AnalysisJob(
+            id=job_id,
+            evidence_id=sample_evidence.id,
+            technique="dct_quantization",
+            status="completed",
+            parameters=params,
+            result_path=str(result_dir),
+            runtime_manifest=receipt,
+            created_by=test_user.id,
+        )
+        db_session.add(job)
+        db_session.commit()
+
+        derivative = DerivativeService(db_session).save_from_job(
+            job_id=job_id,
+            artifact_filename="artifacts_upscaled.png",
+            user_id=test_user.id,
+            label="dct_ref_test",
+        )
+
+        parent_inputs = derivative.extra_metadata["parent_inputs"]
+        assert len(parent_inputs) == 2
+        roles = {p["role"] for p in parent_inputs}
+        assert roles == {"questioned", "reference"}
+        assert derivative.extra_metadata["derivation_outputs"]["mode"] == "reference"
+        assert "DCT" in derivative.extra_metadata["procedure_summary"]
+        assert derivative.extra_metadata["derivation_group_id"] == str(job_id)
+
 
 class TestDerivativeEndpoint:
     def test_save_derivative_http(
@@ -783,7 +900,7 @@ class TestDerivativeEndpoint:
 
         settings = get_settings()
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         ela_img = np.full((4, 4, 3), 40, dtype=np.uint8)
         cv2.imwrite(str(result_dir / "heatmap_base.png"), ela_img)
@@ -819,6 +936,14 @@ class TestDerivativeEndpoint:
         data = response.json()
         assert data["evidence"]["extra_metadata"]["origin"] == "derived"
         assert "cadeia" in data["message"].lower()
+        duplicate = client.post(
+            "/api/v1/evidences/derivatives",
+            json={"job_id": str(job_id), "artifact_filename": "heatmap.png"},
+            headers=auth_headers,
+        )
+        assert duplicate.status_code == 200
+        assert duplicate.json()["evidence"]["id"] == data["evidence"]["id"]
+        assert "ja foi salvo" in duplicate.json()["message"].lower()
 
         audit = client.get(
             "/api/v1/audit",
@@ -835,7 +960,7 @@ class TestDerivativeEndpoint:
 
         settings = get_settings()
         job_id = uuid.uuid4()
-        result_dir = Path(settings.RESULTS_DIR) / str(job_id)
+        result_dir = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         ela_img = np.full((4, 4, 3), 40, dtype=np.uint8)
         cv2.imwrite(str(result_dir / "heatmap_base.png"), ela_img)
@@ -895,7 +1020,7 @@ class TestDerivativeEndpoint:
         service = DerivativeService(db_session)
 
         job1_id = uuid.uuid4()
-        result1 = Path(settings.RESULTS_DIR) / str(job1_id)
+        result1 = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, sample_evidence.id, job1_id)
         result1.mkdir(parents=True, exist_ok=True)
         ela1 = np.full((4, 4, 3), 40, dtype=np.uint8)
         cv2.imwrite(str(result1 / "heatmap_base.png"), ela1)
@@ -924,7 +1049,7 @@ class TestDerivativeEndpoint:
         d1 = service.save_from_job(job1_id, "heatmap.png", test_user.id)
 
         job2_id = uuid.uuid4()
-        result2 = Path(settings.RESULTS_DIR) / str(job2_id)
+        result2 = build_job_result_dir(settings.RESULTS_DIR, sample_case.id, d1.id, job2_id)
         result2.mkdir(parents=True, exist_ok=True)
         ela2 = np.full((4, 4, 3), 55, dtype=np.uint8)
         cv2.imwrite(str(result2 / "heatmap_base.png"), ela2)

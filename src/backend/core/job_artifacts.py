@@ -115,6 +115,12 @@ ARTIFACT_MAPPINGS: list[tuple[str, str]] = [
     ("distildire_report_json_path", "distildire_report.json"),
     ("distildire_summary_txt_path", "distildire_summary.txt"),
     ("distildire_eps_heatmap_path", "distildire_eps_heatmap.png"),
+    ("pad_result_json_path", "pad_result.json"),
+    ("pad_face_crop_path", "pad_face_crop.png"),
+    ("pad_annotated_image_path", "pad_annotated.png"),
+    ("plot_filename", "audio_spoofing_plot.json"),
+    ("details_filename", "audio_spoofing_details.json"),
+    ("detector_scores_txt_path", "detector_scores.txt"),
 ]
 
 

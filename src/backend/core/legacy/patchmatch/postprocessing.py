@@ -1,39 +1,8 @@
-# Conteúdo para o arquivo: postprocessing.py
-
-import numpy as np
-import cv2 as cv
-
-# Conteúdo para o arquivo: postprocessing.py
-
-import numpy as np
-import cv2 as cv
-from numba import njit, prange
-
-# Conteúdo para o arquivo: postprocessing.py
-
-import numpy as np
-import cv2 as cv
-from numba import njit, prange
-
-# Conteúdo para o arquivo: postprocessing.py
-
-import numpy as np
-import cv2 as cv
-from numba import njit, prange
-
-# Conteúdo para o arquivo: postprocessing.py
-
-import numpy as np
-import cv2 as cv
-from numba import njit, prange
-from scipy.ndimage import median_filter # --- NOVA IMPORTAÇÃO ---
-
-# Conteúdo para o arquivo: postprocessing.py
-
 import numpy as np
 import cv2 as cv
 from numba import njit, prange
 from scipy.ndimage import median_filter
+
 
 def get_circular_kernel(radius):
     """Cria um kernel (ou 'footprint') circular para vizinhanças."""
@@ -90,7 +59,6 @@ def dlf_postprocess(vect_field, p_m=4, p_n=6, t_e_sq=300, t_s=1200, p_d=10):
     field_filtered_y = median_filter(vect_field[..., 1], size=k_size)
     field_filtered = np.stack((field_filtered_x, field_filtered_y), axis=-1).astype(np.float64)
     
-    # --- LÓGICA CORRIGIDA ---
     # Pré-cálculo da vizinhança e da matriz S, FORA da função Numba.
     radius = p_n
     y, x = np.ogrid[-radius:radius+1, -radius:radius+1]
@@ -164,8 +132,7 @@ def compute_mask_1(vect_field, m, n, p, min_region_size):
     mask_1 = cv.filter2D(mask_0, -1, kernel)
     mask_2 = 1 * (mask_1 > th)
 
-    # --- LÓGICA DE FILTRAGEM MODIFICADA ---
-    # Agora filtra por tamanho absoluto em pixels, como descrito no artigo de 2015.
+    # Filtra por tamanho absoluto em pixels, como descrito no artigo de 2015.
     mask_3 = np.uint8((mask_2))
     N, component = cv.connectedComponents(mask_3)
     

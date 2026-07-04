@@ -135,7 +135,7 @@ export default function PeritusFilesPanel({ caseId }: Props) {
       >
         Snapshot forense do pacote importado do <strong>Peritus Desktop</strong> — pastas, derivados e hashes do{" "}
         <strong>peritusCase.xml</strong>. Novos uploads e analises VA ficam nas abas Evidencias,
-        Analises e Derivados.
+        Análises e Derivados.
         {modified && (
           <span style={{ color: "#b45309" }}> Caso alterado apos importacao — export Peritus regenera XML.</span>
         )}

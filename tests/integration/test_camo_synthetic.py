@@ -1,4 +1,4 @@
-"""Integration: CAMO row in synthetic image detection table."""
+"""Integration: CAMO removed from synthetic image detection table."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ AUTHENTIC = WORKSPACE / "uploads-dev" / "7bab0877-d873-4b68-aad9-de2e79ca14e7.jp
 
 @pytest.mark.integration
 class TestCamoInSyntheticDetectionTable:
-    def test_ensemble_includes_camo_row_when_ready(self):
-        from core.legacy.camo.camo_runtime import MODEL_LABEL, any_camo_ready
+    def test_ensemble_excludes_camo_row(self):
+        from core.legacy.camo.camo_runtime import MODEL_LABEL
         from core.legacy.synthetic_image_detection.pipeline import predict_ensemble
         from core.legacy.synthetic_image_detection.runtime import runtime_status
 
@@ -22,20 +22,10 @@ class TestCamoInSyntheticDetectionTable:
         if not ok_runtime:
             pytest.skip(reason)
 
-        ok_camo, _ = any_camo_ready()
-        if not ok_camo:
-            pytest.skip("Pesos CAMO ausentes — execute scripts/download_camo_weights.py")
-
         if not AUTHENTIC.is_file():
             pytest.skip("example_input ausente")
 
         image = Image.open(AUTHENTIC).convert("RGB")
         rows = predict_ensemble(image)
         camo_rows = [r for r in rows if r[0] == MODEL_LABEL]
-        assert len(camo_rows) == 1
-        row = camo_rows[0]
-        assert len(row) == 6
-        p = float(row[1])
-        assert 0.0 <= p <= 1.0
-        assert row[4] in ("AI", "REAL", "Incerto")
-        assert row[5] in ("GPU", "CPU")
+        assert camo_rows == []

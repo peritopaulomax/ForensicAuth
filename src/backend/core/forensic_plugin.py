@@ -19,6 +19,16 @@ class ForensicPlugin(ABC):
         """Return list of evidence types this plugin can analyze."""
         ...
 
+    @property
+    def description(self) -> str | None:
+        """Return a short human-readable description of the technique."""
+        return None
+
+    @property
+    def parameters_schema(self) -> dict[str, Any] | None:
+        """Return a JSON Schema describing accepted analysis parameters."""
+        return None
+
     @abstractmethod
     def analyze(self, evidence_path: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Run the forensic analysis on the given evidence.

@@ -64,6 +64,17 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
+function uploadFailureMessage(reason: unknown): string {
+  const maybeAxios = reason as { response?: { data?: { detail?: string } } };
+  return maybeAxios.response?.data?.detail || "Erro ao fazer upload";
+}
+
+function matchesUploadedFile(evidence: Evidence, files: File[]): boolean {
+  return files.some((file) => (
+    evidence.original_filename === file.name && evidence.file_size === file.size
+  ));
+}
+
 export default function CaseDetail() {
   const { caseId } = useParams<{ caseId: string }>();
   const navigate = useNavigate();
@@ -117,6 +128,9 @@ export default function CaseDetail() {
       tab === "peritus_arquivos"
     ) {
       setActiveTab(tab);
+    }
+    if (tab === "derivados" && searchParams.get("graph") && caseId) {
+      setDerivativesRefreshKey((k) => k + 1);
     }
     const technique = searchParams.get("technique");
     if (tab === "analises" && technique && techniqueHasDedicatedPage(technique)) {
@@ -233,23 +247,50 @@ export default function CaseDetail() {
   async function handleUploadFiles(files: FileList | null) {
     if (!files || !caseId || isLocked) return;
     const fileArray = Array.from(files);
+    const previousEvidenceIds = new Set(evidences.map((evidence) => evidence.id));
     setUploading(true);
+    setError("");
     const newProgress: Record<string, number> = {};
     fileArray.forEach((f) => (newProgress[f.name] = 0));
     setUploadProgress(newProgress);
 
     try {
-      const results = await Promise.all(
+      const settled = await Promise.allSettled(
         fileArray.map(async (file) => {
           const ev = await uploadEvidence(caseId, file, (percent) => {
             setUploadProgress((prev) => ({ ...prev, [file.name]: percent }));
           });
-          return ev;
+          return { file, evidence: ev };
         })
       );
-      setEvidences((prev) => [...results, ...prev]);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Erro ao fazer upload");
+      const successful = settled
+        .filter((item): item is PromiseFulfilledResult<{ file: File; evidence: Evidence }> => (
+          item.status === "fulfilled"
+        ))
+        .map((item) => item.value);
+      const failed = settled.filter((item): item is PromiseRejectedResult => item.status === "rejected");
+
+      if (successful.length > 0) {
+        setEvidences((prev) => [...successful.map((item) => item.evidence), ...prev]);
+      }
+
+      if (failed.length === 0) {
+        setError("");
+      } else if (successful.length > 0) {
+        setError(
+          `${successful.length} arquivo(s) enviado(s), ${failed.length} falharam. ` +
+            uploadFailureMessage(failed[0].reason)
+        );
+      } else {
+        const latest = filterForensicAuthEvidences(await listCaseEvidences(caseId));
+        const recovered = latest.filter((evidence) => (
+          !previousEvidenceIds.has(evidence.id) && matchesUploadedFile(evidence, fileArray)
+        ));
+        setEvidences(latest);
+        setError(recovered.length > 0 ? "" : uploadFailureMessage(failed[0].reason));
+      }
+    } catch (err: unknown) {
+      setError(uploadFailureMessage(err));
     } finally {
       setUploading(false);
       setUploadProgress({});
@@ -661,7 +702,7 @@ export default function CaseDetail() {
             marginBottom: "-0.5rem",
           }}
         >
-          🔬 Analises
+          🔬 Análises
         </button>
         <button
           data-testid="tab-derivados"
@@ -1322,6 +1363,7 @@ export default function CaseDetail() {
           caseId={caseId!}
           parentEvidences={evidences}
           refreshKey={derivativesRefreshKey}
+          initialGraphEvidenceId={searchParams.get("graph")}
         />
       ) : (
         <CustodyPanel

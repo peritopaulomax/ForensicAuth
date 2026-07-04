@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import cv2
@@ -148,3 +149,27 @@ class TestPreviewCleanupPolicy:
         assert len(calls) == 1
         assert policy.maybe_cleanup_expired_job_previews() == 0
         assert len(calls) == 1
+
+    def test_cleanup_removes_promoted_preview_folder(self, tmp_path: Path, monkeypatch):
+        from core.preview_cleanup import cleanup_expired_job_previews
+
+        job_dir = tmp_path / str(uuid.uuid4())
+        job_dir.mkdir()
+        result_path = job_dir / "result.json"
+        result_path.write_text(
+            json.dumps({"preview": True, "promoted": True}),
+            encoding="utf-8",
+        )
+        old = (datetime.now(timezone.utc) - timedelta(days=10)).timestamp()
+        import os
+
+        settings = type(
+            "S",
+            (),
+            {"RESULTS_DIR": str(tmp_path), "JOB_PREVIEW_RETENTION_DAYS": 7},
+        )()
+        monkeypatch.setattr("core.preview_cleanup.get_settings", lambda: settings)
+        os.utime(result_path, (old, old))
+
+        assert cleanup_expired_job_previews() == 1
+        assert not job_dir.exists()

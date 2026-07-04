@@ -9,7 +9,7 @@
 - **Verificacoes**:
   - Job persistido no banco
   - Task Celery publicada no broker (mock)
-  - CustodyRecord de analysis_started criado
+  - Nenhum CustodyRecord de analysis_started e criado (jobs sao previews exploratorios)
 
 ### TU-JOB-002: Submissao com tecnica inexistente
 - **Entrada**: technique="tecnica_falsa"

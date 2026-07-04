@@ -132,7 +132,7 @@ export default function ZeroGridAnalysis() {
       <AnalysisPageShell
         caseId={caseId}
         title={FORENSIC_TECHNIQUE_META.zero_grid.title}
-        intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.zero_grid} />}
+        intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.zero_grid} techniqueId="zero_grid" />}
         embedded={embedded}
       >
         <AnalysisPanel title="Indisponivel">
@@ -163,7 +163,7 @@ export default function ZeroGridAnalysis() {
     <AnalysisPageShell
       caseId={caseId}
       title={FORENSIC_TECHNIQUE_META.zero_grid.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.zero_grid} />}
+      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.zero_grid} techniqueId="zero_grid" />}
       embedded={embedded}
     >
       <AnalysisPanel title="Evidencia">
@@ -209,7 +209,7 @@ export default function ZeroGridAnalysis() {
                 {result.main_grid_misaligned ? " · possivel recorte (grade nao em 0,0)" : ""}
               </p>
             ) : (
-              <p style={{ margin: "0 0 0.35rem" }}>Nenhuma grade JPEG global detectada (main_grid = -1).</p>
+              <p style={{ margin: "0 0 0.35rem" }}>Nenhuma grade JPEG global detectada.</p>
             )}
             <p style={{ margin: 0 }}>
               Regioes (passagem 1): {Number(result.forgery_found_pass1)}

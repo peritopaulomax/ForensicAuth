@@ -53,6 +53,19 @@ MODEL_DISPLAY = {
 }
 
 ProgressFn = Optional[Callable[[int, str], None]]
+SYNTHETIC_ANALYSIS_AI_IMAGE_DETECTOR = "ai_image_detector_deploy"
+SYNTHETIC_ANALYSIS_SDXL_FLUX = "sdxl_flux_detector_v1_1"
+SYNTHETIC_ANALYSIS_BFREE = "bfree"
+SYNTHETIC_ANALYSIS_CORVI2023 = "corvi2023"
+SYNTHETIC_ANALYSIS_SAFE = "safe"
+DEFAULT_SYNTHETIC_ANALYSES = (
+    SYNTHETIC_ANALYSIS_AI_IMAGE_DETECTOR,
+    SYNTHETIC_ANALYSIS_SDXL_FLUX,
+    SYNTHETIC_ANALYSIS_BFREE,
+    SYNTHETIC_ANALYSIS_CORVI2023,
+    SYNTHETIC_ANALYSIS_SAFE,
+)
+VALID_SYNTHETIC_ANALYSES = set(DEFAULT_SYNTHETIC_ANALYSES)
 
 _DETECTION_MODELS: Any = None
 _MODEL1_XGB: Any = None
@@ -424,6 +437,18 @@ def release_gpu_memory() -> None:
     _DETECTION_MODELS = None
     _DEVICE = None
     _core_release_gpu_memory(*handles)
+    for clear_fn_path in (
+        ("core.legacy.fsd.fsd_pipeline", "clear_fsd_model_cache"),
+        ("core.legacy.universal_fake_detect.ufd_pipeline", "clear_ufd_model_cache"),
+        ("core.legacy.truebees_clip_d.clipd_pipeline", "clear_clipd_model_cache"),
+        ("core.legacy.safe.safe_pipeline", "clear_safe_model_cache"),
+    ):
+        try:
+            module_name, fn_name = clear_fn_path
+            module = __import__(module_name, fromlist=[fn_name])
+            getattr(module, fn_name)()
+        except Exception:
+            logger.debug("Nao foi possivel liberar cache de %s", clear_fn_path[0], exc_info=True)
 
 
 def _load_models_on_device(device: Any, on_progress: ProgressFn = None) -> None:
@@ -497,115 +522,156 @@ def _ensure_models_loaded(on_progress: ProgressFn = None) -> None:
             raise
 
 
-def predict_ensemble(image: Image.Image, on_progress: ProgressFn = None) -> list[list[str]]:
-    _ensure_models_loaded(on_progress)
-    assert _DETECTION_MODELS is not None
-    assert _MODEL1_XGB is not None
-    assert _FFT_EXTRACTOR is not None
+def _normalize_selected_analyses(selected_analyses: Optional[list[str] | tuple[str, ...] | set[str]]) -> set[str]:
+    if selected_analyses is None:
+        return set(DEFAULT_SYNTHETIC_ANALYSES)
+    return {str(item).strip() for item in selected_analyses if str(item).strip()}
+
+
+def _ensure_fft_extractor(on_progress: ProgressFn = None) -> None:
+    global _FFT_EXTRACTOR
+    if _FFT_EXTRACTOR is None:
+        report_progress(on_progress, 27, "Inicializando extrator FFT…")
+        _FFT_EXTRACTOR = ResidueFFTFeatureExtractor(PIPELINE_CONFIG)
+
+
+def predict_ensemble(
+    image: Image.Image,
+    on_progress: ProgressFn = None,
+    selected_analyses: Optional[list[str] | tuple[str, ...] | set[str]] = None,
+    return_scores: bool = False,
+) -> list[list[str]] | tuple[list[list[str]], dict[str, dict[str, Any]]]:
+    selected = _normalize_selected_analyses(selected_analyses)
+    selected_hf_model_ids: list[str] = []
+    if SYNTHETIC_ANALYSIS_AI_IMAGE_DETECTOR in selected:
+        selected_hf_model_ids.append("model_1")
+    if SYNTHETIC_ANALYSIS_SDXL_FLUX in selected:
+        selected_hf_model_ids.append("model_4")
+    needs_base_models = bool(selected_hf_model_ids)
+    if needs_base_models:
+        _ensure_models_loaded(on_progress)
+        assert _DETECTION_MODELS is not None
+        assert _MODEL1_XGB is not None
+        assert _FFT_EXTRACTOR is not None
 
     image = _as_rgb(image)
     individual_results: list[list[str]] = []
+    detector_scores: dict[str, dict[str, Any]] = {}
     ai_keywords = ["artificial", "ai", "fake", "deepfake", "ai_gen", "aigenerated"]
     real_keywords = ["real", "human", "realism", "natural"]
     ml_device_label = device_display_label(_DEVICE.type if _DEVICE is not None else "cpu")
 
-    infer_models = list(PIPELINE_CONFIG["use_models"])
-    for idx, model_id in enumerate(infer_models):
-        label = MODEL_DISPLAY.get(model_id, model_id)
-        pct = 32 + int(14 * idx / max(len(infer_models), 1))
-        report_progress(on_progress, pct, f"Inferindo {label} em {ml_device_label}…")
-        model_info = _DETECTION_MODELS[model_id]
-        try:
-            if model_info.get("type") == "pipeline":
-                prediction = model_info["model"](image, top_k=5)
-                scores = {p["label"]: p["score"] for p in prediction}
-            else:
-                prediction = model_info["model"](image)
-                logits = prediction.logits.cpu().numpy()[0]
-                probs = softmax(logits)
-                scores = {CLASS_NAMES[model_id][j]: probs[j] for j in range(len(probs))}
+    if selected_hf_model_ids:
+        for idx, model_id in enumerate(selected_hf_model_ids):
+            label = MODEL_DISPLAY.get(model_id, model_id)
+            pct = 32 + int(14 * idx / max(len(selected_hf_model_ids), 1))
+            report_progress(on_progress, pct, f"Inferindo {label} em {ml_device_label}…")
+            model_info = _DETECTION_MODELS[model_id]
+            try:
+                if model_info.get("type") == "pipeline":
+                    prediction = model_info["model"](image, top_k=5)
+                    scores = {p["label"]: p["score"] for p in prediction}
+                else:
+                    prediction = model_info["model"](image)
+                    logits = prediction.logits.cpu().numpy()[0]
+                    probs = softmax(logits)
+                    scores = {CLASS_NAMES[model_id][j]: probs[j] for j in range(len(probs))}
 
-            ai_score = 0.5
-            found_score = False
-            for class_name, score in scores.items():
-                if any(keyword in class_name.lower().replace("_", "") for keyword in ai_keywords):
-                    ai_score = float(score)
-                    found_score = True
-                    break
-            if not found_score:
+                ai_score = 0.5
+                found_score = False
                 for class_name, score in scores.items():
-                    if any(keyword in class_name.lower().replace("_", "") for keyword in real_keywords):
-                        ai_score = 1.0 - float(score)
+                    if any(keyword in class_name.lower().replace("_", "") for keyword in ai_keywords):
+                        ai_score = float(score)
+                        found_score = True
                         break
+                if not found_score:
+                    for class_name, score in scores.items():
+                        if any(keyword in class_name.lower().replace("_", "") for keyword in real_keywords):
+                            ai_score = 1.0 - float(score)
+                            break
 
-            real_score = 1 - ai_score
-            razao = real_score / ai_score if ai_score > 1e-9 else float("inf")
-            decision = get_decision(ai_score)
-            individual_results.append(
-                [
-                    MODEL_PATHS[model_id].split("/")[-1],
-                    f"{ai_score:.4f}",
-                    f"{real_score:.4f}",
-                    f"{math.log10(razao):.2f}",
-                    decision,
-                    ml_device_label,
-                ]
-            )
-        except Exception as e:
-            logger.error("Erro na inferencia do %s: %s", model_id, e)
+                real_score = 1 - ai_score
+                razao = real_score / ai_score if ai_score > 1e-9 else float("inf")
+                decision = get_decision(ai_score)
+                individual_results.append(
+                    [
+                        MODEL_PATHS[model_id].split("/")[-1],
+                        f"{ai_score:.4f}",
+                        f"{real_score:.4f}",
+                        f"{math.log10(razao):.2f}",
+                        decision,
+                        ml_device_label,
+                    ]
+                )
+                analysis_id = (
+                    SYNTHETIC_ANALYSIS_AI_IMAGE_DETECTOR
+                    if model_id == "model_1"
+                    else SYNTHETIC_ANALYSIS_SDXL_FLUX
+                )
+                detector_scores[analysis_id] = {
+                    "fake_prob": float(ai_score),
+                    "real_prob": float(real_score),
+                    "raw_score": None,
+                    "decision": decision,
+                    "device": ml_device_label,
+                }
+            except Exception as e:
+                logger.error("Erro na inferencia do %s: %s", model_id, e)
 
-    report_progress(on_progress, 48, "Inferindo model1_xgb (FFT) em CPU…")
-    fft_features = _FFT_EXTRACTOR.extract_ensemble_fft_features(image).reshape(1, -1)
-    prob_model1_xgb_ai = _MODEL1_XGB.predict_proba(fft_features)[:, 0][0]
-    real_score_m1_xgb = 1 - prob_model1_xgb_ai
-    razao_m1_xgb = real_score_m1_xgb / prob_model1_xgb_ai if prob_model1_xgb_ai > 1e-9 else float("inf")
-    decision_m1_xgb = get_decision(prob_model1_xgb_ai)
-    individual_results.append(
-        [
-            "model1_xgb (FFT)",
-            f"{prob_model1_xgb_ai:.4f}",
-            f"{real_score_m1_xgb:.4f}",
-            f"{math.log10(razao_m1_xgb):.2f}",
-            decision_m1_xgb,
-            "CPU",
-        ]
-    )
+    if SYNTHETIC_ANALYSIS_BFREE in selected:
+        try:
+            from core.legacy.bfree.bfree_pipeline import predict_bfree_row
 
-    try:
-        from core.legacy.effort.effort_pipeline import predict_effort_rows
+            bfree_row = predict_bfree_row(image, on_progress=on_progress)
+            if bfree_row is not None:
+                individual_results.append(bfree_row)
+                detector_scores[SYNTHETIC_ANALYSIS_BFREE] = {
+                    "fake_prob": float(bfree_row[1]),
+                    "real_prob": float(bfree_row[2]),
+                    "raw_score": bfree_row[3],
+                    "decision": bfree_row[4],
+                    "device": bfree_row[5],
+                }
+        except Exception as exc:
+            logger.warning("B-Free indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
 
-        individual_results.extend(predict_effort_rows(image, on_progress=on_progress))
-    except Exception as exc:
-        logger.warning("Effort indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
+    if SYNTHETIC_ANALYSIS_CORVI2023 in selected:
+        try:
+            from core.legacy.truebees_clip_d.clipd_pipeline import predict_corvi2023_row
 
-    try:
-        from core.legacy.safe.safe_pipeline import predict_safe_row
+            corvi_row = predict_corvi2023_row(image, on_progress=on_progress)
+            if corvi_row is not None:
+                individual_results.append(corvi_row)
+                detector_scores[SYNTHETIC_ANALYSIS_CORVI2023] = {
+                    "fake_prob": float(corvi_row[1]),
+                    "real_prob": float(corvi_row[2]),
+                    "raw_score": corvi_row[3],
+                    "decision": corvi_row[4],
+                    "device": corvi_row[5],
+                }
+        except Exception as exc:
+            logger.warning("Corvi2023 indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
 
-        safe_row = predict_safe_row(image, on_progress=on_progress)
-        if safe_row is not None:
-            individual_results.append(safe_row)
-    except Exception as exc:
-        logger.warning("SAFE indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
+    if SYNTHETIC_ANALYSIS_SAFE in selected:
+        try:
+            from core.legacy.safe.safe_pipeline import predict_safe_row
 
-    try:
-        from core.legacy.camo.camo_pipeline import predict_camo_row
-
-        camo_row = predict_camo_row(image, on_progress=on_progress)
-        if camo_row is not None:
-            individual_results.append(camo_row)
-    except Exception as exc:
-        logger.warning("CAMO indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
-
-    try:
-        from core.legacy.iapl.iapl_pipeline import predict_iapl_rows
-
-        individual_results.extend(
-            predict_iapl_rows(image, on_progress=on_progress, vram_prepared=False)
-        )
-    except Exception as exc:
-        logger.warning("IAPL indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
+            safe_row = predict_safe_row(image, on_progress=on_progress)
+            if safe_row is not None:
+                individual_results.append(safe_row)
+                detector_scores[SYNTHETIC_ANALYSIS_SAFE] = {
+                    "fake_prob": float(safe_row[1]),
+                    "real_prob": float(safe_row[2]),
+                    "raw_score": safe_row[3],
+                    "decision": safe_row[4],
+                    "device": safe_row[5],
+                }
+        except Exception as exc:
+            logger.warning("SAFE indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
 
     report_progress(on_progress, 66, "Tabela de modelos concluida")
+    if return_scores:
+        return individual_results, detector_scores
     return individual_results
 
 
@@ -618,30 +684,65 @@ def run_synthetic_image_detection_analysis(
     image: Image.Image,
     *,
     generate_visuals: bool = True,
+    selected_analyses: Optional[list[str] | tuple[str, ...] | set[str]] = None,
     on_progress: Optional[Callable[[int, str], None]] = None,
 ) -> dict[str, Any]:
     """Run full Detecção imagens sintéticas analysis and return structured results (no file I/O)."""
     image = _as_rgb(image)
+    selected = _normalize_selected_analyses(selected_analyses)
+    needs_base_models = bool(
+        selected
+        & {
+            SYNTHETIC_ANALYSIS_AI_IMAGE_DETECTOR,
+            SYNTHETIC_ANALYSIS_SDXL_FLUX,
+        }
+    )
     device_type = "cpu"
     try:
-        report_progress(on_progress, 5, f"Iniciando pipeline Detecção imagens sintéticas + Effort em {device_display_label(resolve_inference_device())}")
-        _ensure_models_loaded(on_progress)
-        assert _FFT_EXTRACTOR is not None
-        device_type = _DEVICE.type if _DEVICE is not None else "cpu"
+        report_progress(
+            on_progress,
+            5,
+            f"Iniciando pipeline Detecção imagens sintéticas em {device_display_label(resolve_inference_device())}",
+        )
+        if needs_base_models:
+            _ensure_models_loaded(on_progress)
+            assert _FFT_EXTRACTOR is not None
+            device_type = _DEVICE.type if _DEVICE is not None else "cpu"
+        else:
+            device_type = resolve_inference_device().type
+            if generate_visuals:
+                _ensure_fft_extractor(on_progress)
 
         try:
-            individual_results = predict_ensemble(image, on_progress=on_progress)
+            individual_results, detector_scores = predict_ensemble(
+                image,
+                on_progress=on_progress,
+                selected_analyses=selected,
+                return_scores=True,
+            )
         except RuntimeError as exc:
-            if _DEVICE is None or _DEVICE.type != "cuda" or not is_cuda_oom_or_device_error(exc):
+            if (
+                not needs_base_models
+                or _DEVICE is None
+                or _DEVICE.type != "cuda"
+                or not is_cuda_oom_or_device_error(exc)
+            ):
                 raise
             logger.warning("Detecção imagens sintéticas: inferencia falhou em CUDA (%s); tentando CPU.", exc)
             release_gpu_memory()
             report_progress(on_progress, 8, "Inferencia em CPU (fallback)…")
             _ensure_models_loaded(on_progress)
             device_type = _DEVICE.type if _DEVICE is not None else "cpu"
-            individual_results = predict_ensemble(image, on_progress=on_progress)
+            individual_results, detector_scores = predict_ensemble(
+                image,
+                on_progress=on_progress,
+                selected_analyses=selected,
+                return_scores=True,
+            )
 
         report_progress(on_progress, 68, "Gerando FFT da imagem de entrada…")
+        _ensure_fft_extractor(on_progress)
+        assert _FFT_EXTRACTOR is not None
         gray = np.array(image.convert("L"))
         input_fft = _fft_preview_image(_FFT_EXTRACTOR, gray)
 
@@ -673,7 +774,9 @@ def run_synthetic_image_detection_analysis(
 
         return {
             "individual_results": individual_results,
+            "detector_scores": detector_scores,
             "generate_visuals": generate_visuals,
+            "selected_analyses": sorted(selected),
             "inference_device": device_type,
             **visuals,
         }

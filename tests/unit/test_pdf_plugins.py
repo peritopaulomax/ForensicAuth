@@ -111,6 +111,36 @@ class TestPDFFontColorOverlayPlugin:
         assert meta["fonts_count"] >= 1
         assert out_pdf.exists()
 
+    def test_by_size_mode(self, sample_pdf, tmp_path):
+        plugin = PDFFontColorOverlayPlugin()
+        result = plugin.analyze(sample_pdf, {"opacity": 0.5, "mode": "size"})
+        assert result["success"] is True
+        assert result["mode"] == "size"
+        assert result["sizes_count"] >= 1
+        assert result["rectangles"] >= 1
+        assert Path(result["overlay_pdf_path"]).exists()
+        assert Path(result["legend_txt_path"]).exists()
+
+    def test_run_overlay_by_size(self, tmp_path):
+        pdf_path = tmp_path / "multi_size.pdf"
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Small text", fontsize=10)
+        page.insert_text((72, 120), "Large text", fontsize=20)
+        doc.save(str(pdf_path))
+        doc.close()
+        out_pdf = tmp_path / "out_size.pdf"
+        out_txt = tmp_path / "out_size.txt"
+        meta = run_font_color_overlay(pdf_path, out_pdf, out_txt, mode="size")
+        assert meta["sizes_count"] >= 2
+        assert meta["rectangles"] >= 2
+        assert out_pdf.exists()
+        assert out_txt.exists()
+        legend = out_txt.read_text(encoding="utf-8")
+        assert "10.00 pt" in legend or "10" in legend
+        assert "20.00 pt" in legend or "20" in legend
+        assert "# Legenda: tamanho da fonte" in legend
+
 
 class TestPDFPluginsRegistered:
     def test_active_pdf_card_plugins_registered(self):

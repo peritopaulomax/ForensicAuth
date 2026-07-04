@@ -75,7 +75,7 @@ export const IMAGE_ANALYSIS_GROUPS: ImageAnalysisGroup[] = [
       { kind: "imdl", id: "mesorch" },
       { kind: "imdl", id: "dinov3_iml" },
       { kind: "imdl", id: "co_transformers" },
-      { kind: "imdl", id: "miml_apscnet", adminOnly: true },
+      { kind: "imdl", id: "miml_apscnet" },
       { kind: "imdl", id: "nfa_vit", adminOnly: true, disabled: true },
     ],
     batchTab: true,
@@ -84,10 +84,18 @@ export const IMAGE_ANALYSIS_GROUPS: ImageAnalysisGroup[] = [
     id: "dl-sintetico",
     title: "Deep Learning: Detecção de Imagens Sintéticas",
     description:
-      "Ensemble de detectores de imagens geradas por IA (CNN + Effort + SAFE + IAPL) e DistilDIRE para difusão — veredito global e mapas auxiliares.",
+      "Detectores selecionados de imagens geradas por IA: ai-image-detector-deploy, sdxl-flux-detector v1.1, B-Free/Bias-free e Corvi2023.",
     techniques: [
       { kind: "plugin", id: "synthetic_image_detection" },
-      { kind: "plugin", id: "distildire" },
+    ],
+  },
+  {
+    id: "biometria-facial",
+    title: "Biometria Facial",
+    description:
+      "Detecção de ataques de apresentação (PAD) em imagens de rosto — identifica fotos, telas, máscaras e outros spoofs frente a capturas reais.",
+    techniques: [
+      { kind: "plugin", id: "presentation_attack_detection", adminOnly: true },
     ],
   },
 ];
@@ -156,7 +164,7 @@ export const IMDL_DEDICATED_METHOD_IDS = new Set([
 ]);
 
 /** Métodos IMDL visíveis apenas para administradores (ex.: pesos ainda pendentes). */
-export const IMDL_ADMIN_ONLY_METHOD_IDS = new Set(["nfa_vit", "miml_apscnet"]);
+export const IMDL_ADMIN_ONLY_METHOD_IDS = new Set(["nfa_vit"]);
 
 export function isImageTechniqueVisible(
   entry: ImageTechniqueEntry,

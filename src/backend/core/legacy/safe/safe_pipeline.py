@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import math
 from typing import Callable
 
 import torch
 import torch.nn.functional as F
+import numpy as np
 from PIL import Image
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
@@ -52,17 +54,28 @@ def _load_safe_resnet50():
     return factory
 
 
-def _eval_transform() -> transforms.Compose:
-    """Resize 256x256 — compativel com eval crop para imagens forenses de tamanho arbitrario."""
-    return transforms.Compose(
-        [
-            transforms.Resize(
-                (INPUT_SIZE, INPUT_SIZE),
+class _SafeEvalTransform:
+    """CenterCrop 256x256 — transformação de eval oficial do SAFE.
+
+    O checkpoint SAFE é treinado/avaliado com ``--transform_mode crop``
+    (``CenterCrop([256, 256])`` + ``ToTensor()``). Para imagens forenses
+    menores que 256 px em algum eixo, fazemos um resize curto para 256 px
+    antes do crop, mantendo o método o mais fiel possível ao paper.
+    """
+
+    def __call__(self, image: Image.Image) -> torch.Tensor:
+        w, h = image.size
+        if h < INPUT_SIZE or w < INPUT_SIZE:
+            image = transforms.Resize(
+                INPUT_SIZE,
                 interpolation=InterpolationMode.BILINEAR,
-            ),
-            transforms.ToTensor(),
-        ]
-    )
+            )(image)
+        image = transforms.CenterCrop((INPUT_SIZE, INPUT_SIZE))(image)
+        return transforms.ToTensor()(image)
+
+
+def _eval_transform() -> _SafeEvalTransform:
+    return _SafeEvalTransform()
 
 
 def _load_model(device: torch.device) -> torch.nn.Module:
@@ -110,6 +123,111 @@ def infer_safe_from_pil(image: Image.Image, device: torch.device) -> float:
         logits = model(tensor)
         prob_fake = F.softmax(logits, dim=1)[0, 1].item()
     return float(prob_fake)
+
+
+def _prob_to_logit(prob: float, eps: float = 1e-8) -> float:
+    """Convert probability to logit."""
+    p = min(max(float(prob), eps), 1.0 - eps)
+    return math.log(p / (1.0 - p))
+
+
+def _logit_to_prob(logit: float) -> float:
+    """Convert logit to probability via sigmoid."""
+    return 1.0 / (1.0 + math.exp(-float(logit)))
+
+
+def _extract_safe_tiles(image: Image.Image, n_tiles: int = 4) -> list[Image.Image]:
+    """Extract N 256x256 tiles for SAFE inference.
+
+    Tile 0 is always the central crop (original SAFE eval). Additional tiles are
+    taken from distinct quadrants to cover different image regions.
+
+    If the image is smaller than 256x256 in any dimension, resize the short side
+    to 256 before cropping, matching the original SAFE fallback behaviour.
+    """
+    rgb = image.convert("RGB")
+    w, h = rgb.size
+
+    # Match SAFE fallback for small images.
+    if h < INPUT_SIZE or w < INPUT_SIZE:
+        rgb = transforms.Resize(INPUT_SIZE, interpolation=InterpolationMode.BILINEAR)(rgb)
+        w, h = rgb.size
+
+    tiles: list[Image.Image] = []
+
+    # Tile 0: central crop (original SAFE evaluation).
+    left = (w - INPUT_SIZE) // 2
+    top = (h - INPUT_SIZE) // 2
+    tiles.append(rgb.crop((left, top, left + INPUT_SIZE, top + INPUT_SIZE)))
+
+    if n_tiles <= 1 or w < INPUT_SIZE or h < INPUT_SIZE:
+        return tiles
+
+    # Quadrant anchors for additional tiles.
+    quadrants = [
+        (0, 0),                      # top-left
+        (w - INPUT_SIZE, 0),         # top-right
+        (0, h - INPUT_SIZE),         # bottom-left
+        (w - INPUT_SIZE, h - INPUT_SIZE),  # bottom-right
+    ]
+
+    # Skip central quadrant (would overlap tile 0 significantly).
+    used_quadrants = 0
+    for (left, top) in quadrants:
+        if used_quadrants >= n_tiles - 1:
+            break
+        # Avoid crops that are essentially the center tile.
+        center_left = (w - INPUT_SIZE) // 2
+        center_top = (h - INPUT_SIZE) // 2
+        if abs(left - center_left) < INPUT_SIZE // 4 and abs(top - center_top) < INPUT_SIZE // 4:
+            continue
+        tiles.append(rgb.crop((left, top, left + INPUT_SIZE, top + INPUT_SIZE)))
+        used_quadrants += 1
+
+    # If we still need more tiles and image is large enough, add mid-side crops.
+    while len(tiles) < n_tiles and (w >= INPUT_SIZE * 2 or h >= INPUT_SIZE * 2):
+        idx = len(tiles) - 1
+        if idx == 1 and w >= INPUT_SIZE * 2:
+            left = (w // 2) - (INPUT_SIZE // 2)
+            top = 0
+        elif idx == 2 and h >= INPUT_SIZE * 2:
+            left = 0
+            top = (h // 2) - (INPUT_SIZE // 2)
+        elif idx == 3 and w >= INPUT_SIZE * 2 and h >= INPUT_SIZE * 2:
+            left = (w // 2) - (INPUT_SIZE // 2)
+            top = (h // 2) - (INPUT_SIZE // 2)
+        else:
+            break
+        tiles.append(rgb.crop((left, top, left + INPUT_SIZE, top + INPUT_SIZE)))
+
+    return tiles[:n_tiles]
+
+
+def infer_safe_from_pil_tiled(
+    image: Image.Image,
+    device: torch.device,
+    n_tiles: int = 4,
+) -> float:
+    """Run SAFE on N tiles and return aggregated fake probability.
+
+    Tile 0 is always the central 256x256 crop. Remaining tiles are extracted
+    from distinct image regions. Probabilities are converted to logits, averaged,
+    and mapped back through sigmoid. This preserves the calibration shape better
+    than averaging probabilities directly.
+    """
+    model = _load_model(device)
+    tiles = _extract_safe_tiles(image, n_tiles=n_tiles)
+
+    logits: list[float] = []
+    for tile in tiles:
+        tensor = transforms.ToTensor()(tile).unsqueeze(0).to(device)
+        with torch.no_grad():
+            output = model(tensor)
+            prob_fake = F.softmax(output, dim=1)[0, 1].item()
+        logits.append(_prob_to_logit(prob_fake))
+
+    mean_logit = float(np.mean(logits))
+    return _logit_to_prob(mean_logit)
 
 
 def predict_safe_row(

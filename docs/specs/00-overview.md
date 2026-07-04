@@ -2,7 +2,7 @@
 
 ## Proposito
 
-O ForensicAuth e uma plataforma forense digital unificada para peritos criminais da Policia Federal. Consolida tecnicas de analise de imagem, audio, video e PDF em uma aplicacao web profissional com autenticacao multiusuario, cadeia de custodia digital rastreavel e geracao de relatorios tecnicos.
+O ForensicAuth e uma plataforma forense digital unificada para peritos criminais. Consolida tecnicas de analise de imagem, audio, video e PDF em uma aplicacao web profissional com autenticacao multiusuario, cadeia de custodia digital rastreavel e geracao de relatorios tecnicos.
 
 ## Usuarios e Perfis
 
@@ -89,4 +89,4 @@ O ForensicAuth e uma plataforma forense digital unificada para peritos criminais
 | RNF-05 | Reprodutibilidade | Qualquer processamento deve ser reproduzivel com os mesmos parametros e produzir o mesmo hash de resultado. |
 | RNF-06 | Performance | Upload de arquivos ate 500MB. Jobs simples (parsing) < 30s. Jobs complexos (PRNU, Deepfake) podem demorar minutos. |
 | RNF-07 | Seguranca | Senhas hasheadas (bcrypt). Tokens JWT com expiracao. SQL injection protegido via ORM. |
-| RNF-08 | Disponibilidade | Deve rodar 24/7 no servidor corporativo da PF. |
+| RNF-08 | Disponibilidade | Deve rodar 24/7 no servidor corporativo da instituição. |

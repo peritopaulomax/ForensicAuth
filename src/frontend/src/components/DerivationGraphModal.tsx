@@ -21,26 +21,67 @@ function graphToXml(graph: LineageGraph): string {
   const esc = (s: string) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const nodes = graph.nodes
-    .map(
-      (n) =>
-        `    <node id="${esc(n.evidence_id)}" derived="${n.is_derived}">` +
+    .map((n) => {
+      const attrs = [
+        `id="${esc(n.evidence_id)}"`,
+        `derived="${n.is_derived}"`,
+        n.layer != null ? `layer="${n.layer}"` : "",
+        n.technique ? `technique="${esc(n.technique)}"` : "",
+        n.derivation_step ? `derivation_step="${esc(n.derivation_step)}"` : "",
+        n.source_job_id ? `source_job_id="${esc(n.source_job_id)}"` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return (
+        `    <node ${attrs}>` +
         `<filename>${esc(n.original_filename)}</filename>` +
         `<sha256>${esc(n.sha256)}</sha256>` +
         `<file_type>${esc(n.file_type)}</file_type>` +
         (n.procedure_summary ? `<procedure>${esc(n.procedure_summary)}</procedure>` : "") +
+        (n.parameters ? `<parameters>${esc(JSON.stringify(n.parameters))}</parameters>` : "") +
+        (n.derivation_outputs ? `<outputs>${esc(JSON.stringify(n.derivation_outputs))}</outputs>` : "") +
         `</node>`
-    )
+      );
+    })
     .join("\n");
   const edges = graph.edges
-    .map(
-      (e) =>
-        `    <edge from="${esc(e.from_evidence_id)}" to="${esc(e.to_evidence_id)}">` +
+    .map((e) => {
+      const attrs = [
+        `from="${esc(e.from_evidence_id)}"`,
+        `to="${esc(e.to_evidence_id)}"`,
+        e.derivation_step ? `derivation_step="${esc(e.derivation_step)}"` : "",
+        e.source_job_id ? `source_job_id="${esc(e.source_job_id)}"` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return (
+        `    <edge ${attrs}>` +
         `<technique>${esc(e.technique || "")}</technique>` +
         `<procedure>${esc(e.procedure_summary || "")}</procedure>` +
+        `<parameters>${esc(JSON.stringify(e.parameters || {}))}</parameters>` +
         `</edge>`
+      );
+    })
+    .join("\n");
+  const operations = (graph.operations ?? [])
+    .map(
+      (op) =>
+        `    <operation id="${esc(op.id)}" to="${esc(op.to_evidence_id)}"` +
+        `${op.derivation_step ? ` step="${esc(op.derivation_step)}"` : ""}>` +
+        `<label>${esc(op.label)}</label>` +
+        `<inputs>${esc(JSON.stringify(op.inputs))}</inputs>` +
+        `${op.outputs ? `<outputs>${esc(JSON.stringify(op.outputs))}</outputs>` : ""}` +
+        `</operation>`
     )
     .join("\n");
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<derivation_graph target="${esc(graph.target_id)}">\n  <nodes>\n${nodes}\n  </nodes>\n  <edges>\n${edges}\n  </edges>\n</derivation_graph>`;
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<derivation_graph target="${esc(graph.target_id)}" layout="${esc(graph.layout || "dag")}">\n` +
+    `  <nodes>\n${nodes}\n  </nodes>\n` +
+    `  <edges>\n${edges}\n  </edges>\n` +
+    (operations ? `  <operations>\n${operations}\n  </operations>\n` : "") +
+    `</derivation_graph>`
+  );
 }
 
 async function loadThumbnailDataUrl(evidenceId: string, fileType: string): Promise<string | null> {
@@ -83,38 +124,75 @@ export default function DerivationGraphModal({ evidenceId, evidenceName, onClose
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const sorted = [...graph.nodes].sort((a, b) => (a.layer ?? 0) - (b.layer ?? 0));
+      const layers = new Map<number, typeof graph.nodes>();
+      for (const node of graph.nodes) {
+        const layer = node.layer ?? 0;
+        const bucket = layers.get(layer) ?? [];
+        bucket.push(node);
+        layers.set(layer, bucket);
+      }
+      const sortedLayers = [...layers.keys()].sort((a, b) => a - b);
       const nodeW = 120;
-      const nodeH = 100;
-      const edgeW = 140;
+      const nodeH = 108;
+      const hGap = 16;
+      const vGap = 56;
       const pad = 24;
-      const count = sorted.length;
-      const width = pad * 2 + count * nodeW + Math.max(0, count - 1) * edgeW;
-      const height = 220;
+      const maxRow = Math.max(1, ...sortedLayers.map((layer) => layers.get(layer)?.length ?? 0));
+      const width = pad * 2 + maxRow * nodeW + Math.max(0, maxRow - 1) * hGap;
+      const height = pad * 2 + sortedLayers.length * nodeH + Math.max(0, sortedLayers.length - 1) * vGap;
       canvas.width = width;
       canvas.height = height;
 
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, width, height);
 
+      const nodePos = new Map<string, { x: number; y: number }>();
+      sortedLayers.forEach((layer, layerIdx) => {
+        const row = layers.get(layer) ?? [];
+        const rowWidth = row.length * nodeW + Math.max(0, row.length - 1) * hGap;
+        const startX = pad + (width - pad * 2 - rowWidth) / 2;
+        const y = pad + layerIdx * (nodeH + vGap);
+        row.forEach((node, idx) => {
+          const x = startX + idx * (nodeW + hGap);
+          nodePos.set(node.evidence_id, { x, y });
+        });
+      });
+
       const thumbs = await Promise.all(
-        sorted.map((n) => loadThumbnailDataUrl(n.evidence_id, n.file_type))
+        graph.nodes.map((n) => loadThumbnailDataUrl(n.evidence_id, n.file_type))
       );
+      const thumbById = new Map(graph.nodes.map((n, i) => [n.evidence_id, thumbs[i]]));
 
-      for (let i = 0; i < sorted.length; i++) {
-        const x = pad + i * (nodeW + edgeW);
-        const y = pad;
+      for (const edge of graph.edges) {
+        const from = nodePos.get(edge.from_evidence_id);
+        const to = nodePos.get(edge.to_evidence_id);
+        if (!from || !to) continue;
+        const ax = from.x + nodeW / 2;
+        const ay = from.y + nodeH;
+        const bx = to.x + nodeW / 2;
+        const by = to.y;
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+      }
 
-        ctx.strokeStyle = "#e5e7eb";
-        ctx.lineWidth = 1;
+      for (const node of graph.nodes) {
+        const pos = nodePos.get(node.evidence_id);
+        if (!pos) continue;
+        const { x, y } = pos;
+        ctx.strokeStyle = node.is_derived ? "#0369a1" : "#e5e7eb";
+        ctx.lineWidth = node.is_derived ? 2 : 1;
         ctx.strokeRect(x, y, nodeW, nodeH);
 
-        const thumb = thumbs[i];
+        const thumb = thumbById.get(node.evidence_id);
         if (thumb) {
           const img = new Image();
           await new Promise<void>((res) => {
             img.onload = () => {
-              ctx.drawImage(img, x + 30, y + 8, 60, 60);
+              ctx.drawImage(img, x + 30, y + 8, 60, 48);
               res();
             };
             img.onerror = () => res();
@@ -122,47 +200,23 @@ export default function DerivationGraphModal({ evidenceId, evidenceName, onClose
           });
         } else {
           ctx.fillStyle = "#f3f4f6";
-          ctx.fillRect(x + 30, y + 8, 60, 60);
+          ctx.fillRect(x + 30, y + 8, 60, 48);
         }
 
         ctx.fillStyle = "#1a1a2e";
         ctx.font = "10px sans-serif";
         ctx.textAlign = "center";
-        const name = sorted[i].original_filename;
+        const name = node.original_filename;
         const short = name.length > 16 ? name.slice(0, 14) + "…" : name;
-        ctx.fillText(short, x + nodeW / 2, y + nodeH - 28);
+        ctx.fillText(short, x + nodeW / 2, y + nodeH - 30);
+        if (node.technique) {
+          ctx.fillStyle = "#0369a1";
+          ctx.font = "8px sans-serif";
+          ctx.fillText(node.technique, x + nodeW / 2, y + nodeH - 18);
+        }
         ctx.fillStyle = "#6b7280";
         ctx.font = "8px monospace";
-        ctx.fillText(sorted[i].evidence_id.slice(0, 8), x + nodeW / 2, y + nodeH - 14);
-
-        if (i < sorted.length - 1) {
-          const edge = graph.edges.find(
-            (e) => e.from_evidence_id === sorted[i].evidence_id && e.to_evidence_id === sorted[i + 1].evidence_id
-          );
-          if (!edge) continue;
-          const ax = x + nodeW;
-          const ay = y + nodeH / 2;
-          const bx = ax + edgeW;
-          ctx.strokeStyle = "#1a1a2e";
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx - 8, ay);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(bx - 8, ay);
-          ctx.lineTo(bx - 14, ay - 5);
-          ctx.lineTo(bx - 14, ay + 5);
-          ctx.closePath();
-          ctx.fillStyle = "#1a1a2e";
-          ctx.fill();
-
-          const label = edge.procedure_summary || edge.technique || "derivacao";
-          ctx.fillStyle = "#374151";
-          ctx.font = "9px sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText(label, ax + edgeW / 2, ay - 8);
-        }
+        ctx.fillText(node.evidence_id.slice(0, 8), x + nodeW / 2, y + nodeH - 6);
       }
 
       canvas.toBlob((blob) => {

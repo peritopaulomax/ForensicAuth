@@ -21,12 +21,12 @@ export default function FileListSortToggle({ mode, onChange }: FileListSortToggl
     <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
       <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>Ordenar</span>
       <select
-        aria-label="Ordenacao dos arquivos"
+        aria-label="Ordenação dos arquivos"
         value={mode}
         onChange={(e) => onChange(e.target.value as FileListSortMode)}
         style={selectStyle}
       >
-        <option value="upload">Upload</option>
+        <option value="upload">Envio</option>
         <option value="name">Nome</option>
       </select>
     </label>

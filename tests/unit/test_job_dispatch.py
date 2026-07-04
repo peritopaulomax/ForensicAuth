@@ -74,7 +74,7 @@ class TestJobRunnerRouting:
         with patch("services.job_runner.SessionLocal") as session_local:
             session_local.return_value = MagicMock()
             with patch("services.job_runner.JobService", return_value=mock_service):
-                with patch("tasks.analysis_tasks.run_forensic_analysis", mock_task):
+                with patch("tasks.analysis_tasks.run_forensic_analysis_gpu", mock_task):
                     from services.job_runner import run_job_in_background
 
                     run_job_in_background(job_id)

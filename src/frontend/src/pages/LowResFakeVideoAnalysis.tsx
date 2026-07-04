@@ -6,6 +6,7 @@ import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/c
 import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
 import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
 import { useForensicJob } from "@/hooks/useForensicJob";
+import { saveDerivative } from "@/services/evidence";
 import api from "@/services/api";
 
 const META = FORENSIC_TECHNIQUE_META.lowres_fake_video;
@@ -26,8 +27,11 @@ export default function LowResFakeVideoAnalysis() {
   } | null>(null);
   const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
   const [chartUrl, setChartUrl] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const videoUrl = useVideoEvidenceUrl(selectedEvidence);
-  const { running, error, progress, runAnalysis, fetchImage, fetchResultJson, reset } = useForensicJob();
+  const { running, error, progress, currentJobId, runAnalysis, fetchImage, fetchResultJson, reset } =
+    useForensicJob();
 
   useEffect(() => {
     api
@@ -50,6 +54,7 @@ export default function LowResFakeVideoAnalysis() {
       setReport(null);
       setChartUrl(null);
       setSelectedFrame(null);
+      setSaveMessage(null);
     },
     [reset]
   );
@@ -73,6 +78,25 @@ export default function LowResFakeVideoAnalysis() {
         setChartUrl((await fetchImage(jobId, "lfv_scores_chart.png")) ?? null);
       },
     });
+  }
+
+  async function saveDerivativeReport(artifactFilename: string, label: string) {
+    if (!currentJobId) return;
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      await saveDerivative({
+        job_id: currentJobId,
+        artifact_filename: artifactFilename,
+        label,
+        effective_parameters: { sample_every: 5, max_frames: 80 },
+      });
+      setSaveMessage({ type: "ok", text: `${label} salvo no caso.` });
+    } catch (e) {
+      setSaveMessage({ type: "err", text: e instanceof Error ? e.message : "Falha ao salvar derivado." });
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -107,6 +131,51 @@ export default function LowResFakeVideoAnalysis() {
             {report.max_score.toFixed(4)} (frame {report.max_frame_idx})
           </p>
           {chartUrl && <img src={chartUrl} alt="LFV scores" style={{ width: "100%", maxHeight: 220 }} />}
+          {currentJobId && (
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+              <button
+                type="button"
+                onClick={() => void saveDerivativeReport("lfv_report.json", "LFV — relatorio")}
+                disabled={saving}
+                style={{
+                  padding: "0.45rem 0.75rem",
+                  borderRadius: 6,
+                  border: "1px solid #1a1a2e",
+                  background: "#fff",
+                  cursor: saving ? "wait" : "pointer",
+                  fontSize: "0.8rem",
+                }}
+              >
+                {saving ? "Salvando…" : "Salvar relatorio JSON"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveDerivativeReport("lfv_scores_chart.png", "LFV — grafico")}
+                disabled={saving}
+                style={{
+                  padding: "0.45rem 0.75rem",
+                  borderRadius: 6,
+                  border: "1px solid #1a1a2e",
+                  background: "#fff",
+                  cursor: saving ? "wait" : "pointer",
+                  fontSize: "0.8rem",
+                }}
+              >
+                Salvar grafico PNG
+              </button>
+            </div>
+          )}
+          {saveMessage && (
+            <p
+              style={{
+                margin: "0.5rem 0 0",
+                fontSize: "0.78rem",
+                color: saveMessage.type === "ok" ? "#166534" : "#991b1b",
+              }}
+            >
+              {saveMessage.text}
+            </p>
+          )}
           <div style={{ maxHeight: 240, overflow: "auto", marginTop: "0.5rem" }}>
             <table style={{ width: "100%", fontSize: "0.78rem" }}>
               <thead>

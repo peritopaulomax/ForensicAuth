@@ -13,6 +13,7 @@ export default function PDFFontColorAnalysis() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [opacity, setOpacity] = useState(0.42);
   const [bySubset, setBySubset] = useState(false);
+  const [mode, setMode] = useState<"font" | "size">("font");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [legend, setLegend] = useState("");
   const [savingDerivative, setSavingDerivative] = useState<string | null>(null);
@@ -41,7 +42,7 @@ export default function PDFFontColorAnalysis() {
       setPdfUrl(null);
     }
     try {
-      await runAnalysis(selectedId, "pdf_font_color_overlay", { opacity, by_subset: bySubset }, {
+      await runAnalysis(selectedId, "pdf_font_color_overlay", { opacity, by_subset: bySubset, mode }, {
         onArtifactsLoaded: async (jobId, jobResult) => {
           const res = await api.get(`/analysis/${jobId}/result/file?filename=font_overlay.pdf`, {
             responseType: "blob",
@@ -86,8 +87,8 @@ export default function PDFFontColorAnalysis() {
   return (
     <AnalysisPageShell
       caseId={caseId}
-      title="PDF — Overlay por fonte"
-      subtitle="Cores por recurso de fonte. Visualize o PDF com overlay na propria ferramenta."
+      title="PDF — Overlay por fonte / tamanho"
+      subtitle="Cores por recurso de fonte ou heatmap por tamanho. Visualize o PDF com overlay na propria ferramenta."
     >
       <AnalysisPanel title="Evidencia PDF">
         <MediaEvidenceSelector
@@ -133,6 +134,32 @@ export default function PDFFontColorAnalysis() {
           Desmarcado (padrão): uma cor por família de fonte. Marcado: analisa o content stream e
           distingue subsets (ex.: ABCDEF+Arial vs GHIJKL+Arial).
         </p>
+
+        <label style={{ display: "block", marginTop: "0.75rem", fontSize: "0.82rem" }}>
+          Modo de overlay
+          <select
+            value={mode}
+            onChange={(e) => setMode(e.target.value as "font" | "size")}
+            style={{
+              display: "block",
+              width: "100%",
+              maxWidth: 320,
+              marginTop: "0.25rem",
+              padding: "0.35rem 0.5rem",
+              borderRadius: 6,
+              border: "1px solid #d1d5db",
+              background: "#fff",
+            }}
+          >
+            <option value="font">Por fonte (cor por recurso de fonte)</option>
+            <option value="size">Por tamanho (heatmap azul → vermelho)</option>
+          </select>
+        </label>
+        <p style={{ fontSize: "0.78rem", color: "#6b7280", margin: "0.35rem 0 0" }}>
+          {mode === "font"
+            ? "Cada fonte recebe uma cor distinta no PDF."
+            : "Cada tamanho de fonte recebe uma cor: azul (pequeno) → verde → amarelo → vermelho (grande)."}
+        </p>
         <div style={{ marginTop: "1rem" }}>
           <ProcessButton
             onClick={process}
@@ -160,7 +187,9 @@ export default function PDFFontColorAnalysis() {
           />
           {result && (
             <p style={{ fontSize: "0.82rem", color: "#374151", marginTop: 8 }}>
-              {Number(result.fonts_count)} fontes · {Number(result.rectangles)} realces
+              {mode === "size"
+                ? `${Number(result.sizes_count)} tamanhos · ${Number(result.rectangles)} realces`
+                : `${Number(result.fonts_count)} fontes · ${Number(result.rectangles)} realces`}
             </p>
           )}
           {currentJobId && (
@@ -191,7 +220,7 @@ export default function PDFFontColorAnalysis() {
       )}
 
       {legend && (
-        <AnalysisPanel title="Legenda de fontes">
+        <AnalysisPanel title={mode === "size" ? "Legenda de tamanhos" : "Legenda de fontes"}>
           <pre style={{ fontSize: "0.78rem", whiteSpace: "pre-wrap", background: "#f9fafb", padding: 12 }}>
             {legend}
           </pre>

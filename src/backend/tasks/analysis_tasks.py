@@ -11,9 +11,8 @@ from core.gpu_lock import gpu_distributed_lock
 from services.job_service import JobService
 
 
-@celery_app.task(bind=True, max_retries=3)
-def run_forensic_analysis(self, job_id: str) -> dict:
-    """Execute a forensic analysis job."""
+def _execute_job(self, job_id: str) -> dict:
+    """Shared execution logic for CPU and GPU forensic analysis tasks."""
     db = SessionLocal()
     try:
         service = JobService(db)
@@ -48,3 +47,38 @@ def run_forensic_analysis(self, job_id: str) -> dict:
         raise
     finally:
         db.close()
+
+
+@celery_app.task(bind=True, max_retries=3, name="tasks.analysis_tasks.run_forensic_analysis")
+def run_forensic_analysis(self, job_id: str) -> dict:
+    """Legacy dispatcher: executes CPU or GPU task based on technique.
+
+    Prefer dispatching via run_forensic_analysis_cpu/gpu directly.
+    """
+    db = SessionLocal()
+    try:
+        service = JobService(db)
+        job = service.get_job(uuid.UUID(job_id))
+        technique = job.technique
+    finally:
+        db.close()
+
+    if technique in ML_GPU_TECHNIQUES:
+        return run_forensic_analysis_gpu.delay(job_id).get(
+            timeout=celery_app.conf.task_annotations["tasks.analysis_tasks.run_forensic_analysis_gpu"]["time_limit"] + 30
+        )
+    return run_forensic_analysis_cpu.delay(job_id).get(
+        timeout=celery_app.conf.task_annotations["tasks.analysis_tasks.run_forensic_analysis_cpu"]["time_limit"] + 30
+    )
+
+
+@celery_app.task(bind=True, max_retries=3)
+def run_forensic_analysis_cpu(self, job_id: str) -> dict:
+    """Execute a CPU forensic analysis job (10 min hard timeout)."""
+    return _execute_job(self, job_id)
+
+
+@celery_app.task(bind=True, max_retries=3)
+def run_forensic_analysis_gpu(self, job_id: str) -> dict:
+    """Execute a GPU forensic analysis job (1h hard timeout)."""
+    return _execute_job(self, job_id)

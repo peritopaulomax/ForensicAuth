@@ -46,12 +46,16 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - UPLOAD_DIR=/app/uploads
       - RESULTS_DIR=/app/results
+      - DERIVATIVES_DIR=/app/derivatives
+      - PERITUS_CASES_DIR=/app/peritus_cases
       - FORENSICAUTH_IMAGE_TAG=${FORENSICAUTH_IMAGE_TAG:-forensicauth:local-cpu}
       - FORENSICAUTH_IMAGE_DIGEST=${FORENSICAUTH_IMAGE_DIGEST:-}
       - FORENSICAUTH_WORKER_QUEUE=celery
     volumes:
       - ./uploads:/app/uploads
       - ./results:/app/results
+      - ./derivatives:/app/derivatives
+      - ./peritus_cases:/app/peritus_cases
       - ./models:/app/models
     depends_on:
       db:
@@ -73,6 +77,8 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - UPLOAD_DIR=/app/uploads
       - RESULTS_DIR=/app/results
+      - DERIVATIVES_DIR=/app/derivatives
+      - PERITUS_CASES_DIR=/app/peritus_cases
       - GPU_AVAILABLE=false
       - FORENSICAUTH_IMAGE_TAG=${FORENSICAUTH_IMAGE_TAG:-forensicauth:local-cpu}
       - FORENSICAUTH_IMAGE_DIGEST=${FORENSICAUTH_IMAGE_DIGEST:-}
@@ -80,6 +86,8 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./results:/app/results
+      - ./derivatives:/app/derivatives
+      - ./peritus_cases:/app/peritus_cases
       - ./models:/app/models
     depends_on:
       db:

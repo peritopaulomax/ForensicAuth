@@ -89,7 +89,7 @@ export default function BagExtractionAnalysis() {
     <AnalysisPageShell
       caseId={caseId}
       title={FORENSIC_TECHNIQUE_META.bag_extraction.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.bag_extraction} />}
+      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.bag_extraction} techniqueId="bag_extraction" />}
       embedded={embedded}
     >
       <AnalysisPanel title="Evidencia">

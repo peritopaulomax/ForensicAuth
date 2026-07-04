@@ -79,7 +79,7 @@ async function mockCommon(page: Page, role: "admin" | "perito") {
   });
 }
 
-test.describe("MIML admin-only integration", () => {
+test.describe("MIML APSC-Net availability", () => {
   test("admin sees MIML APSC-Net method", async ({ page }) => {
     await mockCommon(page, "admin");
 
@@ -87,14 +87,13 @@ test.describe("MIML admin-only integration", () => {
 
     await expect(page.getByRole("tab", { name: /MIML APSC-Net/i })).toBeVisible();
     await expect(page.getByRole("tab", { name: /MIML APSC-Net/i })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("tab", { name: /MIML CAAA/i })).toHaveCount(0);
   });
 
-  test("perito does not see admin-only MIML methods", async ({ page }) => {
+  test("perito also sees MIML APSC-Net method", async ({ page }) => {
     await mockCommon(page, "perito");
 
     await page.goto("/cases/case-miml/analysis/image-group/dl-manipulacao");
 
-    await expect(page.getByRole("tab", { name: /MIML APSC-Net/i })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /MIML APSC-Net/i })).toBeVisible();
   });
 });

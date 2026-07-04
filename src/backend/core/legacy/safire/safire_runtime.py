@@ -10,7 +10,7 @@ from typing import Optional, Tuple
 SAFIRE_CHECKPOINT = "safire.pth"
 SAM_CHECKPOINT = "sam_vit_b_01ec64.pth"
 SAM_URL = "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"
-# Pasta oficial: https://github.com/mjkwon2021/SAFIRE (Google Drive)
+# Official SAFIRE weights are distributed via the paper's Google Drive folder.
 SAFIRE_DRIVE_FOLDER = "1NRxep2G42OnVwCR9sGdf1iPqhCUrGmv2"
 
 

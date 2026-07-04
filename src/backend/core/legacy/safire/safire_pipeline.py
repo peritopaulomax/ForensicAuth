@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import sys
+import types
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
+from importlib.machinery import ModuleSpec
+from pathlib import Path
 from typing import Any, Callable, Literal
 
 import cv2
@@ -58,11 +62,61 @@ class SafireAnalysisResult:
 
 _predictor_cache: dict[str, Any] = {}
 
+_SAFIRE_VENDOR_MODULE_PREFIXES = (
+    "networks",
+    "segment_anything",
+    "safire_kmeans",
+)
 
-def _ensure_safire_import_path() -> None:
+
+def _install_safire_networks_package(root: str) -> None:
+    networks_dir = Path(root) / "networks"
+    if not networks_dir.is_dir():
+        return
+
+    module = types.ModuleType("networks")
+    module.__file__ = None
+    module.__package__ = "networks"
+    module.__path__ = [str(networks_dir)]  # type: ignore[attr-defined]
+    spec = ModuleSpec("networks", loader=None, is_package=True)
+    spec.submodule_search_locations = [str(networks_dir)]
+    module.__spec__ = spec
+    sys.modules["networks"] = module
+
+
+@contextmanager
+def _safire_vendor_context():
+    """Temporarily isolate SAFIRE's vendor imports from other ML repos.
+
+    Several bundled detectors use top-level package names such as ``networks``.
+    A long-lived worker may already have one of those packages loaded, so SAFIRE
+    must import its official modules with a clean namespace.
+    """
     root = str(safire_repo_dir())
-    if root not in sys.path:
+    inserted = root not in sys.path
+    saved = {
+        key: value
+        for key, value in sys.modules.items()
+        if key in _SAFIRE_VENDOR_MODULE_PREFIXES
+        or any(key.startswith(f"{prefix}.") for prefix in _SAFIRE_VENDOR_MODULE_PREFIXES)
+    }
+    for key in list(saved):
+        sys.modules.pop(key, None)
+    if inserted:
         sys.path.insert(0, root)
+    _install_safire_networks_package(root)
+    try:
+        yield
+    finally:
+        for key in list(sys.modules):
+            if key in _SAFIRE_VENDOR_MODULE_PREFIXES or any(
+                key.startswith(f"{prefix}.") for prefix in _SAFIRE_VENDOR_MODULE_PREFIXES
+            ):
+                sys.modules.pop(key, None)
+        sys.modules.update(saved)
+        if inserted:
+            with suppress(ValueError):
+                sys.path.remove(root)
 
 
 def _report(on_progress: ProgressFn, pct: int, label: str) -> None:
@@ -173,11 +227,6 @@ def _get_predictor(
     if cache_key in _predictor_cache:
         return _predictor_cache[cache_key]
 
-    _ensure_safire_import_path()
-    import torch
-    from segment_anything import sam_model_registry
-    from networks.safire_model import AdaptorSAM
-
     models_dir = resolve_safire_models_dir()
     if models_dir is None:
         raise RuntimeError("Pesos SAFIRE nao encontrados")
@@ -187,35 +236,41 @@ def _get_predictor(
 
     label = "GPU" if device.type == "cuda" else "CPU (lento)"
     _report(on_progress, 12, f"Carregando SAM + SAFIRE em {label}")
-    sam_model = sam_model_registry["vit_b_adaptor"](checkpoint=str(sam_ckpt))
-    safire_model = AdaptorSAM(
-        image_encoder=sam_model.image_encoder,
-        mask_decoder=sam_model.mask_decoder,
-        prompt_encoder=sam_model.prompt_encoder,
-    ).to(device)
+    import torch
 
-    try:
-        checkpoint = torch.load(str(safire_ckpt), map_location=device, weights_only=False)
-    except TypeError:
-        checkpoint = torch.load(str(safire_ckpt), map_location=device)
-    safire_model.load_state_dict(
-        {k.replace("module.", ""): v for k, v in checkpoint["model"].items()}
-    )
-    safire_model.eval()
+    with _safire_vendor_context():
+        from segment_anything import sam_model_registry
+        from networks.safire_model import AdaptorSAM
 
-    if mode == "binary":
-        from networks.safire_predictor_binary import SafirePredictor
-    else:
-        from networks.safire_predictor_multi import SafirePredictor
+        sam_model = sam_model_registry["vit_b_adaptor"](checkpoint=str(sam_ckpt))
+        safire_model = AdaptorSAM(
+            image_encoder=sam_model.image_encoder,
+            mask_decoder=sam_model.mask_decoder,
+            prompt_encoder=sam_model.prompt_encoder,
+        ).to(device)
 
-    predictor = SafirePredictor(
-        safire_model,
-        points_per_side=points_per_side,
-        points_per_batch=points_per_batch,
-        pred_iou_thresh=0,
-        stability_score_thresh=0.0,
-        box_nms_thresh=0.0,
-    )
+        try:
+            checkpoint = torch.load(str(safire_ckpt), map_location=device, weights_only=False)
+        except TypeError:
+            checkpoint = torch.load(str(safire_ckpt), map_location=device)
+        safire_model.load_state_dict(
+            {k.replace("module.", ""): v for k, v in checkpoint["model"].items()}
+        )
+        safire_model.eval()
+
+        if mode == "binary":
+            from networks.safire_predictor_binary import SafirePredictor
+        else:
+            from networks.safire_predictor_multi import SafirePredictor
+
+        predictor = SafirePredictor(
+            safire_model,
+            points_per_side=points_per_side,
+            points_per_batch=points_per_batch,
+            pred_iou_thresh=0,
+            stability_score_thresh=0.0,
+            box_nms_thresh=0.0,
+        )
     _predictor_cache[cache_key] = predictor
     _report(on_progress, 22, f"Modelo SAFIRE pronto ({device.type})")
     return predictor

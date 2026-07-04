@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -28,8 +29,9 @@ def _require_case_mutable(db: Session, case_id: uuid.UUID, user: User) -> Case:
     assert_can_edit_case(db, case, user)
     assert_case_not_closed(case)
     return case
-from services.derivative_service import DerivativeSaveError, DerivativeService
+from services.derivative_service import DerivativeAlreadySaved, DerivativeSaveError, DerivativeService
 from services.evidence_classification import (
+    group_global_references,
     group_references,
     is_case_evidence,
     is_derived,
@@ -74,12 +76,17 @@ class LineageNodeResponse(BaseModel):
     file_type: str
     sha256: str
     is_derived: bool
+    is_synthetic: bool | None = None
+    synthetic_kind: str | None = None
     technique: str | None = None
     parameters: dict | None = None
     procedure_summary: str | None = None
     artifact_role: str | None = None
     derivation_outputs: dict | None = None
     derivation_step: str | None = None
+    source_job_id: str | None = None
+    derivation_group_id: str | None = None
+    legacy_provenance: bool | None = None
     layer: int | None = None
     images_used: int | None = None
 
@@ -90,6 +97,8 @@ class LineageEdgeResponse(BaseModel):
     technique: str | None = None
     parameters: dict = Field(default_factory=dict)
     procedure_summary: str | None = None
+    source_job_id: str | None = None
+    derivation_step: str | None = None
 
 
 class LineageOperationResponse(BaseModel):
@@ -110,6 +119,13 @@ class LineagePhaseResponse(BaseModel):
     node_count: int | None = None
 
 
+class DerivationGroupResponse(BaseModel):
+    derivation_group_id: str
+    source_job_id: str | None = None
+    member_count: int
+    siblings: List[dict] = Field(default_factory=list)
+
+
 class LineageGraphResponse(BaseModel):
     target_id: str
     case_id: str
@@ -120,6 +136,8 @@ class LineageGraphResponse(BaseModel):
     edges: List[LineageEdgeResponse]
     operations: List[LineageOperationResponse] = Field(default_factory=list)
     phases: List[LineagePhaseResponse] = Field(default_factory=list)
+    derivation_groups: List[DerivationGroupResponse] = Field(default_factory=list)
+    legacy_notes: List[str] = Field(default_factory=list)
 
 
 class ReferenceGroupResponse(BaseModel):
@@ -129,8 +147,16 @@ class ReferenceGroupResponse(BaseModel):
     files: List[EvidenceResponse]
 
 
+class GlobalReferenceGroupResponse(BaseModel):
+    reference_type: str
+    group_label: str
+    display_label: str
+    files: List[EvidenceResponse]
+
+
 class CaseReferencesResponse(BaseModel):
     groups: List[ReferenceGroupResponse]
+    global_groups: List[GlobalReferenceGroupResponse]
 
 
 class AudioTechnicalMetadataResponse(BaseModel):
@@ -210,7 +236,7 @@ def upload_prnu_reference(
     current_user: User = Depends(get_current_user),
 ):
     """Upload reference images for PRNU fingerprint generation (custody chain)."""
-    get_accessible_case(db, case_id, current_user)
+    _require_case_mutable(db, case_id, current_user)
     rotulo = group_label.strip()
     if not rotulo:
         raise HTTPException(
@@ -256,7 +282,7 @@ def upload_pdf_structure_reference(
     current_user: User = Depends(get_current_user),
 ):
     """Upload PDFs de referencia para matriz de similaridade estrutural."""
-    get_accessible_case(db, case_id, current_user)
+    _require_case_mutable(db, case_id, current_user)
     rotulo = group_label.strip()
     if not rotulo:
         raise HTTPException(
@@ -305,7 +331,7 @@ def upload_isom_structure_reference(
     current_user: User = Depends(get_current_user),
 ):
     """Upload de videos de referencia para similaridade estrutural ISO BMFF."""
-    get_accessible_case(db, case_id, current_user)
+    _require_case_mutable(db, case_id, current_user)
     rotulo = group_label.strip()
     if not rotulo:
         raise HTTPException(
@@ -356,7 +382,7 @@ def upload_jpeg_structure_reference(
     current_user: User = Depends(get_current_user),
 ):
     """Upload de imagens JPEG de referencia para matriz de estrutura."""
-    get_accessible_case(db, case_id, current_user)
+    _require_case_mutable(db, case_id, current_user)
     rotulo = group_label.strip()
     if not rotulo:
         raise HTTPException(
@@ -407,7 +433,7 @@ def upload_reference(
     The reference image is stored as an evidence record with metadata
     flagging it as a reference for custody chain tracking.
     """
-    get_accessible_case(db, case_id, current_user)
+    _require_case_mutable(db, case_id, current_user)
     rotulo = (group_label or "Padrao").strip() or "Padrao"
     service = EvidenceService(db)
     try:
@@ -446,6 +472,68 @@ def upload_reference(
     )
 
 
+@router.post("/evidences/global-reference-upload", status_code=status.HTTP_201_CREATED, response_model=EvidenceResponse)
+def upload_global_reference(
+    case_id: uuid.UUID = Form(..., description="UUID do caso"),
+    file: UploadFile = File(..., description="Arquivo de referencia"),
+    group_label: str = Form(..., min_length=1, max_length=120, description="Rotulo do grupo de referencias"),
+    reference_type: str = Form(..., pattern="^(imagem|video|audio|pdf)$", description="Tipo da referencia"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload a labeled global reference file (image, video, audio or PDF).
+
+    Reference files are stored as evidence records and grouped by label/type.
+    They become available as selectable inputs across compatible analysis plugins.
+    """
+    _require_case_mutable(db, case_id, current_user)
+    rotulo = (group_label or "Sem rotulo").strip() or "Sem rotulo"
+    ref_type = (reference_type or "").strip().lower()
+    type_map = {
+        "imagem": "imagem",
+        "video": "video",
+        "audio": "audio",
+        "pdf": "pdf",
+    }
+    expected = type_map.get(ref_type)
+
+    service = EvidenceService(db)
+    try:
+        inferred = service._infer_file_type(file.content_type, file.filename or "")
+    except EvidenceUploadError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Tipo de arquivo invalido para referencia '{ref_type}'. Somente arquivos {expected} sao aceitos.",
+        )
+    if inferred != expected:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Tipo de arquivo invalido para referencia '{ref_type}'. Esperado: {expected}, obtido: {inferred}.",
+        )
+
+    try:
+        evidence = service.upload_evidence(
+            case_id=case_id,
+            filename=file.filename or "unknown",
+            mime_type=file.content_type,
+            file_obj=file.file,
+            uploaded_by=current_user.id,
+            extra_metadata={
+                "is_reference": True,
+                "reference_scope": "global",
+                "reference_type": ref_type,
+                "reference_group_label": rotulo,
+            },
+        )
+    except EvidenceUploadError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
+        )
+
+    return _to_evidence_response(evidence)
+
+
 @router.post("/evidences/derivatives", status_code=status.HTTP_201_CREATED, response_model=SaveDerivativeResponse)
 def save_derivative(
     request: SaveDerivativeRequest,
@@ -473,6 +561,12 @@ def save_derivative(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
+    except DerivativeAlreadySaved as e:
+        payload = SaveDerivativeResponse(
+            evidence=_to_evidence_response(e.evidence),
+            message="Este artefato ja foi salvo como evidencia derivada",
+        )
+        return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(payload))
 
     return SaveDerivativeResponse(
         evidence=_to_evidence_response(derivative),
@@ -487,7 +581,8 @@ def delete_evidence(
     current_user: User = Depends(get_current_user),
 ):
     """Delete an evidence file after recording the action in the custody chain."""
-    get_accessible_evidence(db, evidence_id, current_user)
+    evidence = get_accessible_evidence(db, evidence_id, current_user)
+    _require_case_mutable(db, evidence.case_id, current_user)
     service = EvidenceService(db)
     try:
         service.delete_evidence(evidence_id, deleted_by=current_user.id)
@@ -670,7 +765,8 @@ def list_case_references(
         .order_by(Evidence.created_at.desc())
         .all()
     )
-    grouped = group_references(evidences)
+    plugin_groups = group_references(evidences)
+    global_groups = group_global_references(evidences)
     return CaseReferencesResponse(
         groups=[
             ReferenceGroupResponse(
@@ -679,8 +775,17 @@ def list_case_references(
                 display_label=g["display_label"],
                 files=[_to_evidence_response(e) for e in g["evidences"]],
             )
-            for g in grouped
-        ]
+            for g in plugin_groups
+        ],
+        global_groups=[
+            GlobalReferenceGroupResponse(
+                reference_type=g["reference_type"],
+                group_label=g["group_label"],
+                display_label=g["display_label"],
+                files=[_to_evidence_response(e) for e in g["evidences"]],
+            )
+            for g in global_groups
+        ],
     )
 
 

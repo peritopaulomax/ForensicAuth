@@ -25,6 +25,7 @@ const AUDIO_TECHNIQUES = new Set([
   "audio_ltas",
   "audio_levels",
   "audio_dc_local",
+  "audio_spoofing_detection",
 ]);
 
 const ML_TECHNIQUES = new Set([
@@ -34,9 +35,10 @@ const ML_TECHNIQUES = new Set([
   "noiseprint",
   "imdlbenco",
   "videofact",
-  "distildire",
   "stil_video_detection",
   "lowres_fake_video",
+  "presentation_attack_detection",
+  "audio_spoofing_detection",
 ]);
 
 function defaultMaxWaitMs(technique: string): number {

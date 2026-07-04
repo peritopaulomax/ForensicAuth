@@ -165,7 +165,7 @@ export default function ResamplingAnalysis() {
     <AnalysisPageShell
       caseId={caseId}
       title={FORENSIC_TECHNIQUE_META.resampling.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.resampling} />}
+      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.resampling} techniqueId="resampling" />}
       embedded={embedded}
     >
       <AnalysisPanel title="Evidencia">

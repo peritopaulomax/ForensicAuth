@@ -137,17 +137,15 @@ def analyze_single_channel(c, L, ncanais, samples_per_block, sample_rate, channe
     # Seleciona canal
     a = dados[:, channel::ncanais]
     
-    # >>>>> INÍCIO DA CORREÇÃO <<<<<
-    # O cálculo do número de colunas (L2[1]) agora usa 'ncanais' para ser dinâmico
-    num_colunas_reshape = a.shape[1] // (nppcpb * (8 // ncanais) ) if ncanais > 0 else 0
-    
-    # Verificação de consistência para o reshape
+    # O cálculo do número de colunas (L2[1]) usa 'ncanais' para ser dinâmico.
+    num_colunas_reshape = a.shape[1] // (nppcpb * (8 // ncanais)) if ncanais > 0 else 0
+
+    # Verificação de consistência para o reshape.
     if a.size != (8 * nppcpb) * num_colunas_reshape:
-        # Tenta uma lógica alternativa para o reshape que usa o tamanho de 'a' diretamente
+        # Lógica alternativa que usa o tamanho de 'a' diretamente.
         num_colunas_reshape = a.size // (8 * nppcpb)
 
     a = a.reshape(8 * nppcpb, num_colunas_reshape, order='F')
-    # >>>>> FIM DA CORREÇÃO <<<<<
     
     L2 = a.shape
     
@@ -308,21 +306,17 @@ def check_ima_adpcm_consistency_full(filename, analyze_all_channels=True, export
         
     return resultados_canais
 
-# --- Cell 5 ---
-# === CONFIGURAÇÃO DA ANÁLISE ===
-
-# Coloque o nome do seu arquivo WAV aqui
-nome_do_arquivo = 'Dep.Almerinda solicita extratos.WAV'
-
-# Descomente a linha abaixo para executar a análise
-try:
-     resultados = check_ima_adpcm_consistency_full(
-         nome_do_arquivo, 
-         analyze_all_channels=True,
-         export_report=True
-     )
-except FileNotFoundError:
-     print(f'\n[ERRO] Arquivo não encontrado: "{nome_do_arquivo}"\nVerifique o nome e o caminho do arquivo.')
-except ValueError as e:
-     print(f'\n[ERRO] Ocorreu um problema ao ler o arquivo: {e}')
+if __name__ == "__main__":
+    # Exemplo de uso local; substitua pelo caminho do arquivo de interesse.
+    nome_do_arquivo = "exemplo.wav"
+    try:
+        resultados = check_ima_adpcm_consistency_full(
+            nome_do_arquivo,
+            analyze_all_channels=True,
+            export_report=True,
+        )
+    except FileNotFoundError:
+        print(f'\n[ERRO] Arquivo não encontrado: "{nome_do_arquivo}"\nVerifique o nome e o caminho do arquivo.')
+    except ValueError as e:
+        print(f'\n[ERRO] Ocorreu um problema ao ler o arquivo: {e}')
 

@@ -1,4 +1,4 @@
-"""Adapter — detecção de imagens sintéticas (ensemble CNN + FFT + Effort)."""
+"""Adapter — detecção de imagens sintéticas (ensemble HuggingFace + B-Free + Corvi2023)."""
 
 from __future__ import annotations
 
@@ -11,12 +11,20 @@ from PIL import Image
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
 from core.legacy.synthetic_image_detection.pipeline import (
+    VALID_SYNTHETIC_ANALYSES,
     _as_rgb,
     run_synthetic_image_detection_analysis,
 )
 from core.legacy.synthetic_image_detection.runtime import runtime_status
 from core.progress import pop_progress_callback, report_progress
+from core.synthetic_lr_reference import (
+    DEFAULT_SCORE_MATRIX,
+    META_CLASSIFIERS,
+    compute_reference_lr,
+)
 from core.technique_ids import SYNTHETIC_IMAGE_DETECTION
+
+_AUGMENTED_SCORE_MATRIX = Path(__file__).resolve().parents[4] / "outputs" / "lr_calibration" / "score_matrices" / "lr_scores_balanced_full_augmented.csv"
 
 _SCORE_HEADERS = ("Modelo", "Score AI", "Score Real", "Razão (Log)", "Classificação", "Dispositivo")
 
@@ -32,7 +40,7 @@ def _write_model_scores_txt(out_dir: Path, rows: list[list[str]]) -> Path:
 
 
 class SyntheticImageDetectionAdapter(ForensicPlugin):
-    """Ensemble ai-image-detector, sdxl-flux-detector, XGBoost (FFT) e Effort."""
+    """Ensemble ai-image-detector, sdxl-flux-detector, B-Free e Corvi2023/CLIP-D."""
 
     @property
     def name(self) -> str:
@@ -53,6 +61,24 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
         mode = parameters.get("mode", "full")
         if mode not in ("full", "fast"):
             return False, "mode deve ser 'full' ou 'fast'"
+        selected = parameters.get("selected_analyses")
+        if selected is not None:
+            if not isinstance(selected, list):
+                return False, "selected_analyses deve ser uma lista"
+            normalized = {str(item).strip() for item in selected if str(item).strip()}
+            if not normalized:
+                return False, "Selecione pelo menos uma analise de deteccao sintetica"
+            invalid = sorted(normalized - VALID_SYNTHETIC_ANALYSES)
+            if invalid:
+                return False, "Analises sinteticas invalidas: " + ", ".join(invalid)
+        classifier = parameters.get("meta_classifier")
+        if classifier is not None and str(classifier).lower().strip() not in META_CLASSIFIERS:
+            return False, "meta_classifier deve ser um de: " + ", ".join(META_CLASSIFIERS)
+        use_aug = parameters.get("use_augmented_reference")
+        if use_aug is not None and not isinstance(use_aug, bool):
+            return False, "use_augmented_reference deve ser booleano"
+        if use_aug and not _AUGMENTED_SCORE_MATRIX.is_file():
+            return False, "Score matrix aumentado nao encontrado; gere as variantes primeiro."
         return True, ""
 
     def analyze(self, evidence_path: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
@@ -75,10 +101,12 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
             mode = str(parameters.get("mode", "full"))
             if mode == "fast":
                 generate_visuals = False
+            selected_analyses = parameters.get("selected_analyses")
 
             analysis = run_synthetic_image_detection_analysis(
                 image,
                 generate_visuals=generate_visuals,
+                selected_analyses=selected_analyses,
                 on_progress=on_progress,
             )
 
@@ -104,14 +132,53 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
                 "status": "completed",
                 "mode": mode,
                 "generate_visuals": generate_visuals,
+                "selected_analyses": analysis.get("selected_analyses", selected_analyses),
                 "inference_device": analysis.get("inference_device", "cpu"),
                 "individual_results": analysis["individual_results"],
+                "detector_scores": analysis.get("detector_scores", {}),
                 "model_scores_txt_path": str(scores_path),
                 "model_scores_filename": "model_scores.txt",
                 "input_image_path": save_pil(analysis.get("input_image"), "input_image"),
                 "input_fft_image_path": save_pil(analysis.get("input_fft"), "input_fft"),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+
+            if bool(parameters.get("reference_lr_enabled", False)):
+                report_progress(on_progress, 96, "Calibrando LR com populacao de referencia…")
+                try:
+                    use_augmented = bool(parameters.get("use_augmented_reference"))
+                    score_matrix = _AUGMENTED_SCORE_MATRIX if use_augmented else DEFAULT_SCORE_MATRIX
+                    # 1 original + 4 augmentations (jpeg_85, webp_80, crop_upscale, resize_down_50)
+                    sample_multiplier = 5 if use_augmented else 1
+                    lr_report = compute_reference_lr(
+                        detector_scores=analysis.get("detector_scores", {}),
+                        selection=parameters.get("reference_population"),
+                        out_dir=out_dir,
+                        score_matrix=score_matrix,
+                        selected_detectors=tuple(
+                            selected_analyses
+                            or (
+                                "ai_image_detector_deploy",
+                                "sdxl_flux_detector_v1_1",
+                                "bfree",
+                                "corvi2023",
+                                "safe",
+                            )
+                        ),
+                        classifier=str(parameters.get("meta_classifier", "logistic")).lower().strip(),
+                        sample_multiplier=sample_multiplier,
+                    )
+                    result["reference_lr"] = lr_report
+                    result["reference_lr_report_filename"] = "lr_reference_report.json"
+                    result["reference_lr_summary_filename"] = lr_report["artifact_filenames"]["summary"]
+                    result["reference_lr_tippett_filename"] = lr_report["artifact_filenames"]["tippett"]
+                    result["reference_lr_distribution_filename"] = lr_report["artifact_filenames"]["distribution"]
+                    result["reference_lr_identity_filename"] = lr_report["artifact_filenames"]["identity"]
+                except Exception as exc:
+                    result["reference_lr"] = {
+                        "success": False,
+                        "error": str(exc),
+                    }
 
             visual_map = {
                 "nlm_residue_image_path": "nlm_residue",

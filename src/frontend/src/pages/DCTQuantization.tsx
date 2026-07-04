@@ -455,7 +455,7 @@ export default function DCTQuantization() {
           {FORENSIC_TECHNIQUE_META.dct_quantization.title}
         </h1>
       )}
-      <TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.dct_quantization} />
+      <TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.dct_quantization} techniqueId="dct_quantization" />
 
       {caseId && showEvidencePicker && (
         <ImageEvidenceSelector

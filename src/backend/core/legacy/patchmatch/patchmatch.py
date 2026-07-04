@@ -467,8 +467,6 @@ class PatchMatch:
 
     def iterate(self):
         """Run one iteration of the PatchMatch algorithm."""
-        # assert self.n_performed_iteration < MAX_N_ITERATIONS, \
-        #     "Max number of iterations reached. Please increase the value of MAX_N_ITERATIONS to go further." 
         for _ in range(2):
             self.scan()
             self.random_search()

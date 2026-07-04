@@ -82,7 +82,7 @@ export default function DoubleCompressionAnalysis() {
     <AnalysisPageShell
       caseId={caseId}
       title={FORENSIC_TECHNIQUE_META.double_compression.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.double_compression} />}
+      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.double_compression} techniqueId="double_compression" />}
       embedded={embedded}
     >
       <AnalysisPanel title="Evidencia (JPEG)">

@@ -53,7 +53,7 @@ export default function Analysis() {
             value={evidenceId}
             onChange={(e) => setEvidenceId(e.target.value)}
             required
-            placeholder="UUID da evidência"
+            placeholder="ID da evidência"
           />
         </div>
 

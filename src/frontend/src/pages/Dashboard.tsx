@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { listTechniques } from "@/services/analysis";
 import { useAuthStore } from "@/store/authStore";
 
-export default function Dashboard() {
+export default function Painel() {
   const { restoreSession, user } = useAuthStore();
 
   useEffect(() => {
@@ -17,7 +17,7 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard">
-      <h2>Dashboard</h2>
+      <h2>Painel</h2>
       {user && (
         <p>
           Bem-vindo, <strong>{user.username}</strong> ({user.role})

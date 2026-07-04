@@ -11,12 +11,12 @@ Implementar adaptadores forenses para todas as tecnicas de analise de audio dos 
 | `mp3_parser` | Analise MP3.ipynb | Parser binario puro (struct) | Nao |
 | `opus_parser` | Analise_Opus.ipynb | Parser binario puro (struct) | Nao |
 | `wav_ima_adpcm` | Analise de Consistencia Indice WAV IMA ADPCM.ipynb | numpy + struct | Nao |
-| `audio_enf` | interface_gradio_Paulo.ipynb (aba ENF) | scipy (FIR, Hilbert) | Nao |
-| `audio_quantization` | interface_gradio_Paulo.ipynb (aba Quantizacao) | numpy + matplotlib | Nao |
-| `audio_dc_local` | interface_gradio_Paulo.ipynb (aba DC Local) | numpy | Nao |
-| `audio_spectrogram` | interface_gradio_Paulo.ipynb (aba Espectrograma) | `scipy.signal.spectrogram` | Nao |
-| `audio_ltas` | interface_gradio_Paulo.ipynb (aba LTAS) | scipy.signal (Welch) | Nao |
-| `audio_stereo_residual` | interface_gradio_Paulo.ipynb (Residuo Estereo) | numpy | Nao |
+| `audio_enf` | notebook legado de analise de audio (aba ENF) | scipy (FIR, Hilbert) | Nao |
+| `audio_quantization` | notebook legado de analise de audio (aba Quantizacao) | numpy + matplotlib | Nao |
+| `audio_dc_local` | notebook legado de analise de audio (aba DC Local) | numpy | Nao |
+| `audio_spectrogram` | notebook legado de analise de audio (aba Espectrograma) | `scipy.signal.spectrogram` | Nao |
+| `audio_ltas` | notebook legado de analise de audio (aba LTAS) | scipy.signal (Welch) | Nao |
+| `audio_stereo_residual` | notebook legado de analise de audio (Residuo Estereo) | numpy | Nao |
 
 ## Interfaces Publicas
 

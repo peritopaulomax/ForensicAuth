@@ -1,0 +1,30 @@
+{
+  "case_title": "reais",
+  "case_id": "0d106fc5033c45e794db4639e221c8a1",
+  "requested_name": "reais",
+  "total_images": 1366,
+  "processed_ok": 1366,
+  "errors_count": 0,
+  "device": "cuda",
+  "mode": "local",
+  "domain": "general",
+  "k": 500,
+  "m": 400,
+  "mean_likelihood": -1091.112818839435,
+  "std_likelihood_sample": 222.33855490243843,
+  "std_likelihood_population": 222.25715692976638,
+  "min_likelihood": {
+    "filename": "n01632777_15240.JPEG",
+    "likelihood": -1962.9649658203125,
+    "index": 108
+  },
+  "max_likelihood": {
+    "filename": "ILSVRC2012_val_00041751.JPEG",
+    "likelihood": -526.76171875,
+    "index": 536
+  },
+  "errors": [],
+  "results_tsv": "/home/bfl-pcf/VA Suite/tmp-clide-reais-local.tsv",
+  "finished_at": "2026-06-21T12:50:17",
+  "elapsed_seconds": 62.389010429382324
+}

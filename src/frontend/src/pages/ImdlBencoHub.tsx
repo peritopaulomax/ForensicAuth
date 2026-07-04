@@ -189,7 +189,7 @@ export default function ImdlBencoHub() {
   return (
     <AnalysisPageShell
       caseId={caseId!}
-      title="IMDL-BenCo — Hub de Localizacao"
+      title="IMDL-BenCo — Hub de Localização"
       subtitle="NeurIPS'24 Spotlight · benchmark modular para deteccao e localizacao de manipulacao."
     >
       <AnalysisPanel title="Metodos do benchmark">

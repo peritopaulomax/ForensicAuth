@@ -3,7 +3,7 @@ import BrandIdentity from "@/components/brand/BrandIdentity";
 import { useAuthStore } from "@/store/authStore";
 import { resolveContentWidth, useContentWidthMode, type ContentWidthMode } from "@/lib/contentWidth";
 
-export default function Layout({ children }: { children: React.ReactNode }) {
+export default function Disposição({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { logout, user } = useAuthStore();
@@ -19,7 +19,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const mainClass = resolvedWidth === "wide" ? "main-content main-content--wide" : "main-content";
 
   const widthOptions: { id: ContentWidthMode; label: string }[] = [
-    { id: "auto", label: "Auto" },
+    { id: "auto", label: "Automático" },
     { id: "compact", label: "Compacto" },
     { id: "wide", label: "Expandido" },
   ];
@@ -30,14 +30,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <BrandIdentity variant="navbar" showModuleDescription={false} />
         <ul className="nav-links">
           <li>
-            <Link to="/" className={isActive("/") && !location.pathname.startsWith("/users") ? "active" : ""}>
+            <Link to="/" className={isActive("/") && !location.pathname.startsWith("/users") && !location.pathname.startsWith("/dashboard") ? "active" : ""}>
               Casos
+            </Link>
+          </li>
+          <li>
+            <Link to="/dashboard" className={isActive("/dashboard") ? "active" : ""}>
+              Dashboard
             </Link>
           </li>
           {user?.role === "admin" && (
             <li>
               <Link to="/users" className={isActive("/users") ? "active" : ""}>
-                Usuarios
+                Usuários
               </Link>
             </li>
           )}
@@ -45,9 +50,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="nav-user">
           <div
             className="content-width-toggle"
-            title="Largura do conteudo — Expandido usa quase toda a largura da janela do navegador (vw). Auto aplica expandido em paginas de analise."
+            title="Largura do conteúdo — Expandido usa quase toda a largura da janela do navegador. Automático aplica expandido em páginas de análise."
           >
-            <span className="content-width-toggle__label">Layout</span>
+            <span className="content-width-toggle__label">Disposição</span>
             {widthOptions.map((opt) => (
               <button
                 key={opt.id}

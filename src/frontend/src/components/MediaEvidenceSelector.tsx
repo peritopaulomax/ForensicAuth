@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listCaseEvidences } from "@/services/evidence";
+import GlobalReferencesSelector from "@/components/GlobalReferencesSelector";
 import SelectableEvidenceList from "@/components/SelectableEvidenceList";
 import PeritusAnalysisFileSection from "@/components/PeritusAnalysisFileSection";
 import { resolvePeritusFileForAnalysis } from "@/services/peritus";
@@ -81,6 +82,14 @@ export default function MediaEvidenceSelector({
           emptyMessage={`Nenhuma evidência de ${fileType} neste caso.`}
         />
       )}
+      <GlobalReferencesSelector
+        caseId={caseId}
+        fileType={fileType}
+        selectedId={selectedPeritusPath ? null : selectedId}
+        onSelect={handleSelectEvidence}
+        radioName={`${radioName}-global-reference`}
+      />
+
       <PeritusAnalysisFileSection
         caseId={caseId}
         fileType={fileType}

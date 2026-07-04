@@ -4,7 +4,7 @@ import os
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "ForensicAuth Forense Digital"
     APP_VERSION: str = "0.1.0"
+    ENVIRONMENT: str = Field(default="development")
     DEBUG: bool = Field(default=False)
 
     # Database
@@ -31,13 +32,40 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = Field(default="change-me-in-production-forensicauth-2026")
     ALGORITHM: str = Field(default="HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=480)
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30)
+
+    @model_validator(mode="after")
+    def _validate_production_secrets(self):
+        """Enforce secure secrets and CORS in production environments."""
+        if self.ENVIRONMENT.lower() == "production":
+            insecure_defaults = (
+                "change-me-in-production-forensicauth-2026",
+                "change-me",
+                "",
+            )
+            if self.SECRET_KEY in insecure_defaults:
+                raise ValueError(
+                    "SECRET_KEY deve ser configurado com valor seguro em producao"
+                )
+            if not self.CUSTODY_SIGNING_PRIVATE_KEY:
+                raise ValueError(
+                    "CUSTODY_SIGNING_PRIVATE_KEY deve ser configurada em producao"
+                )
+            for origin in self.CORS_ORIGINS:
+                lowered = origin.lower()
+                if "localhost" in lowered or "127.0.0.1" in lowered or "::1" in lowered:
+                    raise ValueError(
+                        "CORS_ORIGINS nao pode conter localhost/127.0.0.1 em producao"
+                    )
+        return self
 
     # Storage
     UPLOAD_DIR: str = Field(default="./uploads")
     RESULTS_DIR: str = Field(default="./results")
     DERIVATIVES_DIR: str = Field(default="./derivatives")
-    JOB_PREVIEW_RETENTION_DAYS: int = Field(default=7, ge=0, le=365)
+    JOB_PREVIEW_RETENTION_DAYS: int = Field(default=0, ge=0, le=365)
+    JOB_PREVIEW_DAILY_CLEANUP: bool = Field(default=True)
+    JOB_PREVIEW_CLEANUP_HOUR: int = Field(default=2, ge=0, le=23)
     PERITUS_CASES_DIR: str = Field(default="./peritus_cases")
     MODELS_DIR: str = Field(default="./models")
 

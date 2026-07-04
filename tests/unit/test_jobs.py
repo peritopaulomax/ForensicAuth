@@ -134,7 +134,7 @@ class TestJobService:
         updated = service.get_job(job.id)
         assert updated.status == "completed"
         assert updated.completed_at is not None
-        assert updated.artifact_sha256 is None
+        assert updated.artifact_sha256 is not None
         assert isinstance(updated.runtime_manifest, dict)
         assert updated.runtime_manifest.get("kind") == "job_execution_receipt"
         assert updated.runtime_manifest.get("execution_digest")

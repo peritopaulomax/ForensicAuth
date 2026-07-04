@@ -9,8 +9,10 @@ import numpy as np
 import pytest
 
 from core.reproducibility import (
+    MODEL_HASH_CACHE_FILENAME,
     REPRODUCIBILITY_REGISTRY,
     _model_file_hashes,
+    _model_hash_cache_path,
     build_job_execution_receipt,
     build_reproducibility_record,
     build_runtime_manifest,
@@ -36,6 +38,127 @@ class TestRuntimeManifest:
         weight.write_bytes(b"weight-v2-longer-content")
         third = _model_file_hashes(str(models))
         assert third != first
+
+    def test_persistent_cache_created_and_reused_across_restarts(self, tmp_path, monkeypatch):
+        models = tmp_path / "models"
+        models.mkdir()
+        weight = models / "demo.pth"
+        weight.write_bytes(b"weight-v1")
+
+        clear_model_file_hash_cache()
+        first = _model_file_hashes(str(models))
+        cache_path = _model_hash_cache_path(str(models))
+        assert cache_path.is_file()
+
+        clear_model_file_hash_cache()
+        sha_calls = []
+        original_sha = __import__("core.reproducibility", fromlist=["_sha256_file"])._sha256_file
+
+        def counting_sha(path):
+            sha_calls.append(path)
+            return original_sha(path)
+
+        monkeypatch.setattr("core.reproducibility._sha256_file", counting_sha)
+        second = _model_file_hashes(str(models))
+        assert second == first
+        assert len(sha_calls) == 0, "persistent cache should be reused without re-hashing files"
+
+    def test_persistent_cache_invalidated_when_model_changes(self, tmp_path):
+        models = tmp_path / "models"
+        models.mkdir()
+        weight = models / "demo.pth"
+        weight.write_bytes(b"weight-v1")
+
+        clear_model_file_hash_cache()
+        first = _model_file_hashes(str(models))
+        assert _model_hash_cache_path(str(models)).is_file()
+
+        clear_model_file_hash_cache()
+        weight.write_bytes(b"weight-v2-longer-content")
+        second = _model_file_hashes(str(models))
+        assert second != first
+
+    def test_persistent_cache_invalidated_when_hmac_tampered(self, tmp_path):
+        models = tmp_path / "models"
+        models.mkdir()
+        weight = models / "demo.pth"
+        weight.write_bytes(b"weight-v1")
+
+        clear_model_file_hash_cache()
+        first = _model_file_hashes(str(models))
+        cache_path = _model_hash_cache_path(str(models))
+
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data["hmac"] = "0" * 64
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+
+        clear_model_file_hash_cache()
+        second = _model_file_hashes(str(models))
+        assert second == first
+        # Cache should have been regenerated (HMAC mismatch) and rewritten.
+        fresh = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert fresh["hmac"] != "0" * 64
+
+    def test_persistent_cache_invalidated_when_schema_version_changes(self, tmp_path):
+        models = tmp_path / "models"
+        models.mkdir()
+        weight = models / "demo.pth"
+        weight.write_bytes(b"weight-v1")
+
+        clear_model_file_hash_cache()
+        _model_file_hashes(str(models))
+        cache_path = _model_hash_cache_path(str(models))
+
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data["cache_schema_version"] = "legacy"
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+
+        clear_model_file_hash_cache()
+        second = _model_file_hashes(str(models))
+        assert second == {"demo.pth": hashlib.sha256(b"weight-v1").hexdigest()}
+
+    def test_persistent_cache_uses_fallback_key_when_secret_key_missing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SECRET_KEY", "")
+        models = tmp_path / "models"
+        models.mkdir()
+        weight = models / "demo.pth"
+        weight.write_bytes(b"weight-v1")
+
+        clear_model_file_hash_cache()
+        first = _model_file_hashes(str(models))
+        cache_path = _model_hash_cache_path(str(models))
+        assert cache_path.is_file()
+
+        clear_model_file_hash_cache()
+        second = _model_file_hashes(str(models))
+        assert second == first
+
+    def test_persistent_cache_invalidated_after_system_reboot(self, tmp_path, monkeypatch):
+        models = tmp_path / "models"
+        models.mkdir()
+        weight = models / "demo.pth"
+        weight.write_bytes(b"weight-v1")
+
+        clear_model_file_hash_cache()
+        monkeypatch.setattr("core.reproducibility._system_boot_time", lambda: 1_000_000)
+        first = _model_file_hashes(str(models))
+        cache_path = _model_hash_cache_path(str(models))
+        assert cache_path.is_file()
+
+        clear_model_file_hash_cache()
+        sha_calls = []
+        original_sha = __import__("core.reproducibility", fromlist=["_sha256_file"])._sha256_file
+
+        def counting_sha(path):
+            sha_calls.append(path)
+            return original_sha(path)
+
+        monkeypatch.setattr("core.reproducibility._sha256_file", counting_sha)
+        # Simulate a system reboot by changing the reported boot time.
+        monkeypatch.setattr("core.reproducibility._system_boot_time", lambda: 2_000_000)
+        second = _model_file_hashes(str(models))
+        assert second == first
+        assert len(sha_calls) == 1, "cache must be invalidated after system reboot and files re-hashed"
 
     def test_build_runtime_manifest_has_schema_version(self):
         manifest = build_runtime_manifest(

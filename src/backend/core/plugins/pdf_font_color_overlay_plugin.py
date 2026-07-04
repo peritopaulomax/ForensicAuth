@@ -24,6 +24,9 @@ class PDFFontColorOverlayPlugin(ForensicPlugin):
         op = float(parameters.get("opacity", 0.42))
         if not 0.05 <= op <= 1.0:
             return False, "opacity deve estar entre 0.05 e 1.0"
+        mode = str(parameters.get("mode", "font")).lower()
+        if mode not in ("font", "size"):
+            return False, "mode deve ser 'font' ou 'size'"
         return True, ""
 
     def analyze(self, evidence_path: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
@@ -31,6 +34,7 @@ class PDFFontColorOverlayPlugin(ForensicPlugin):
         by_subset = parameters.get("by_subset", False)
         if isinstance(by_subset, str):
             by_subset = by_subset.lower() not in ("0", "false", "no")
+        mode = str(parameters.get("mode", "font")).lower()
 
         tmpdir = job_artifact_dir(parameters, fallback_subdir="pdf_fontmap_tmp")
         out_pdf = tmpdir / "font_overlay.pdf"
@@ -42,6 +46,7 @@ class PDFFontColorOverlayPlugin(ForensicPlugin):
                 out_txt,
                 opacity=opacity,
                 by_subset=bool(by_subset),
+                mode=mode,
             )
             legend_text = out_txt.read_text(encoding="utf-8") if out_txt.exists() else ""
             return {
@@ -52,8 +57,10 @@ class PDFFontColorOverlayPlugin(ForensicPlugin):
                 "legend_txt_path": str(out_txt),
                 "legend_preview": legend_text[:4000],
                 "fonts_count": meta.get("fonts_count"),
+                "sizes_count": meta.get("sizes_count"),
                 "rectangles": meta.get("rectangles"),
                 "fonts": meta.get("fonts"),
+                "sizes": meta.get("sizes"),
                 "mode": meta.get("mode"),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }

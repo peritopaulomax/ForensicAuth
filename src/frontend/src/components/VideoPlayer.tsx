@@ -87,7 +87,7 @@ export default function VideoPlayer({
         <span>
           Frame ~{frameApprox} · {currentTime.toFixed(2)}s / {duration.toFixed(2)}s
         </span>
-        <span>fps ref. {fps}</span>
+        <span>fps de referência: {fps}</span>
       </div>
     </div>
   );

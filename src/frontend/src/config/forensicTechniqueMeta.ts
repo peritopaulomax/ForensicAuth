@@ -112,18 +112,6 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
     detail:
       "Extrai o padrão de ruído de referência do sensor (fingerprint PRNU) a partir de imagens de referência ou derivados agregados, e correlaciona com a evidência questionada. Entrega PCE, mapa de correlação e superfície 3D de correlação cruzada.",
   },
-  distildire: {
-    title: "DistilDIRE — Detecção de Imagens Sintéticas por Difusão",
-    citation:
-      "LIM, Yewon et al. DistilDIRE: A Small, Fast, Cheap and Lightweight Diffusion Synthesized Deepfake Detection. In: ICML 2024 Workshop on Foundation Models in the Wild, 2024.",
-    cardSubtitle: "DDIM 1 passo + ResNet-50 · reconstrucao DIRE leve",
-    detail:
-      "Reconstrói o ruido do primeiro passo DDIM (modelo ADM 256×256) e classifica imagem+ruido com DistilDIRE treinado. Indicado para imagens geradas por difusao (Stable Diffusion, DALL·E, etc.).",
-    summary:
-      "Entrega probabilidade de imagem sintetica, classificacao REAL/FAKE e mapa visual do epsilon DDIM.",
-    license: "CC BY-NC 4.0",
-    repoUrl: "https://github.com/miraflow/DistilDIRE",
-  },
   safire: {
     title: "SAFIRE — Localização de Falsificação",
     citation:
@@ -262,6 +250,30 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
       "Amostra frames com detecção de rosto e classifica cada frame com baseline Xception treinada no FaceForensics++, agregando scores temporais para decisão do vídeo.",
     repoUrl: "https://github.com/lukasHoel/fake-video-detection",
   },
+  presentation_attack_detection: {
+    title: "Detecção de Ataques de Apresentação",
+    citation:
+      "Baseado em multi-scale CNN + frequency supervision, inspirada pela linha de auxiliary supervision:\n\nLIU, Yaojie; JOURABLOO, Amin; LIU, Xiaoming. Learning Deep Models for Face Anti-Spoofing: Binary or Auxiliary Supervision. In: IEEE/CVF CONFERENCE ON COMPUTER VISION AND PATTERN RECOGNITION (CVPR). 2018.\n\nWANG, Guoqing et al. Deep Spatial Gradient and Temporal Depth Learning for Face Anti-spoofing. In: IEEE/CVF CONFERENCE ON COMPUTER VISION AND PATTERN RECOGNITION (CVPR). 2020.\n\nGEORGE, Anjith; MARCEL, Sébastien. Bi-FPNFAS: Bi-Directional Feature Pyramid Network for Pixel-Wise Face Anti-Spoofing by Leveraging Fourier Spectra. Sensors, 2021.\n\nSilent-Face-Anti-Spoofing. Minivision AI, 2020. Disponível em: <https://github.com/minivision-ai/Silent-Face-Anti-Spoofing>. Acesso em: 22 jun. 2026.",
+    cardSubtitle: "MiniFASNet + RetinaFace · multi-scale CNN + frequency supervision",
+    detail:
+      "Técnica baseada no repositório open-source MiniVision Silent-Face-Anti-Spoofing, que implementa detecção passiva de vivacidade facial com arquitetura leve MiniFASNet e supervisão auxiliar em domínio de frequência. Detecta a face principal com RetinaFace e classifica recortes multi-escala para distinguir rostos reais de ataques de apresentação (foto impressa, tela de dispositivo, máscara). Retorna label, score de confiança e bounding box sobreposto na imagem.",
+    summary:
+      "Execução 100% local. Fila GPU com fallback CPU. Apenas face principal no v0.",
+    license: "Apache-2.0",
+    repoUrl: "https://github.com/minivision-ai/Silent-Face-Anti-Spoofing",
+  },
+  audio_spoofing_detection: {
+    title: "Detecção de Spoofing de Áudio",
+    citation:
+      "KULKARNI, Ajinkya; DOWERAH, Sandipana; KULKARNI, Atharva; ALUMÄE, Tanel; MAGIMAI DOSS, Mathew. Do Compact SSL Backbones Matter for Audio Deepfake Detection? A Controlled Study with RAPTOR. arXiv:2603.06164, 2026.",
+    cardSubtitle: "DF Arena 1B + SLS XLS-R · vetor de escores por detector",
+    detail:
+      "Hub multi-detector de spoofing de audio. DF Arena 1B (Wav2Vec2 XLS-R-1B + Conformer) e SLS XLS-R (ACM MM 2024) analisam janelas de 4 segundos; cada detector contribui com escores spoof/bonafide para composicao futura de meta-classificador e calibracao LR.",
+    summary:
+      "Processamento local com GPU/CPU. Selecione um ou mais detectores; artefato principal: detector_scores.txt.",
+    license: "Non-commercial (ver LICENSE.txt do modelo)",
+    repoUrl: "https://huggingface.co/Speech-Arena-2025/DF_Arena_1B_V_1",
+  },
 };
 
 export function getForensicTechniqueMeta(techniqueId: string): ForensicTechniqueMeta | undefined {
@@ -280,7 +292,6 @@ export function getTechniqueCardSubtitle(techniqueId: string): string | undefine
 export const LEGACY_TECHNIQUE_LABELS: Record<string, string> = {
   metadata: "Metadados e estrutura JPEG",
   synthetic_image_detection: "Detecção de Imagens Sintéticas",
-  mock_technique: "Técnica de Teste",
   mp3_parser: "Áudio forense (hub)",
   opus_parser: "Áudio forense (hub)",
   audio_forensics: "Análise forense de Áudio",

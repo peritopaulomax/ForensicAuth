@@ -1,9 +1,6 @@
-# 🚀 Kit de Migração — Ambiente Definitivo (Linux + RTX 3090)
+# Kit de Migração — Ambiente Definitivo com GPU NVIDIA
 
-> **Quando usar:** Chegou na máquina Linux com GPU? Só falar pro Kimi:
-> *"Oi Kimi, estou no sistema definitivo, vamos adaptar o que está faltando"*
-> 
-> Ele vai ler este arquivo, rodar os diagnósticos, e saber EXATAMENTE o que perguntar.
+> **Quando usar:** Este guia deve ser seguido ao implantar o ForensicAuth em uma máquina Linux definitiva com GPU NVIDIA.
 
 ---
 
@@ -41,7 +38,7 @@ pip install -r requirements-gpu.txt
 - [ ] `imagehash>=4.3.0`
 - [ ] `scikit-image>=0.21.0`
 
-> **Nota CUDA:** O comando de instalação do PyTorch depende da versão do CUDA. O Kimi vai perguntar: *"Qual a versão do CUDA instalada? (nvidia-smi)"* e gerar o comando correto, ex:
+> **Nota CUDA:** O comando de instalação do PyTorch depende da versão do CUDA instalada. Verifique a versão com `nvidia-smi` e use o `index-url` correspondente, por exemplo:
 > ```bash
 > pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 > ```
@@ -64,14 +61,14 @@ Estrutura esperada:
         └── camera_xyz.prnu
 ```
 
-> **O Kimi vai perguntar:** *"Onde estão os arquivos de peso? Manda o caminho ou cola aqui a estrutura de pastas."*
+> Certifique-se de que os arquivos de peso estejam no diretório configurado em `MODELS_DIR` (padrão: `./models/`).
 
 ### 3. Verificar GPU (Diagnóstico Automático)
 ```bash
 python -c "import torch; print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
 ```
 
-> **O Kimi vai pedir:** Rode esse comando e me manda o output.
+> Execute o comando acima e verifique se a GPU é detectada.
 
 ### 4. Atualizar `.env` (se necessário)
 Possíveis mudanças:
@@ -92,14 +89,14 @@ Se quiser usar Docker com GPU:
 docker-compose -f docker-compose.gpu.yml up --build
 ```
 
-> **O Kimi vai perguntar:** *"Quer usar Docker com GPU ou rodar nativo?"*
+> Escolha entre Docker com GPU ou execução nativa conforme a política de infraestrutura da instituição.
 
 ---
 
-## 🤖 Como o Kimi vai gerenciar isso
+## Automação do Diagnóstico
 
 ### Diagnóstico Automático (Script)
-O Kimi vai rodar:
+Execute:
 ```bash
 python scripts/diagnose_gpu.py
 ```
@@ -117,37 +114,27 @@ E gera um relatório tipo:
 [DIAGNÓSTICO GPU]
 ✅ Python 3.11.6
 ✅ CUDA 12.4
-✅ GPU: NVIDIA RTX 3090
+✅ GPU: <MODELO_GPU>
 ❌ torch não instalado
 ❌ insightface não instalado
 ❌ Pesos Detecção de imagens sintéticas não encontrados em ./models/sepael/
 ⚠️  GPU_AVAILABLE=false no .env
 ```
 
-### Prompt de Migração (para você usar no futuro)
-Copie e cole isso quando chegar no sistema definitivo:
+### Checklist de Migração
 
-```
-Oi Kimi, estou no sistema definitivo (Linux, RTX 3090, CUDA X.X).
-Rode o diagnose e vamos adaptar o ForensicAuth.
+Ao chegar no sistema definitivo, colete as informações abaixo antes de prosseguir:
 
-Output do nvidia-smi:
-[PASTE AQUI]
+- Output do `nvidia-smi` (versão do CUDA e modelo da GPU).
+- Output do `python scripts/diagnose_gpu.py`.
+- Caminho dos pesos dos modelos no ambiente definitivo.
+- Modo de execução desejado: Docker nativo, Docker GPU ou nativo sem Docker.
 
-Output do diagnose_gpu.py:
-[PASTE AQUI]
-
-Caminho dos pesos dos modelos:
-[PASTE AQUI]
-
-Quero rodar: [Docker nativo / Docker GPU / Nativo sem Docker]
-```
-
-Com isso, o Kimi vai saber EXATAMENTE:
-- Qual comando de instalação do PyTorch usar
-- Quais adapters precisam de ajuste
-- Se os pesos estão no lugar certo
-- Se o Celery worker GPU precisa de configuração extra
+Com essas informações, determine:
+- Qual comando de instalação do PyTorch usar.
+- Quais adapters precisam de ajuste.
+- Se os pesos estão no diretório configurado.
+- Se o Celery worker GPU precisa de configuração extra.
 
 ---
 
@@ -168,7 +155,7 @@ Com isso, o Kimi vai saber EXATAMENTE:
 
 ## 🎯 Resultado Esperado
 
-**No seu notebook Windows (agora):**
+**No ambiente de desenvolvimento atual:**
 - Todos os adapters IA existem como código
 - Se você tentar usar Detecção de imagens sintéticas/Deepfake, retorna erro educado
 - Testes unitários passam (usam mock ou lite)
