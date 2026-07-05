@@ -85,6 +85,29 @@ Inventariar capacidades do sistema ForensicAuth.
 - Legados/testados não integrados: CLIDE, SAFE, Effort, XGBoost, NPR
 - Status: Implementada (operacional), com dívidas técnicas documentadas
 
+## Feature: Spoofing de Áudio (`audio_spoofing_detection`)
+
+- Objetivo: Detectar áudio sintético/spoof com hub multi-detector
+- Usuários: Perito
+- Fluxo: selecionar evidência → marcar detectores (DF Arena, SLS, WeDefense) → job CPU → scores por detector + gráfico temporal
+- Componentes: `AudioSpoofingAdapter`, `audio_spoofing/pipeline.py`, `AudioSpoofingAnalysis.tsx`
+- Detectores: `df_arena_1b`, `sls_xlsr`, `wedefense_wavlm_mhfa`
+- APIs: `/analysis/audio-spoofing-detectors`, `/analysis`
+- Dados: `detector_scores.txt`, `audio_spoofing_plot.json`, `audio_spoofing_details.json`
+- Riscos: detectores discordam; limiar 65%; pesos locais obrigatórios; agregação por janelas
+- Status: **Ativa** (jul/2026)
+- Doc: `knowledge/audio_spoofing_pipeline.md`
+
+## Feature: Calibração LR Sintética (`reference_lr_enabled`)
+
+- Objetivo: Likelihood ratio calibrado sobre população de referência multi-detector
+- Usuários: Perito (via `synthetic_image_detection`)
+- Componentes: `synthetic_lr_reference.py`, matrizes em `outputs/lr_calibration/` (local)
+- Detectores LR: ai-image-detector, sdxl-flux, bfree, corvi2023, safe
+- APIs: `/analysis/synthetic-reference-catalog`
+- Riscos: matriz de referência não versionada; recomputação manual
+- Status: **Ativa** (opcional por parâmetro)
+
 ## Feature: Cadeia de Custódia
 
 - Objetivo: Garantir integridade e rastreabilidade de evidências

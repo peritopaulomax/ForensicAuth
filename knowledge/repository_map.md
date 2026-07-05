@@ -19,6 +19,7 @@ ForensicAuth/
 │   ├── public/            # Guias de instalação e operação
 │   └── deploy/            # Deploy e workers remotos
 ├── tests/                 # Testes unitários, integração e E2E
+├── outputs/               # Artefatos de experimento/LR (NÃO versionar — .gitignore)
 ├── knowledge/             # Knowledge Layer (este diretório)
 ├── summaries/             # Summary Layer
 ├── brains/                # Brain Layer
@@ -51,7 +52,8 @@ ForensicAuth/
 | `src/frontend` | Interface web | Tier 1 |
 | `docs/specs` | Especificações do sistema | Tier 1 |
 | `tests` | Testes automatizados | Tier 1 |
-| `models` | Pesos de modelos ML forenses | Tier 1 |
+| `models` | Pesos de modelos ML forenses (**gitignored**) | Tier 1 |
+| `outputs` | Calibração LR, caches joblib, plots (**gitignored**) | Tier 2 |
 | `vendor` | Códigos de terceiros não modificados | Tier 1 |
 | `Legados` | Algoritmos forenses históricos | Tier 2 |
 | `scripts` | Automação de deploy e download | Tier 1 |

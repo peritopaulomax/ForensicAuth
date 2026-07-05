@@ -301,6 +301,29 @@
 
 ✅ Knowledge Maintenance, Brain Reconstruction, Divergence Detection, Saúde do Conhecimento, Self Reflection e Fase 1 do Plano de Ajustes concluídos.
 
+## Repository Intelligence — 2026-07-04
+
+✅ `/analisar-repositorio` executado.
+
+| Gate | Status |
+|---|---|
+| A — Estrutura | ✅ `repository_map.md` (+ outputs/, gitignore) |
+| B — Arquitetura | ✅ `architecture.md` (existente) |
+| C — Domínio | ✅ `domain_model.md` (existente) |
+| D — Dependências | ✅ `dependency_graph.md` (existente) |
+| E — Fluxos | ✅ `critical_paths.md` (+ spoofing áudio) |
+| F — Dados | ✅ `data_catalog.md` (existente) |
+| G — APIs | ✅ `api_catalog.md` (existente) |
+| H — IA/ML | ✅ `audio_spoofing_pipeline.md`, `synthetic_image_detection_pipeline.md` |
+| I — Testes | ✅ ~487 unit + ~55 integration + Playwright |
+| J — Riscos | ✅ `risks.md` R35-R38; `divergence_report_2026-07-04.md` |
+| K — Dívida | ✅ `technical_debt.md` (existente) |
+| L — Knowledge | ✅ 2 novos + 4 atualizados |
+| M — Summaries | ✅ 4 arquivos atualizados |
+| N — Brain | ✅ 4 arquivos atualizados |
+
+**Novidades capturadas:** hub spoofing áudio, LR sintético, `.gitignore`, limites GitHub, DeeCLIP infra.
+
 ## Observações
 
 - Código-fonte executável foi modificado apenas na Fase 1 do plano de ajustes (validações de segurança/custódia).

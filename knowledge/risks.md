@@ -38,6 +38,10 @@
 | R32 | Segurança/Forense | Pesos do ensemble `synthetic_image_detection` sem checksums SHA-256 | Alto | Alta | P0 | Criar `manifest.json` e validar no startup |
 | R33 | Confiabilidade | `synthetic_image_detection` sem score final consolidado | Médio | Alta | P1 | Implementar ensemble_score |
 | R34 | Confiabilidade | Modelos legados/testados (CLIDE, SAFE, Effort, XGBoost, NPR) presentes no runtime | Baixo | Média | P3 | Remover do runtime ou mover para backup versionado |
+| R35 | Operação | Commit acidental de `outputs/` ou pesos >100 MB bloqueia push GitHub | Alto | Média | P0 | `.gitignore` reforçado jul/2026; nunca versionar artefatos |
+| R36 | Operação | Git LFS >2 GB (DF Arena 4.6 GB) rejeitado pelo GitHub | Alto | Alta | P0 | Baixar via HuggingFace/scripts; não commitar |
+| R37 | ML | Detectores spoofing áudio discordam (DF Arena vs WeDefense) | Médio | Alta | P2 | Documentar; meta-fusão/LR futuro |
+| R38 | ML | Agregação por janelas ≠ protocolo original dos autores | Médio | Média | P2 | Modo "compatível autores" (64600 samples) |
 
 ## Top 10 Riscos
 
