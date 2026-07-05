@@ -1,71 +1,43 @@
 # Frontend Summary — ForensicAuth
 
-## O que é
-
-SPA React para peritos interagirem com a plataforma forense.
+**Atualizado:** 2026-07-04
 
 ## Stack
 
-- React 18 + TypeScript
-- Vite 5
-- React Router v6
-- Zustand (auth)
-- TanStack Query (uso parcial)
-- Axios + JWT
-- Vitest + React Testing Library + Playwright
-
-## Estrutura
-
-```text
-src/
-├── pages/       → rotas React Router (~18,6k linhas TS/TSX)
-├── components/  → componentes reutilizáveis e de domínio
-├── services/    → clientes Axios
-├── store/       → Zustand auth
-├── hooks/       → hooks customizados
-├── config/      → registro de técnicas forenses
-├── lib/         → helpers puros
-└── types/       → tipos TypeScript
-```
+React 18 + TypeScript + Vite + Zustand + Axios + Playwright
 
 ## Rotas principais
 
-- `/login`, `/primeiro-acesso`
-- `/` (casos), `/dashboard`, `/cases/new`, `/cases/:caseId`
-- `/cases/:caseId/analysis/image-group/:groupId`
-- `/cases/:caseId/analysis/:tecnica` (rotas legadas redirecionadas para agrupamento por mídia)
-- `/users` (admin)
-- `/analysis` e `/analysis/run` (rotas alternativas legadas apontando para `MediaPanels` e `Analysis`)
+| Rota | Página |
+|---|---|
+| `/`, `/cases/:id` | Casos |
+| `/cases/:id?tab=analises` | Painéis por mídia |
+| `/cases/:id/analysis/image-group/:groupId` | Hub imagem (7 grupos) |
+| `/cases/:id/analysis/audio` | Hub espectral (ENF, LTAS, etc.) |
+| `/cases/:id/analysis/audio_spoofing` | **Spoofing multi-detector** |
+| `/cases/:id/analysis/:technique` | PDF, vídeo, técnicas dedicadas |
 
-## Fluxos de usuário
+## Config
 
-1. Login → token no localStorage → lista de casos
-2. Criar caso → upload de evidência → aba análises
-3. Selecionar técnica → ajustar parâmetros → submeter job → polling
-4. Visualizar artefatos → salvar derivado → cadeia de custódia
-5. Exportar/importar VCP ou Peritus
-6. Fechar caso → assinaturas obrigatórias
+- `imageAnalysisGroups.ts` — grupos e visibilidade
+- `imageTechniqueRegistry.tsx` — lazy load de páginas
+- `forensicTechniqueMeta.ts` — citações ABNT, subtítulos
+- `caseAnalysisNav.ts` — navegação dedicada vs hub
 
-## Riscos
+## Grupos imagem
 
-- Token em localStorage (XSS)
-- Páginas muito grandes (`CaseDetail.tsx`: ~1494 linhas, `AudioForensicsHub.tsx`: ~1262 linhas)
-- TanStack Query subutilizado
-- Tratamento de erro com `any`
-- Polling longo sem WebSocket/retry
-- Rotas legadas extensas e fragmentadas
-- Fonte Google Fonts externa (viola RNF-01 offline)
-- Teste `caseAnalysisNav.test.ts` quebrado por rota desatualizada
+`estrutura-arquivo`, `classicas-compressao`, `classicas-correlacao`, `classicas-aquisicao`, `dl-manipulacao`, `dl-sintetico`, `biometria-facial`
 
-## Dívidas
+## Áudio
 
-- Cobertura de testes insuficiente em páginas/hooks (~15 arquivos de teste)
-- E2E com mocks estáticos
-- Roteamento legado extenso
-- Sem i18n
-- Estilização misturada (CSS global + inline) sem design system
-- Componentes grandes com estado local excessivo
+- **Espectral:** tabs em `AudioForensicsHub`
+- **Spoofing:** checkboxes DF Arena / SLS / WeDefense em `AudioSpoofingAnalysis`
 
-## Confiabilidade
+## Testes frontend
 
-Média — funcional, mas com débito de manutenibilidade e testes.
+- Vitest: ~26 testes (`*.test.ts`)
+- Playwright: 10 specs incl. `audio-spoofing-detectors.spec.ts`, `synthetic-new-detectors.spec.ts`
+
+## Dívidas UI
+
+Rotas legadas redirecionam; hub IMDL removido; páginas grandes; cobertura testes baixa

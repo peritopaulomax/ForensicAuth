@@ -1,5 +1,7 @@
 # Mental Model — ForensicAuth
 
+**Atualizado:** 2026-07-04
+
 ## O que é
 
 Laboratório forense digital em uma caixa:
@@ -7,53 +9,41 @@ Laboratório forense digital em uma caixa:
 - **Evidências** = itens selados com SHA-256
 - **Jobs** = exames técnicos em fila
 - **Cadeia de custódia** = logbook imutável e assinado
-- **Laudos** = relatórios oficiais com hash
+- **Detectores ML** = especialistas que **podem discordar** — o perito interpreta
 
-## O que não é
+## Camadas de mídia no frontend
 
-- Serviço em nuvem (100% local)
-- Substituto do perito
-- Sistema de arquivos genérico
-
-## Entidades principais
-
-| Entidade | Papel |
+| Mídia | UX |
 |---|---|
-| User | Admin/Perito (papel `analista` especificado mas migrado para `perito`) |
-| Case | Container forense |
-| Evidence | Arquivo com SHA-256 |
-| AnalysisJob | Exame em fila (preview; não gera CustodyRecord) |
-| CustodyRecord | Registro imutável |
-| CaseClosure | Fechamento assinado |
-| CaseClosureSignature | Assinatura adicional de fechamento |
-| CaseShare | Compartilhamento de caso (viewer/editor) |
-| Report | Laudo/relatório oficial (modelo existe; service/endpoint planejado) |
+| Imagem | Hubs `image-group/:groupId` (clássicas, DL manipulação, sintético, biometria) |
+| Áudio espectral | `AudioForensicsHub` (ENF, espectrograma, níveis) |
+| Áudio spoofing | `AudioSpoofingAnalysis` (DF Arena, SLS, WeDefense) |
+| Vídeo/PDF | Páginas dedicadas por técnica |
 
-## Relações
+## O que não versionar no Git
 
-User → cria Case → contém Evidence → origina AnalysisJob → produz resultado → pode virar Evidence derivada.
+- `models/` — pesos (dezenas de GB)
+- `outputs/` — calibração LR, caches joblib
+- `uploads*`, `results*`, `peritus_cases*`
+- Binários >100 MB (limite GitHub)
 
 ## Regras de ouro
 
 1. Toda evidência tem hash antes do processamento.
 2. Cadeia de custódia é INSERT-only.
-3. Jobs GPU rodam um por vez.
-4. Caso fechado deve ser imutável (validação pendente).
-5. Legados só mudam com teste de equivalência.
+3. Jobs GPU rodam serializados.
+4. Legados forenses intocáveis sem teste de equivalência (AGENTS.md).
+5. Paridade com autores ≠ consenso entre detectores.
 
-## Fluxo mental
+## Fluxo mental spoofing áudio
 
 ```text
-Recebe arquivo → identifica tipo → calcula hash → salva → registra custódia
-↓
-Perito escolhe técnica → cria job → executa em fila
-↓
-Gera artefatos → calcula hash → exibe resultado
-  (ex: `synthetic_image_detection` retorna scores individuais de 4 detectores, não um score único)
-↓
-Salva derivado, gera laudo ou verifica integridade
+Áudio → resample 16 kHz mono → janelas 4s
+  → cada detector → spoof_prob / bonafide_prob
+  → tabela + gráfico temporal
+  (sem fusão automática ainda)
 ```
 
 ## O que pode quebrar
 
-PostgreSQL, Redis, storage, GPU, chaves de assinatura, pesos, validações de domínio ausentes.
+PostgreSQL, Redis, storage, pesos não baixados, Git LFS/submódulos, interpretação errada de multi-detector.

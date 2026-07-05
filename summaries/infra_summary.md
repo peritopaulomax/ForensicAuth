@@ -1,87 +1,62 @@
 # Infra Summary — ForensicAuth
 
-## O que é
+**Atualizado:** 2026-07-04
 
-Ambiente de deploy e operação para desenvolvimento e produção da plataforma forense.
+## Deploy
 
-## Docker
+Docker Compose: `docker-compose.yml` (CPU), `docker-compose.gpu.yml`, `docker-compose.dev.yml`
 
-- `Dockerfile` — API/worker CPU com `--reload` (dev)
-- `Dockerfile.gpu` — worker GPU com CUDA 12.4
-- `src/frontend/Dockerfile` — Nginx multi-stage
-- `docker-compose.yml` — stack CPU base (usa `Dockerfile` com reload)
-- `docker-compose.dev.yml` — Postgres/Redis dev isolados (portas 5433/6380)
-- `docker-compose.gpu.yml` — produção com GPU (inclui variáveis de residência/LRU/warmup)
+Roles: `FORENSICAUTH_PROCESS_ROLE` = api | worker-cpu | worker-gpu
 
-## Scripts
+## Ambiente dev
 
-- `dev-stack.sh` — dev completo (API + workers + frontend)
-- `dev-lan.sh` — dev simples acessível na LAN
-- `prepare-worker-bundle.sh` — sincroniza worker remoto via rsync
-- `seed_users.py` — usuário admin (destrutivo em produção)
-- `generate_custody_signing_key.py` — Ed25519
-- `download_*_weights.py` — downloads de modelos
-- `diagnose_gpu.py` — diagnóstico de GPU
+- Conda: `va-suite` (Python 3.11)
+- Scripts: `scripts/dev-stack.sh`, `scripts/dev-lan.sh`
+- Postgres/Redis via compose dev
 
-## Configurações
+## Storage local (gitignored)
 
-- `.env.example`, `.env.production.example`
-- `src/backend/.env.{api,worker-cpu,worker-gpu}.example`
-- `environment.yml` (conda)
-- `src/backend/app/config.py` (fonte da verdade)
+| Path | Conteúdo |
+|---|---|
+| `uploads-dev/` | Evidências upload |
+| `results-dev/` | Artefatos jobs |
+| `models/` | Pesos ML (~43+ GB) |
+| `outputs/` | Calibração LR, caches |
+| `peritus_cases/` | Casos Peritus Desktop |
 
-## Banco
+## Git hygiene (jul/2026)
 
-- PostgreSQL 15 (produção)
-- SQLite (dev/testes)
-- Schema criado por `Base.metadata.create_all()`
-- Evolução por `db_migrations.py` ad-hoc
-- `alembic` está em `requirements.txt` mas não é usado operacionalmente
+**.gitignore reforçado:**
+- `outputs/`, `models/`, `*.joblib`, `*.bin`, `*.safetensors`
+- `Legados/**/pytorch_model.bin` (DF Arena 4GB)
+- `vendor/**/runs/`, `vendor/**/*.mp4`
+- Lixo pip root: `-`, `=0.7.0`
 
-## Fila
+**Limites GitHub:**
+- 100 MB/arquivo (Git normal)
+- 2 GB/arquivo (LFS)
+- Nunca commitar calibração LR ou pesos
 
-- Celery + Redis
-- Filas `celery` (CPU) e `gpu` (ML/GPU)
-- Lock distribuído Redis para GPU (`forensicauth:gpu:0`)
-- Variáveis GPU: `GPU_DISTRIBUTED_LOCK`, `GPU_RESIDENT_TECHNIQUES`, `GPU_LRU_TTL_SECONDS`, `GPU_RESERVED_FUTURE_MB`, `GPU_MIN_FREE_MB`, `SYNTHETIC_KEEP_RESIDENT`, `EFFORT_WARMUP_ON_STARTUP`, `SAFE_WARMUP_ON_STARTUP`, `CUDA_VISIBLE_DEVICES`
+## Git LFS
 
-## Storage
+Instalar system-wide: `sudo apt install git-lfs && git lfs install`
 
-- Filesystem local (volumes Docker/bind mounts)
-- Diretórios: uploads, results, derivatives, models, peritus_cases
-- Worker remoto via NFS
+Submódulos vendor podem exigir LFS (`grip_clipbased_synthetic`).
 
-## Testes
+## Workers remotos
 
-- Backend: pytest (unit, integration, e2e)
-- Frontend: Vitest + Playwright
-- Especificações: `tests/specs/` (13 arquivos)
+`scripts/prepare-worker-bundle.sh`, `docs/deploy/WORKER-REMOTE.md`
 
-## Documentação
+## Riscos infra
 
-- `docs/specs/` — SDD
-- `docs/developer/` — guia de contribuição
-- `docs/public/` — operação e instalação
-- `docs/deploy/` — worker remoto
+| Risco | Mitigação |
+|---|---|
+| Push rejeitado por arquivo grande | .gitignore + git rm --cached |
+| git-lfs not found (Cursor) | PATH / apt install |
+| Submodule LFS tmp errors | GIT_LFS_SKIP_SMUDGE para status |
+| Credenciais default compose | Trocar em produção |
+| GPU worker ausente no compose base | Usar gpu compose |
 
-## Riscos
+## CI/CD
 
-- `.dockerignore` criado, mas Dockerfile base ainda usa `--reload`
-- `docker-compose.yml` base não inclui worker GPU por padrão
-- Credenciais padrão em docker-compose
-- Chave Ed25519 dev auto-gerada se não configurada
-- SPOFs: PostgreSQL, Redis, filesystem, GPU
-- Nginx frontend sem `client_max_body_size`
-- Ambiente conda divergente (`forensicauth` vs `va-suite`)
-
-## Dívidas
-
-- Alembic em bootstrap + migrations ad-hoc
-- Imagem de produção dedicada (Dockerfile base com reload)
-- CI/CD não observado
-- Observabilidade ausente (métricas, logs estruturados, alertas)
-- Backup automatizado não versionado no repositório
-
-## Confiabilidade
-
-Média — funciona em dev, mas requer ajustes para produção robusta.
+Testes via pytest + Playwright; sem pipeline CI documentado no repo (dívida)

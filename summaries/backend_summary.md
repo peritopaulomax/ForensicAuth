@@ -1,83 +1,63 @@
 # Backend Summary — ForensicAuth
 
-## O que é
-
-Backend FastAPI monolítico modular para gestão forense digital.
+**Atualizado:** 2026-07-04
 
 ## Stack
 
-- Python 3.11+, FastAPI, SQLAlchemy 2.x, Pydantic v2
-- Celery + Redis para jobs assíncronos
-- PostgreSQL (produção), SQLite (dev/testes)
-- JWT HS256 + bcrypt para auth
-- Cadeia de custódia SHA-256 + assinatura Ed25519
+FastAPI + SQLAlchemy + Pydantic + Celery + Redis + PostgreSQL (prod) / SQLite (dev)
 
-## Estrutura
+## Camadas
+
+| Camada | Path | Papel |
+|---|---|---|
+| App | `app/main.py`, `config.py`, `celery_app.py` | Bootstrap, settings, workers |
+| API | `api/v1/endpoints/` | REST (~15 routers) |
+| Services | `services/` | Domínio (jobs, custody, evidence, derivative, GPU queue) |
+| Core | `core/` | Plugins, ML pipelines, reproducibility, GPU |
+| Plugins | `core/plugins/` | ~35 adapters ativos |
+| Legacy | `core/legacy/` | Algoritmos forenses + runtime |
+| Tasks | `tasks/analysis_tasks.py` | Celery CPU/GPU |
+
+## Técnicas canônicas (`technique_ids.py`)
+
+- `synthetic_image_detection` (alias `sepael`)
+- `presentation_attack_detection`
+- `audio_spoofing_detection`
+
+## Jobs
 
 ```text
-app/         → bootstrap, config, DB, Celery
-api/v1/      → endpoints REST
-models/      → SQLAlchemy
-services/    → lógica de negócio
-core/        → plugins, legacy, GPU, reproducibility
-tasks/       → Celery tasks
+POST /analysis → JobService → JobRunner
+  → Celery (Postgres) ou thread (SQLite)
+  → queue: gpu | celery
 ```
 
-## Componentes críticos
+GPU: synthetic, safire, noiseprint, imdlbenco, videofact, stil, lfv, pad
 
-- `app/main.py` — entrypoint
-- `app/config.py` — settings
-- `services/job_service.py` — orquestração de jobs
-- `services/custody_service.py` — cadeia de custódia
-- `services/custody_signing_service.py` — assinatura Ed25519
-- `services/case_lifecycle_service.py` — fechamento/assinaturas
-- `services/forensic_integrity_service.py` — verificação forense
-- `core/forensic_plugin.py` — contrato de plugins
-- `core/plugin_registry.py` — descoberta de plugins
-- `core/gpu_inference.py` — fallback CPU/GPU
-- `core/reproducibility.py` — manifests e recibos
+CPU: clássicas, PDF, áudio espectral, **audio_spoofing_detection**
 
-## Fluxos críticos
+## Novidades jul/2026
 
-1. Upload de evidência → hash SHA-256 → CustodyRecord
-2. Submeter análise → job Celery/thread → plugin → resultado → (CustodyRecord não gerado no código atual)
-3. Salvar derivado → provenance → nova evidência
-4. Fechar caso → manifesto → assinaturas
-5. Verificação forense → cadeia + arquivos + assinaturas
+| Módulo | Função |
+|---|---|
+| `audio_spoofing/` | Orquestra DF Arena, SLS, WeDefense |
+| `synthetic_lr_reference.py` | LR calibrado multi-detector imagem |
+| `deeclip/` | Pipeline DeeCLIP (infra; não no ensemble) |
+| `wedefense_spoofing/`, `sls_spoofing/` | Detectores áudio |
 
-## APIs principais
+## APIs novas
 
-- `/auth/*` — login, first-access, register
-- `/users/*` — gestão de usuários
-- `/cases/*` — casos, fechamento, compartilhamento
-- `/evidences/*` — upload, download, derivados
-- `/analysis/*` — submeter jobs, resultados, reproduzir
-- `/audit/*` — verificação de cadeia e forense
-- `/prnu/*` — fingerprints de câmera
-- `/case-transfer/*` — export/import VCP
-- `/peritus-transfer/*` — bridge Peritus Desktop
+- `GET /analysis/audio-spoofing-detectors`
+- `GET /analysis/synthetic-reference-catalog`
 
-## Riscos
+## Config crítica
 
-- SECRET_KEY padrão fraco
-- JWT sem refresh token; token armazenado em `localStorage`
-- CORS permissivo
-- Alembic em bootstrap + migrations ad-hoc (`db_migrations.py`)
-- SQLite em dev/test; produção requer PostgreSQL
-- Lock de cadeia local ao processo
-- Upload de referências sem permissão de edição em alguns endpoints
-- `torch.load(weights_only=False)` em ~22 pipelines legados
-- Imutabilidade da cadeia dependente de trigger SQLite (PG pendente)
+`DATABASE_URL`, `REDIS_URL`, `FORENSICAUTH_PROCESS_ROLE`, `MODELS_DIR`, `GPU_*`, `DF_ARENA_MODEL`
 
-## Dívidas
+## Testes
 
-- Migrations ad-hoc coexistindo com Alembic
-- Acoplamento de parâmetros por técnica
-- Locks process-local para cadeia
-- Observabilidade ausente
-- Schemas Pydantic inline
-- Módulo de laudos (Reports) modelado mas não implementado
+~487 unit + ~55 integration + 14 e2e backend (`tests/`)
 
-## Confiabilidade
+## Riscos backend
 
-Alta — código bem estruturado, testes unitários extensivos.
+GPU lock, torch.load inseguro, pesos locais, audio spoofing na fila CPU sob carga
