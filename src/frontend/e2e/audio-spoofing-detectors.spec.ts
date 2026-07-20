@@ -16,7 +16,7 @@ test.describe("Audio spoofing multi-detector UI", () => {
     await firstCase.click();
 
     await page.getByRole("link", { name: /spoofing/i }).first().click();
-    await expect(page.getByText("Detectores de spoofing")).toBeVisible();
+    await expect(page.getByText("Parametros")).toBeVisible();
     await expect(page.getByLabel(/DF Arena 1B/i)).toBeVisible();
     await expect(page.getByLabel(/SLS XLS-R/i)).toBeVisible();
     await expect(page.getByLabel(/WeDefense ASV2025/i)).toBeVisible();

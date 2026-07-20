@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Tuple
 
 from core.technique_ids import (
+    MOE_FFD,
     PRESENTATION_ATTACK_DETECTION,
     SYNTHETIC_IMAGE_DETECTION,
     resolve_technique_id,
 )
 
 
+@lru_cache(maxsize=64)
 def technique_runtime_status(technique_name: str) -> Tuple[bool, str]:
     """
     Return (available, reason).
 
     reason is empty when the technique can run on this server.
+    Cached for the process lifetime — listing techniques must stay cheap.
     """
     technique_name = resolve_technique_id(technique_name)
 
@@ -58,6 +62,10 @@ def technique_runtime_status(technique_name: str) -> Tuple[bool, str]:
         from core.legacy.pad.runtime import pad_runtime_status
 
         return pad_runtime_status()
+    if technique_name == MOE_FFD:
+        from core.legacy.moe_ffd.runtime import moe_ffd_runtime_status
+
+        return moe_ffd_runtime_status()
     if technique_name == "metadata":
         import shutil
 
@@ -69,3 +77,19 @@ def technique_runtime_status(technique_name: str) -> Tuple[bool, str]:
             "Instale ExifTool para IPTC, XMP e MakerNotes completos.",
         )
     return True, ""
+
+
+def clear_technique_runtime_cache() -> None:
+    technique_runtime_status.cache_clear()
+    try:
+        from core.legacy.imdlbenco.imdlbenco_runtime import imdlbenco_runtime_status
+
+        imdlbenco_runtime_status.cache_clear()
+    except Exception:
+        pass
+    try:
+        from core.legacy.safire.safire_runtime import clear_runtime_cache
+
+        clear_runtime_cache()
+    except Exception:
+        pass

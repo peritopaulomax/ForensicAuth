@@ -71,6 +71,8 @@ def safire_uses_cpu() -> bool:
 
 @lru_cache(maxsize=1)
 def safire_runtime_status() -> Tuple[bool, str]:
+    import importlib.util
+
     repo = safire_repo_dir()
     if not repo.is_dir():
         return (
@@ -78,14 +80,10 @@ def safire_runtime_status() -> Tuple[bool, str]:
             "Codigo SAFIRE ausente. Esperado em vendor/SAFIRE-main (clone do repositorio oficial).",
         )
 
-    try:
-        import torch  # noqa: F401
-    except ImportError:
+    if importlib.util.find_spec("torch") is None:
         return False, "PyTorch nao instalado. Instale requirements-gpu.txt (ou torch CPU) no ambiente."
 
-    try:
-        import monai  # noqa: F401
-    except ImportError:
+    if importlib.util.find_spec("monai") is None:
         return False, "Dependencia 'monai' ausente. Execute: pip install monai scikit-learn"
 
     models = resolve_safire_models_dir()

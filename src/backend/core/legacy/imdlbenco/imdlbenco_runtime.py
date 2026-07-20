@@ -287,15 +287,29 @@ def resolve_nfa_vit_checkpoint() -> Path | None:
 
 
 def _package_ok() -> tuple[bool, str]:
-    try:
-        import IMDLBenCo  # noqa: F401
-    except ImportError:
+    import importlib.util
+
+    # find_spec avoids importing IMDLBenCo (slow registry print) just to list techniques.
+    if importlib.util.find_spec("IMDLBenCo") is None:
         return False, "Pacote 'imdlbenco' ausente. Execute: pip install imdlbenco"
-    try:
-        import timm  # noqa: F401
-    except ImportError:
+    if importlib.util.find_spec("timm") is None:
         return False, "Dependencia 'timm' ausente."
     return True, ""
+
+
+# Methods whose readiness probe imports heavy vendor stacks (mmcv/mmseg/etc.).
+# Defer them when answering "is any IMDL method ready?" for the techniques list.
+_HEAVY_IMPORT_METHODS = frozenset(
+    {
+        "miml_apscnet",
+        "dinov3_iml",
+        "co_transformers",
+        "nfa_vit",
+        "mesorch",
+        "cat_net",
+        "trufor",
+    }
+)
 
 
 def _trufor_ready() -> tuple[bool, str]:
@@ -424,13 +438,22 @@ def imdlbenco_runtime_status() -> tuple[bool, str]:
     ok_pkg, reason = _package_ok()
     if not ok_pkg:
         return False, reason
-    ready = [m.id for m in IMDLBENCO_METHODS if method_runtime_status(m.id)[0] == "ready"]
-    if not ready:
-        return (
-            False,
-            "Nenhum metodo IMDL-BenCo pronto. Instale pesos: python scripts/download_imdlbenco_weights.py",
-        )
-    return True, ""
+    # Cheap file-based probes first; stop as soon as one method is ready.
+    ordered = sorted(
+        IMDLBENCO_METHODS,
+        key=lambda method: (method.id in _HEAVY_IMPORT_METHODS, method.id),
+    )
+    for method in ordered:
+        try:
+            if method_runtime_status(method.id)[0] == "ready":
+                return True, ""
+        except Exception:
+            # One broken probe (e.g. mmcv vendor import) must not hide other methods.
+            continue
+    return (
+        False,
+        "Nenhum metodo IMDL-BenCo pronto. Instale pesos: python scripts/download_imdlbenco_weights.py",
+    )
 
 
 def list_method_status() -> list[dict[str, Any]]:

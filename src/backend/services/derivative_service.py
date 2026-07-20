@@ -256,6 +256,10 @@ class DerivativeService:
             "reference_population_hash": reference_population_digest(ref_pop if isinstance(ref_pop, dict) else None),
             "meta_classifier": params.get("meta_classifier") or job_result.get("meta_classifier"),
             "use_augmented_reference": params.get("use_augmented_reference"),
+            "use_latent_typicality": params.get("use_latent_typicality"),
+            "typicality_system": params.get("typicality_system"),
+            "typicality_k": params.get("typicality_k"),
+            "typicality_distance": params.get("typicality_distance"),
             "reference_lr": lr_summary,
         }
 

@@ -115,13 +115,35 @@ def safe_model_cache_keys() -> list[str]:
     return list(_model_cache.keys())
 
 
-def infer_safe_from_pil(image: Image.Image, device: torch.device) -> float:
+def infer_safe_from_pil(
+    image: Image.Image,
+    device: torch.device,
+    *,
+    return_embedding: bool = False,
+) -> float | tuple[float, np.ndarray]:
     """Retorna probabilidade de imagem sintetica (classe fake=1)."""
+    from core.legacy.synthetic_image_detection.embedding_utils import (
+        flatten_embedding,
+        register_fc_input_hook,
+    )
+
     model = _load_model(device)
     tensor = _eval_transform()(image.convert("RGB")).unsqueeze(0).to(device)
-    with torch.no_grad():
-        logits = model(tensor)
-        prob_fake = F.softmax(logits, dim=1)[0, 1].item()
+    handle = None
+    store: list[torch.Tensor] | None = None
+    if return_embedding:
+        handle, store = register_fc_input_hook(model.fc1)
+    try:
+        with torch.no_grad():
+            logits = model(tensor)
+            prob_fake = F.softmax(logits, dim=1)[0, 1].item()
+        if return_embedding:
+            if not store:
+                raise RuntimeError("SAFE embedding hook did not capture any activation")
+            return float(prob_fake), flatten_embedding(store[0])
+    finally:
+        if handle is not None:
+            handle.remove()
     return float(prob_fake)
 
 

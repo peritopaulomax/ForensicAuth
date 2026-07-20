@@ -3,6 +3,8 @@ import {
   IMAGE_ANALYSIS_GROUPS,
   isImageTechniqueVisible,
   findImageTechniqueEntry,
+  getImageAnalysisGroup,
+  resolveImageGroupId,
 } from "./imageAnalysisGroups";
 
 describe("isImageTechniqueVisible", () => {
@@ -42,5 +44,23 @@ describe("isImageTechniqueVisible", () => {
       isImageTechniqueVisible(t, "admin"),
     );
     expect(visibleToAdmin.map((t) => t.id)).toEqual(["synthetic_image_detection"]);
+  });
+
+  it("exposes PAD and MoE-FFD in the dl-facial-spoofing group for admins", () => {
+    const group = IMAGE_ANALYSIS_GROUPS.find((g) => g.id === "dl-facial-spoofing");
+    expect(group).toBeDefined();
+    expect(group!.title).toMatch(/Manipulação e Spoofing Facial/i);
+    const visibleToAdmin = group!.techniques.filter((t) => isImageTechniqueVisible(t, "admin"));
+    expect(visibleToAdmin.map((t) => t.id)).toEqual([
+      "presentation_attack_detection",
+      "moe_ffd",
+    ]);
+    const visibleToPerito = group!.techniques.filter((t) => isImageTechniqueVisible(t, "perito"));
+    expect(visibleToPerito).toHaveLength(0);
+  });
+
+  it("resolves legacy biometria-facial group id", () => {
+    expect(resolveImageGroupId("biometria-facial")).toBe("dl-facial-spoofing");
+    expect(getImageAnalysisGroup("biometria-facial")?.id).toBe("dl-facial-spoofing");
   });
 });

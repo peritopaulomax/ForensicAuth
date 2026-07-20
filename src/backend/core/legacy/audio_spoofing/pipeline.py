@@ -49,8 +49,16 @@ def _score_row(
     bonafide_prob: float,
     device_label: str,
 ) -> list[str]:
-    razao = bonafide_prob / spoof_prob if spoof_prob > 1e-9 else float("inf")
-    log_ratio = f"{math.log10(razao):.2f}" if math.isfinite(razao) else "inf"
+    if spoof_prob > 1e-9:
+        razao = bonafide_prob / spoof_prob
+    else:
+        razao = float("inf")
+    if math.isfinite(razao) and razao > 0:
+        log_ratio = f"{math.log10(razao):.2f}"
+    elif razao == float("inf"):
+        log_ratio = "inf"
+    else:
+        log_ratio = "-inf"
     return [
         DETECTOR_DISPLAY.get(detector_id, detector_id),
         f"{spoof_prob:.4f}",
@@ -68,6 +76,7 @@ def run_audio_spoofing_analysis(
     window_seconds: float = 4.0,
     selected_analyses: Optional[list[str] | tuple[str, ...] | set[str]] = None,
     on_progress: ProgressFn = None,
+    return_embedding: bool = False,
 ) -> dict[str, Any]:
     """Run selected spoofing detectors and return structured per-detector scores."""
     selected = _normalize_selected(selected_analyses)
@@ -100,6 +109,7 @@ def run_audio_spoofing_analysis(
                 audio=np.asarray(audio, dtype=np.float32),
                 sr=int(sr),
                 window_seconds=window_seconds,
+                return_embedding=return_embedding,
             )
             agg = result["aggregated"]
             device_label = device_display_label(result.get("inference_device", "cpu"))
@@ -129,6 +139,9 @@ def run_audio_spoofing_analysis(
                 "device": device_label,
                 "window_count": result["window_count"],
             }
+            if return_embedding and "embedding" in result:
+                detector_scores[AUDIO_SPOOFING_ANALYSIS_DF_ARENA]["embedding"] = result["embedding"]
+                detector_scores[AUDIO_SPOOFING_ANALYSIS_DF_ARENA]["embedding_dim"] = result.get("embedding_dim")
 
     if AUDIO_SPOOFING_ANALYSIS_SLS_XLSR in selected:
         step += 1
@@ -143,6 +156,7 @@ def run_audio_spoofing_analysis(
                 audio=np.asarray(audio, dtype=np.float32),
                 sr=int(sr),
                 window_seconds=window_seconds,
+                return_embedding=return_embedding,
             )
             agg = result["aggregated"]
             device_label = device_display_label(result.get("inference_device", "cpu"))
@@ -173,6 +187,9 @@ def run_audio_spoofing_analysis(
                 "device": device_label,
                 "window_count": result["window_count"],
             }
+            if return_embedding and "embedding" in result:
+                detector_scores[AUDIO_SPOOFING_ANALYSIS_SLS_XLSR]["embedding"] = result["embedding"]
+                detector_scores[AUDIO_SPOOFING_ANALYSIS_SLS_XLSR]["embedding_dim"] = result.get("embedding_dim")
 
     if AUDIO_SPOOFING_ANALYSIS_WEDEFENSE in selected:
         step += 1
@@ -187,6 +204,7 @@ def run_audio_spoofing_analysis(
                 audio=np.asarray(audio, dtype=np.float32),
                 sr=int(sr),
                 window_seconds=window_seconds,
+                return_embedding=return_embedding,
             )
             agg = result["aggregated"]
             device_label = device_display_label(result.get("inference_device", "cpu"))
@@ -217,6 +235,9 @@ def run_audio_spoofing_analysis(
                 "device": device_label,
                 "window_count": result["window_count"],
             }
+            if return_embedding and "embedding" in result:
+                detector_scores[AUDIO_SPOOFING_ANALYSIS_WEDEFENSE]["embedding"] = result["embedding"]
+                detector_scores[AUDIO_SPOOFING_ANALYSIS_WEDEFENSE]["embedding_dim"] = result.get("embedding_dim")
 
     if not individual_results:
         if unavailable:

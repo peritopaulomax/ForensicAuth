@@ -313,29 +313,42 @@ def reference_population_digest(selection: dict[str, Any] | list[Any] | None) ->
     """Hash canonico da selecao de populacao LR (insumo conceitual no grafo)."""
     if not selection:
         return None
+
+    def _item_payload(item: Any) -> dict[str, Any] | None:
+        if not isinstance(item, dict):
+            return None
+        return {
+            "base_group": item.get("base_group"),
+            "subgroup": item.get("subgroup"),
+            "key": item.get("key"),
+        }
+
     if isinstance(selection, dict):
+        fit_items = selection.get("fit_items")
+        test_items = selection.get("test_items")
+        if isinstance(fit_items, list) or isinstance(test_items, list):
+            payload = {
+                "fit_items": sorted(
+                    [p for p in (_item_payload(item) for item in (fit_items or [])) if p],
+                    key=lambda x: (str(x.get("base_group")), str(x.get("subgroup")), str(x.get("key"))),
+                ),
+                "test_items": sorted(
+                    [p for p in (_item_payload(item) for item in (test_items or [])) if p],
+                    key=lambda x: (str(x.get("base_group")), str(x.get("subgroup")), str(x.get("key"))),
+                ),
+            }
+            if not payload["fit_items"] and not payload["test_items"]:
+                return None
+            return hash_canonical_json({"reference_population": payload})
+
         items = selection.get("items")
         if not isinstance(items, list):
             return None
         payload = [
-            {
-                "base_group": item.get("base_group"),
-                "subgroup": item.get("subgroup"),
-                "key": item.get("key"),
-            }
-            for item in items
-            if isinstance(item, dict)
+            p for p in (_item_payload(item) for item in items) if p
         ]
     elif isinstance(selection, list):
-        payload = [
-            {
-                "base_group": item.get("base_group"),
-                "subgroup": item.get("subgroup"),
-                "key": item.get("key"),
-            }
-            for item in selection
-            if isinstance(item, dict)
-        ]
+        payload = [p for p in (_item_payload(item) for item in selection) if p]
     else:
         return None
     if not payload:

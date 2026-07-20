@@ -174,3 +174,8 @@ vendor/**/events.out.tfevents*
 Legados/Peritus/copy-move-forgery-detection-pca/
 Legados/Peritus/waveletnoiseresidue/
 vendor/MIML/
+
+# Protocol CSV dumps (hundreds of MB — keep local only)
+protocolo_unificado.csv
+protocolo_unificado.csv.bak*
+protocolo_unificado*.csv

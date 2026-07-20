@@ -35,7 +35,8 @@ SPA React 18 + TypeScript, Vite 5, React Router v6, Zustand, TanStack Query.
 | `DistilDireAnalysis.tsx` | `/cases/:caseId/analysis/distildire` | DistilDire detection |
 | `SafireAnalysis.tsx` | `/cases/:caseId/analysis/safire` | SAFIRE |
 | `NoiseprintAnalysis.tsx` | `/cases/:caseId/analysis/noiseprint` | Noiseprint |
-| `PresentationAttackDetectionAnalysis.tsx` | `/cases/:caseId/analysis/presentation_attack_detection` | PAD |
+| `PresentationAttackDetectionAnalysis.tsx` | hub `dl-facial-spoofing` tab PAD | PAD |
+| `MoeFfdAnalysis.tsx` | hub `dl-facial-spoofing` tab MoE-FFD | MoE-FFD face forgery |
 | `PRNUAnalysis.tsx` | `/cases/:caseId/analysis/prnu` | PRNU analysis |
 | `JpegGhostsAnalysis.tsx` | `/cases/:caseId/analysis/jpeg_ghosts` | JPEG ghosts |
 | `JpegStructureCompareAnalysis.tsx` | `/cases/:caseId/analysis/jpeg_structure_compare` | JPEG structure comparison |

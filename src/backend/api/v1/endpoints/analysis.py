@@ -141,6 +141,20 @@ def list_audio_spoofing_detectors(
     return rows
 
 
+@router.get("/analysis/audio-spoofing-reference-catalog")
+def list_audio_spoofing_reference_catalog(
+    current_user: User = Depends(get_current_user),
+):
+    """Return hierarchical audio-spoofing reference-population catalog."""
+    from core.audio_spoofing_lr_reference import detector_eer_catalog_metadata, reference_macro_catalog
+
+    _ = current_user
+    return {
+        "categories": reference_macro_catalog(),
+        **detector_eer_catalog_metadata(),
+    }
+
+
 @router.get("/analysis/synthetic-reference-catalog")
 def list_synthetic_reference_catalog(
     current_user: User = Depends(get_current_user),

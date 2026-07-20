@@ -10,6 +10,7 @@ from importlib import util as importlib_util
 from typing import Callable
 
 import torch
+import numpy as np
 from PIL import Image
 from torchvision.transforms import Compose
 
@@ -98,12 +99,43 @@ def _load_normalization_module():
     return module
 
 
-def infer_bfree_from_pil(image: Image.Image, device: torch.device) -> float:
+def infer_bfree_from_pil(
+    image: Image.Image,
+    device: torch.device,
+    *,
+    return_embedding: bool = False,
+) -> float | tuple[float, np.ndarray]:
+    from core.legacy.synthetic_image_detection.embedding_utils import (
+        flatten_embedding,
+        register_fc_input_hook,
+    )
+
     model, transform = _load_model(device)
     tensor = transform(image.convert("RGB")).unsqueeze(0).to(device)
-    with torch.no_grad():
-        output = model(tensor).detach().cpu().numpy()
-    return float(output.reshape(-1)[0])
+    timm_model = getattr(model, "model", model)
+    head = getattr(timm_model, "head", None)
+    handle = None
+    store: list[torch.Tensor] | None = None
+    if return_embedding:
+        if head is None:
+            raise RuntimeError("Could not locate B-Free classification head for embedding hook")
+        handle, store = register_fc_input_hook(head)
+    try:
+        with torch.no_grad():
+            output = model(tensor).detach().cpu().numpy()
+        score = float(output.reshape(-1)[0])
+        if return_embedding:
+            if not store:
+                raise RuntimeError("B-Free embedding hook did not capture any activation")
+            crop_embeddings = store[0]
+            if crop_embeddings.dim() == 1:
+                crop_embeddings = crop_embeddings.unsqueeze(0)
+            emb = flatten_embedding(crop_embeddings.mean(dim=0, keepdim=True))
+            return score, emb
+    finally:
+        if handle is not None:
+            handle.remove()
+    return score
 
 
 def predict_bfree_row(image: Image.Image, on_progress: ProgressFn = None) -> list[str] | None:

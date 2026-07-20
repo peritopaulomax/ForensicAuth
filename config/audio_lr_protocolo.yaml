@@ -1,0 +1,23 @@
+protocol_csv: protocolo_unificado.csv
+
+path_prefixes:
+  - remote: /media/paulopmgir/HD10T-Bases
+    local: /mnt/bases
+
+samples_root: outputs/lr_calibration/audio_spoofing/samples
+output_root: outputs/lr_calibration/audio_spoofing
+
+# WeDefense exige janela util ligeiramente acima de 4s em alguns clipes CodecFake.
+min_duration_seconds: 4.5
+
+poc:
+  sample_per_class: 500
+  train_per_class: 250
+  calib_per_class: 125
+  test_per_class: 125
+  seed: 20260705
+
+poc_defaults:
+  - dataset: CodecFake
+    subset: C1
+    description: "CodecFake C1 — balanceado bonafide/spoof"

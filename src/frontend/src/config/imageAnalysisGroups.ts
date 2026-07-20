@@ -90,20 +90,31 @@ export const IMAGE_ANALYSIS_GROUPS: ImageAnalysisGroup[] = [
     ],
   },
   {
-    id: "biometria-facial",
-    title: "Biometria Facial",
+    id: "dl-facial-spoofing",
+    title: "Deep Learning: Manipulação e Spoofing Facial",
     description:
-      "Detecção de ataques de apresentação (PAD) em imagens de rosto — identifica fotos, telas, máscaras e outros spoofs frente a capturas reais.",
+      "Técnicas de deep learning para vivacidade/PAD e detecção de manipulação facial (deepfake, face swap, neural textures) em imagens de rosto.",
     techniques: [
       { kind: "plugin", id: "presentation_attack_detection", adminOnly: true },
+      { kind: "plugin", id: "moe_ffd", adminOnly: true },
     ],
   },
 ];
 
+/** IDs legados de grupo → id canônico (bookmarks / URLs antigas). */
+export const IMAGE_GROUP_ID_ALIASES: Record<string, string> = {
+  "biometria-facial": "dl-facial-spoofing",
+};
+
+export function resolveImageGroupId(groupId: string): string {
+  return IMAGE_GROUP_ID_ALIASES[groupId] ?? groupId;
+}
+
 export const IMAGE_BATCH_TAB_ID = "__executar_todas__";
 
 export function getImageAnalysisGroup(groupId: string): ImageAnalysisGroup | undefined {
-  return IMAGE_ANALYSIS_GROUPS.find((g) => g.id === groupId);
+  const resolved = resolveImageGroupId(groupId);
+  return IMAGE_ANALYSIS_GROUPS.find((g) => g.id === resolved);
 }
 
 export function findImageGroupForTechnique(techniqueKey: string): {

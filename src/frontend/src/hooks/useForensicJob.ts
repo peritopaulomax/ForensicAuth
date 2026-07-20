@@ -15,6 +15,8 @@ export interface RunAnalysisOptions {
   onArtifactsLoaded?: (jobId: string, result: Record<string, unknown>) => Promise<void>;
   /** Tempo maximo de espera pelo job (ms). Padrao 4 min; audio usa 45 min. */
   maxWaitMs?: number;
+  /** Mensagem exibida se o polling expirar antes do job concluir. */
+  timeoutMessage?: string;
   /** Se false, nao guarda o JSON completo no estado do hook (evita payloads enormes). */
   retainResult?: boolean;
 }
@@ -38,6 +40,7 @@ const ML_TECHNIQUES = new Set([
   "stil_video_detection",
   "lowres_fake_video",
   "presentation_attack_detection",
+  "moe_ffd",
   "audio_spoofing_detection",
 ]);
 
@@ -185,9 +188,17 @@ export function useForensicJob() {
   );
 
   const pollResult = useCallback(
-    async (jobId: string, maxWaitMs = 4 * 60 * 1000, pollIntervalMs = 400): Promise<Record<string, unknown> | null> => {
+    async (
+      jobId: string,
+      maxWaitMs = 4 * 60 * 1000,
+      pollIntervalMs = 400,
+      timeoutMessage?: string,
+    ): Promise<Record<string, unknown> | null> => {
       const intervalMs = pollIntervalMs;
-      const maxAttempts = Math.max(1, Math.ceil(maxWaitMs / intervalMs));
+      const infinite = !Number.isFinite(maxWaitMs) || maxWaitMs <= 0;
+      const maxAttempts = infinite
+        ? Number.MAX_SAFE_INTEGER
+        : Math.max(1, Math.ceil(maxWaitMs / intervalMs));
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise((r) => setTimeout(r, intervalMs));
         const res = await api.get<JobStatusPayload>(`/analysis/${jobId}`);
@@ -202,9 +213,14 @@ export function useForensicJob() {
           throw new Error(res.data.error_message || "Job falhou");
         }
       }
+      if (infinite) {
+        throw new Error("Job interrompido inesperadamente durante a espera.");
+      }
+      const minutes = Math.round(maxWaitMs / 60000);
       throw new Error(
-        `Timeout aguardando resultado (${Math.round(maxWaitMs / 60000)} min). ` +
-          "Para audio longo, use reamostragem (8–16 kHz) ou FFT menor."
+        timeoutMessage ||
+          `Timeout aguardando resultado (${minutes} min). ` +
+            "Para audio longo, use reamostragem (8–16 kHz) ou FFT menor.",
       );
     },
     [applyBackendProgress, setTarget]
@@ -245,7 +261,7 @@ export function useForensicJob() {
 
         const waitMs = options?.maxWaitMs ?? defaultMaxWaitMs(technique);
         const pollMs = ML_TECHNIQUES.has(technique) ? 250 : 400;
-        const jobResult = await pollResult(jobId, waitMs, pollMs);
+        const jobResult = await pollResult(jobId, waitMs, pollMs, options?.timeoutMessage);
 
         if (jobResult?.success === false) {
           throw new Error(String(jobResult.error || "Analise falhou"));

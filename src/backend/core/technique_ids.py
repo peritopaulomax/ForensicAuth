@@ -8,6 +8,9 @@ SYNTHETIC_IMAGE_DETECTION = "synthetic_image_detection"
 # Técnica: detecção de ataques de apresentação facial (PAD).
 PRESENTATION_ATTACK_DETECTION = "presentation_attack_detection"
 
+# Técnica: MoE-FFD — face forgery / deepfake detection (ViT-MoE).
+MOE_FFD = "moe_ffd"
+
 # Técnica: detecção de spoofing de áudio via DF Arena 1B.
 AUDIO_SPOOFING_DETECTION = "audio_spoofing_detection"
 

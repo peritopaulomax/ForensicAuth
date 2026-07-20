@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -42,15 +43,69 @@ from xgboost import XGBClassifier
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
+try:
+    from core.latent_typicality.config import (
+        DEFAULT_DISTANCE as DEFAULT_TYPICALITY_DISTANCE_FROM_CONFIG,
+        DEFAULT_K as DEFAULT_TYPICALITY_K_FROM_CONFIG,
+        DEFAULT_SYSTEM as DEFAULT_TYPICALITY_SYSTEM_FROM_CONFIG,
+    )
+    from core.latent_typicality.features import feature_columns_for_detectors
+    from core.latent_typicality.representations_utils import (
+        ORIGINAL_AUGMENTATION_TAG,
+        load_embeddings_row,
+        row_has_embeddings,
+    )
+    from core.latent_typicality.typicality import (
+        TypicalityReference,
+        build_typicality_reference,
+        typicality_features_batch,
+    )
+except ImportError:
+    ORIGINAL_AUGMENTATION_TAG = "original"
+    DEFAULT_TYPICALITY_DISTANCE_FROM_CONFIG = "cosine"
+    DEFAULT_TYPICALITY_K_FROM_CONFIG = 5
+    DEFAULT_TYPICALITY_SYSTEM_FROM_CONFIG = "D"
+    feature_columns_for_detectors = None  # type: ignore[assignment]
+    load_embeddings_row = None  # type: ignore[assignment]
+    row_has_embeddings = None  # type: ignore[assignment]
+    build_typicality_reference = None  # type: ignore[assignment]
+    typicality_features_batch = None  # type: ignore[assignment]
+    TypicalityReference = None  # type: ignore[assignment,misc]
+
 
 ALL_DETECTORS = ("ai_image_detector_deploy", "sdxl_flux_detector_v1_1", "bfree", "corvi2023", "safe")
 FEATURE_COLS_FOR_DETECTORS = {detector: f"{detector}_logit_prob" for detector in ALL_DETECTORS}
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SCORE_MATRIX = PROJECT_ROOT / "outputs/lr_calibration/score_matrices/lr_scores_balanced_full.csv"
+DEFAULT_AUGMENTED_SCORE_MATRIX = (
+    PROJECT_ROOT / "outputs/lr_calibration/score_matrices/lr_scores_balanced_full_augmented.csv"
+)
+DEFAULT_REPRESENTATIONS_MATRIX = (
+    PROJECT_ROOT / "outputs/lr_calibration/synthetic_image/representations/representations.csv"
+)
+_SCORE_ONLY_MATRICES = frozenset(
+    {
+        DEFAULT_SCORE_MATRIX.resolve(),
+        DEFAULT_AUGMENTED_SCORE_MATRIX.resolve(),
+    }
+)
+AUGMENTATION_NAMES: tuple[str, ...] = ("jpeg_85", "webp_80", "crop_upscale", "resize_down_50")
+AUGMENTATION_MULTIPLIER = 1 + len(AUGMENTATION_NAMES)
 SAMPLE_PER_CLASS = 500
 TRAIN_PER_CLASS = 250
 CALIB_PER_CLASS = 125
 TEST_PER_CLASS = 125
+
+# Latent typicality defaults (mirror audio_spoofing_lr_reference.py).
+DEFAULT_TYPICALITY_SYSTEM = "D"
+DEFAULT_TYPICALITY_DISTANCE = "cosine"
+DEFAULT_TYPICALITY_K = 5
+TYPICALITY_MATERIALIZE_BATCH = max(
+    32, int(os.environ.get("VA_LR_TYPICALITY_BATCH", "512"))
+)
+TYPICALITY_MATERIALIZE_JOBS = min(
+    12, max(1, int(os.environ.get("VA_LR_TYPICALITY_JOBS", "8")))
+)
 
 # In-memory caches to avoid repeated I/O and scoring on the same reference population.
 # Key for score matrix: (resolved path string, mtime, size).
@@ -563,6 +618,16 @@ def _sample_rows(df: pd.DataFrame, n: int, rng: np.random.Generator, context: st
         return df.sample(n=n, random_state=int(rng.integers(0, 2**31 - 1))).copy()
     # Small population: sample with replacement so the pipeline can still be trained.
     return df.sample(n=n, replace=True, random_state=int(rng.integers(0, 2**31 - 1))).copy()
+
+
+def _filter_matrix_scope(df: pd.DataFrame, *, augmented_reference: bool) -> pd.DataFrame:
+    """Keep only original rows unless augmented reference is requested."""
+    if "augmentation" not in df.columns:
+        return df.copy()
+    aug = df["augmentation"].fillna("").astype(str)
+    if augmented_reference:
+        return df.copy()
+    return df[aug.isin(("", ORIGINAL_AUGMENTATION_TAG))].copy()
 
 
 def _augmentation_strata(df: pd.DataFrame) -> pd.Series:
@@ -1086,6 +1151,116 @@ def _feature_cols(selected_detectors: tuple[str, ...]) -> list[str]:
     return [FEATURE_COLS_FOR_DETECTORS[detector] for detector in selected_detectors]
 
 
+def _filter_rows_with_embeddings(
+    df: pd.DataFrame,
+    selected_detectors: tuple[str, ...],
+) -> pd.DataFrame:
+    """Drop rows that are missing any required embedding path or .npy file."""
+    if row_has_embeddings is None:
+        raise RuntimeError("latent_typicality module not available")
+    mask = pd.Series(True, index=df.index)
+    for detector in selected_detectors:
+        mask &= df[f"{detector}_embedding_path"].notna()
+    df = df[mask].copy()
+    present = df.apply(
+        lambda row: row_has_embeddings(row, selected_detectors),
+        axis=1,
+    )
+    return df[present].copy()
+
+
+def _load_embedding_stack(df: pd.DataFrame, detector: str) -> np.ndarray:
+    """Load all embeddings for ``detector`` as a single (N, D) float32 array."""
+    paths = df[f"{detector}_embedding_path"].astype(str).tolist()
+    embeddings = [np.load(p) for p in paths]
+    return np.stack(embeddings, axis=0).astype(np.float32)
+
+
+def _build_typicality_refs(
+    train_df: pd.DataFrame,
+    selected_detectors: tuple[str, ...],
+    typicality_k: int,
+    typicality_distance: str,
+) -> dict[str, TypicalityReference]:
+    """Build k-NN typicality references on the train split (anti-leak)."""
+    if build_typicality_reference is None:
+        raise RuntimeError("latent_typicality module not available")
+    refs: dict[str, TypicalityReference] = {}
+    for detector in selected_detectors:
+        real_df = train_df[train_df["y_fake"].eq(0)]
+        spoof_df = train_df[train_df["y_fake"].eq(1)]
+        real_emb = _load_embedding_stack(real_df, detector)
+        spoof_emb = _load_embedding_stack(spoof_df, detector)
+        refs[detector] = build_typicality_reference(
+            detector=detector,
+            distance=typicality_distance,  # type: ignore[arg-type]
+            k=typicality_k,
+            real_embeddings=real_emb,
+            synthetic_embeddings=spoof_emb,
+            real_ids=[str(r.get("sample_id", idx)) for idx, r in real_df.iterrows()],
+            synthetic_ids=[str(r.get("sample_id", idx)) for idx, r in spoof_df.iterrows()],
+        )
+    return refs
+
+
+def _materialize_typicality_features(
+    df: pd.DataFrame,
+    typicality_refs: dict[str, TypicalityReference],
+    selected_detectors: tuple[str, ...],
+) -> pd.DataFrame:
+    """Add score + typicality feature columns to ``df`` and return it."""
+    if typicality_features_batch is None:
+        raise RuntimeError("latent_typicality module not available")
+    for detector in selected_detectors:
+        df[f"S_{detector}"] = df[f"{detector}_logit_prob"].to_numpy(dtype=float)
+        embeddings = _load_embedding_stack(df, detector)
+        # exclude_self only makes sense for the train split; for calib/test the
+        # query point is not part of the reference bank.
+        exclude_self = df["reference_split"].eq("train_logreg").to_numpy()
+        features = typicality_features_batch(
+            embeddings=embeddings,
+            ref=typicality_refs[detector],
+            exclude_self=exclude_self,
+        )
+        for col, values in features.items():
+            df[col] = values
+    return df
+
+
+def _build_questioned_features(
+    detector_scores: dict[str, Any],
+    selected_detectors: tuple[str, ...],
+    typicality_refs: dict[str, TypicalityReference],
+    typicality_system: str = DEFAULT_TYPICALITY_SYSTEM,
+) -> np.ndarray:
+    """Build the feature vector for the questioned evidence.
+
+    For latent typicality this requires each selected detector to provide an
+    ``embedding`` alongside its ``fake_prob``.
+    """
+    if typicality_features_batch is None:
+        raise RuntimeError("latent_typicality module not available")
+    feature_dict: dict[str, float] = {}
+    for detector in selected_detectors:
+        scores = detector_scores.get(detector) or {}
+        embedding = scores.get("embedding")
+        if embedding is None:
+            raise RuntimeError(
+                f"Embedding ausente para detector {detector}; "
+                "tipicidade latente requer return_embedding=True"
+            )
+        emb = np.asarray(embedding, dtype=np.float32).reshape(1, -1)
+        features = typicality_features_batch(
+            embeddings=emb,
+            ref=typicality_refs[detector],
+        )
+        for col, values in features.items():
+            feature_dict[col] = float(values[0])
+        feature_dict[f"S_{detector}"] = float(_logit_prob([float(scores["fake_prob"])])[0])
+    col_order = feature_columns_for_detectors(typicality_system, selected_detectors)
+    return np.array([feature_dict[col] for col in col_order], dtype=float)
+
+
 def _write_summary_txt(path: Path, report: dict[str, Any]) -> None:
     q = report.get("questioned", {})
     metrics = report.get("test_metrics", {})
@@ -1123,6 +1298,18 @@ def _write_summary_txt(path: Path, report: dict[str, Any]) -> None:
         f"Subgrupos: {report.get('selected_count', '—')}",
         f"Amostras por classe/subgrupo: {report.get('sample_per_class_per_subgroup', '—')}",
     ]
+    if report.get("augmented_reference"):
+        lines.extend([
+            f"Referencia aumentada: sim (multiplicador={report.get('sample_multiplier', '—')})",
+            f"Augmentacoes: {', '.join(AUGMENTATION_NAMES)}",
+        ])
+    else:
+        lines.append("Referencia aumentada: nao (somente originais)")
+    if report.get("use_latent_typicality"):
+        lines.append(
+            f"Tipicidade latente: sim (sistema={report.get('typicality_system', '—')}, "
+            f"k={report.get('typicality_k', '—')}, distancia={report.get('typicality_distance', '—')})"
+        )
     for item in items:
         lines.append(f"  - {item.get('base_group', '')} / {item.get('subgroup', '')}")
     if feature_weights:
@@ -1181,10 +1368,14 @@ def _cache_key(
     classifier: str,
     seed: int,
     sample_multiplier: int = 1,
+    use_latent_typicality: bool = False,
+    typicality_system: str = DEFAULT_TYPICALITY_SYSTEM,
+    typicality_k: int = DEFAULT_TYPICALITY_K,
+    typicality_distance: str = DEFAULT_TYPICALITY_DISTANCE,
 ) -> str:
     import hashlib
 
-    canonical = {
+    canonical: dict[str, Any] = {
         "score_matrix_hash": _score_matrix_hash(score_matrix),
         "macro_category": macro_category,
         "items": sorted(item.key for item in items) if macro_category is None else [],
@@ -1194,6 +1385,15 @@ def _cache_key(
         "sample_multiplier": sample_multiplier,
         "sample_per_class": SAMPLE_PER_CLASS,
     }
+    if use_latent_typicality:
+        canonical.update(
+            {
+                "use_latent_typicality": True,
+                "typicality_system": typicality_system,
+                "typicality_k": typicality_k,
+                "typicality_distance": typicality_distance,
+            }
+        )
     payload = json.dumps(canonical, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
@@ -1260,6 +1460,7 @@ def _save_lr_cache(
     selected_detectors: tuple[str, ...],
     metadata: dict[str, Any],
     scored: pd.DataFrame | None = None,
+    typicality_refs: dict[str, TypicalityReference] | None = None,
 ) -> Path:
     path = _cache_dir() / f"{cache_key}.joblib"
     payload = {
@@ -1271,6 +1472,8 @@ def _save_lr_cache(
     }
     if scored is not None:
         payload["scored"] = scored
+    if typicality_refs is not None:
+        payload["typicality_refs"] = typicality_refs
     joblib.dump(payload, path)
     if scored is not None:
         _LR_SCORED_CACHE[cache_key] = scored.copy()
@@ -1279,7 +1482,7 @@ def _save_lr_cache(
 
 def _load_lr_cache(
     cache_key: str,
-) -> tuple[Any, dict[str, Any], list[str], tuple[str, ...], pd.DataFrame | None] | None:
+) -> tuple[Any, dict[str, Any], list[str], tuple[str, ...], pd.DataFrame | None, dict[str, TypicalityReference] | None] | None:
     if cache_key in _LR_SCORED_CACHE:
         scored = _LR_SCORED_CACHE[cache_key]
     else:
@@ -1288,7 +1491,7 @@ def _load_lr_cache(
     path = _cache_dir() / f"{cache_key}.joblib"
     if not path.is_file():
         if scored is not None:
-            return None, None, [], (), scored
+            return None, None, [], (), scored, None
         return None
     try:
         data = joblib.load(path)
@@ -1297,9 +1500,10 @@ def _load_lr_cache(
         calibration = _deserialize_calibration(data["calibration"])
         selected_detectors = tuple(data["selected_detectors"])
         scored = data.get("scored", scored)
+        typicality_refs = data.get("typicality_refs")
         if scored is not None and cache_key not in _LR_SCORED_CACHE:
             _LR_SCORED_CACHE[cache_key] = scored.copy()
-        return model, calibration, feature_cols, selected_detectors, scored
+        return model, calibration, feature_cols, selected_detectors, scored, typicality_refs
     except Exception:
         return None
 
@@ -1319,12 +1523,25 @@ def _build_report(
     augmented_reference: bool = False,
     sample_multiplier: int = 1,
     scored: pd.DataFrame | None = None,
+    use_latent_typicality: bool = False,
+    typicality_refs: dict[str, TypicalityReference] | None = None,
+    typicality_system: str = DEFAULT_TYPICALITY_SYSTEM,
+    typicality_k: int = DEFAULT_TYPICALITY_K,
+    typicality_distance: str = DEFAULT_TYPICALITY_DISTANCE,
 ) -> dict[str, Any]:
     if scored is None:
         scored = _score_dataframe(split, model, calibration, feature_cols)
     test = scored[scored["reference_split"].eq("test_bigauss")].copy()
 
-    features = _detector_features(detector_scores, selected_detectors)
+    if use_latent_typicality:
+        features = _build_questioned_features(
+            detector_scores,
+            selected_detectors,
+            typicality_refs,
+            typicality_system=typicality_system,
+        )
+    else:
+        features = _detector_features(detector_scores, selected_detectors)
     questioned = _apply(model, calibration, features)
 
     plot_dir = out_dir
@@ -1351,6 +1568,10 @@ def _build_report(
         "sample_rows": int(len(split)),
         "augmented_reference": bool(augmented_reference),
         "sample_multiplier": int(sample_multiplier),
+        "use_latent_typicality": bool(use_latent_typicality),
+        "typicality_system": typicality_system if use_latent_typicality else None,
+        "typicality_k": int(typicality_k) if use_latent_typicality else None,
+        "typicality_distance": typicality_distance if use_latent_typicality else None,
         "selected_detectors": list(selected_detectors),
         "meta_classifier": classifier,
         "meta_classifier_label": _classifier_label(classifier),
@@ -1408,6 +1629,10 @@ def compute_reference_lr(
     selected_detectors: tuple[str, ...] = ALL_DETECTORS,
     classifier: str = DEFAULT_META_CLASSIFIER,
     sample_multiplier: int = 1,
+    use_latent_typicality: bool = False,
+    typicality_system: str = DEFAULT_TYPICALITY_SYSTEM,
+    typicality_k: int = DEFAULT_TYPICALITY_K,
+    typicality_distance: str = DEFAULT_TYPICALITY_DISTANCE,
 ) -> dict[str, Any]:
     selected_detectors = tuple(detector for detector in ALL_DETECTORS if detector in selected_detectors)
     if not selected_detectors:
@@ -1415,38 +1640,107 @@ def compute_reference_lr(
     classifier = _validate_classifier(classifier)
     sample_multiplier = max(1, int(sample_multiplier))
 
-    feature_cols = _feature_cols(selected_detectors)
+    use_latent_typicality = bool(use_latent_typicality)
+    if use_latent_typicality and feature_columns_for_detectors is None:
+        raise RuntimeError("latent_typicality module is not available")
+
+    if use_latent_typicality:
+        resolved = score_matrix.resolve()
+        effective_score_matrix = (
+            DEFAULT_REPRESENTATIONS_MATRIX
+            if resolved in _SCORE_ONLY_MATRICES
+            else score_matrix
+        )
+    else:
+        effective_score_matrix = score_matrix
+
+    feature_cols = (
+        feature_columns_for_detectors(typicality_system, selected_detectors)
+        if use_latent_typicality
+        else _feature_cols(selected_detectors)
+    )
+
     items = normalize_reference_selection(selection)
-    df = _load_scores(score_matrix)
+    df = _load_scores(effective_score_matrix)
+    if use_latent_typicality:
+        df = _filter_rows_with_embeddings(df, selected_detectors)
+        if df.empty:
+            raise RuntimeError(
+                "Nenhuma linha com embeddings completos no disco para calibracao com tipicidade."
+            )
+        # Ensure the score columns used by the baseline are still present.
+        for detector in selected_detectors:
+            df[f"{detector}_logit_prob"] = _logit_prob(df[f"{detector}_fake_prob"])
+
+    augmented_reference = sample_multiplier > 1
+    df = _filter_matrix_scope(df, augmented_reference=augmented_reference)
+    if df.empty:
+        raise RuntimeError(
+            "Nenhuma linha disponivel apos filtro de escopo "
+            + ("(referencia aumentada)" if augmented_reference else "(somente originais)")
+        )
+
     sample = _build_reference_sample(df, items, seed, sample_multiplier=sample_multiplier)
     split = _assign_splits(sample, seed, sample_multiplier=sample_multiplier)
 
-    augmented_reference = sample_multiplier > 1
-
     macro_category = _macro_category_for_selection(selection)
     cache_key = _cache_key(
-        score_matrix=score_matrix,
+        score_matrix=effective_score_matrix,
         macro_category=macro_category,
         items=items,
         selected_detectors=selected_detectors,
         classifier=classifier,
         seed=seed,
         sample_multiplier=sample_multiplier,
+        use_latent_typicality=use_latent_typicality,
+        typicality_system=typicality_system,
+        typicality_k=typicality_k,
+        typicality_distance=typicality_distance,
     )
     cached = _load_lr_cache(cache_key)
     used_cache = False
     scored: pd.DataFrame | None = None
+    typicality_refs: dict[str, TypicalityReference] | None = None
 
     if cached is not None:
-        model, calibration, cached_feature_cols, cached_detectors, scored = cached
+        model, calibration, cached_feature_cols, cached_detectors, scored, typicality_refs = cached
         if cached_feature_cols == feature_cols and cached_detectors == selected_detectors:
             used_cache = True
         else:
             cached = None
             scored = None
+            typicality_refs = None
 
     if cached is None:
         train = split[split["reference_split"].eq("train_logreg")]
+        if use_latent_typicality:
+            typicality_refs = _build_typicality_refs(
+                train,
+                selected_detectors,
+                typicality_k,
+                typicality_distance,
+            )
+            train = _materialize_typicality_features(
+                train.copy(), typicality_refs, selected_detectors
+            )
+            # Replace each split (train/calib/test) with its materialized version so
+            # the whole dataframe exposes the latent-typicality feature columns.
+            split = pd.concat(
+                [split[split["reference_split"].ne("train_logreg")], train],
+                ignore_index=True,
+            )
+            calibration_splits = ["calibration_bigauss", "test_bigauss"]
+            for split_name in calibration_splits:
+                split_part = split[split["reference_split"].eq(split_name)]
+                if not split_part.empty:
+                    split_part = _materialize_typicality_features(
+                        split_part.copy(), typicality_refs, selected_detectors
+                    )
+                    split = pd.concat(
+                        [split[split["reference_split"].ne(split_name)], split_part],
+                        ignore_index=True,
+                    )
+
         x_train = train[feature_cols].to_numpy(dtype=float)
         y_train = (1 - train["y_fake"].astype(int)).to_numpy()
         model = _train_meta_classifier(classifier, x_train, y_train, feature_cols, seed)
@@ -1462,13 +1756,18 @@ def compute_reference_lr(
             selected_detectors=selected_detectors,
             metadata={
                 "macro_category": macro_category,
-                "score_matrix_hash": _score_matrix_hash(score_matrix),
+                "score_matrix_hash": _score_matrix_hash(effective_score_matrix),
                 "classifier": classifier,
                 "seed": seed,
                 "selected_count": len(items),
                 "created_at": pd.Timestamp.now(tz="UTC").isoformat(),
+                "use_latent_typicality": use_latent_typicality,
+                "typicality_system": typicality_system,
+                "typicality_k": typicality_k,
+                "typicality_distance": typicality_distance,
             },
             scored=scored,
+            typicality_refs=typicality_refs,
         )
 
     return _build_report(
@@ -1485,4 +1784,9 @@ def compute_reference_lr(
         augmented_reference=augmented_reference,
         sample_multiplier=sample_multiplier,
         scored=scored,
+        use_latent_typicality=use_latent_typicality,
+        typicality_refs=typicality_refs,
+        typicality_system=typicality_system,
+        typicality_k=typicality_k,
+        typicality_distance=typicality_distance,
     )

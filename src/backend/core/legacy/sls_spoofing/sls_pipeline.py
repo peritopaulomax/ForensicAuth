@@ -15,6 +15,7 @@ from core.legacy.sls_spoofing.sls_runtime import (
     resolve_sls_checkpoint_path,
     runtime_status,
 )
+from core.legacy.audio_spoofing.embedding_utils import aggregate_embeddings, register_sls_embedding_hook
 
 SAMPLE_RATE = 16000
 WINDOW_SECONDS = 4.0
@@ -100,6 +101,7 @@ def infer_sls_windows(
     *,
     window_seconds: float = WINDOW_SECONDS,
     device: torch.device | str | int | None = None,
+    return_embedding: bool = False,
 ) -> dict[str, Any]:
     """Run SLS classifier on ~4s windows (pad to 64600 samples @ 16 kHz)."""
     ok, reason = runtime_status()
@@ -122,35 +124,49 @@ def infer_sls_windows(
         device_obj = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model, device_obj = _load_model(device_obj)
+    embed_hook = None
+    embed_store: list[np.ndarray] = []
+    if return_embedding:
+        embed_hook, embed_store = register_sls_embedding_hook(model)
     window_samples = int(SAMPLE_RATE * window_seconds)
     windows = _split_audio(audio.astype(np.float32), window_samples, window_samples)
 
     window_results: list[dict[str, Any]] = []
     bonafide_log_scores: list[float] = []
     spoof_log_scores: list[float] = []
+    window_embeddings: list[np.ndarray] = []
 
-    for start, window in windows:
-        padded = _pad_audio(window.astype(np.float32), PAD_SAMPLES)
-        batch_x = torch.tensor(padded, dtype=torch.float32, device=device_obj).unsqueeze(0)
-        with torch.no_grad():
-            batch_out = model(batch_x)
-            log_scores = batch_out.detach().cpu().numpy()[0]
-        spoof_log = float(log_scores[0])
-        bonafide_log = float(log_scores[1])
-        probs = _softmax(np.array([spoof_log, bonafide_log]))
+    try:
+        for start, window in windows:
+            embed_store.clear()
+            padded = _pad_audio(window.astype(np.float32), PAD_SAMPLES)
+            batch_x = torch.tensor(padded, dtype=torch.float32, device=device_obj).unsqueeze(0)
+            with torch.no_grad():
+                batch_out = model(batch_x)
+                log_scores = batch_out.detach().cpu().numpy()[0]
+            if return_embedding:
+                if not embed_store:
+                    raise RuntimeError("SLS embedding hook não capturou saída da penúltima camada")
+                window_embeddings.append(embed_store[0].astype(np.float32))
+            spoof_log = float(log_scores[0])
+            bonafide_log = float(log_scores[1])
+            probs = _softmax(np.array([spoof_log, bonafide_log]))
 
-        window_results.append({
-            "start_seconds": round(start / SAMPLE_RATE, 3),
-            "center_seconds": round((start + len(window) / 2) / SAMPLE_RATE, 3),
-            "duration_seconds": round(len(window) / SAMPLE_RATE, 3),
-            "spoof_logit": round(spoof_log, 6),
-            "bonafide_logit": round(bonafide_log, 6),
-            "spoof_prob": round(float(probs[0]), 6),
-            "bonafide_prob": round(float(probs[1]), 6),
-            "bonafide_score": round(bonafide_log, 6),
-        })
-        spoof_log_scores.append(spoof_log)
-        bonafide_log_scores.append(bonafide_log)
+            window_results.append({
+                "start_seconds": round(start / SAMPLE_RATE, 3),
+                "center_seconds": round((start + len(window) / 2) / SAMPLE_RATE, 3),
+                "duration_seconds": round(len(window) / SAMPLE_RATE, 3),
+                "spoof_logit": round(spoof_log, 6),
+                "bonafide_logit": round(bonafide_log, 6),
+                "spoof_prob": round(float(probs[0]), 6),
+                "bonafide_prob": round(float(probs[1]), 6),
+                "bonafide_score": round(bonafide_log, 6),
+            })
+            spoof_log_scores.append(spoof_log)
+            bonafide_log_scores.append(bonafide_log)
+    finally:
+        if embed_hook is not None:
+            embed_hook.remove()
 
     if not window_results:
         raise RuntimeError("Nenhuma janela de audio gerada para SLS")
@@ -168,7 +184,7 @@ def infer_sls_windows(
     else:
         label = "uncertain"
 
-    return {
+    result: dict[str, Any] = {
         "windows": window_results,
         "aggregated": {
             "spoof_logit": round(agg_spoof, 6),
@@ -181,3 +197,7 @@ def infer_sls_windows(
         "window_count": len(window_results),
         "inference_device": str(device_obj),
     }
+    if return_embedding:
+        result["embedding"] = aggregate_embeddings(window_embeddings)
+        result["embedding_dim"] = int(result["embedding"].shape[0])
+    return result

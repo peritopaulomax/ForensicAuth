@@ -1,12 +1,26 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import AnalysisPageShell, {
   AnalysisPanel,
   MessageBox,
   ProcessButton,
+  formatInferenceDevice,
+  parseDeviceFromProgress,
 } from "@/components/AnalysisPageShell";
 import AudioEvidenceSelector from "@/components/AudioEvidenceSelector";
-import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
+import {
+  MacroCategory,
+  MetaClassifierSelect,
+  ReferenceLrPanel,
+  ReferenceLrResult,
+  ReferencePopulationEntry,
+  ReferencePopulationSelector,
+  itemsToEntries,
+  referencePopulationPayload,
+  referenceSelectionCounts,
+  SaveButton,
+  smallButtonStyle,
+} from "@/components/LrReferencePanels";
 import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { getEvidenceFileUrl, saveDerivative } from "@/services/evidence";
@@ -27,6 +41,19 @@ const DETECTOR_OPTIONS: { id: AudioSpoofingDetectorId; label: string }[] = [
   { id: "sls_xlsr", label: "SLS XLS-R (ACM MM 2024)" },
   { id: "wedefense_wavlm_mhfa", label: "WeDefense ASV2025 WavLM + MHFA" },
 ];
+
+const DEFAULT_AUDIO_REFERENCE: ReferencePopulationEntry[] = itemsToEntries(
+  [
+    { base_group: "DFADD", subgroup: "StyleTTS2" },
+    { base_group: "DFADD", subgroup: "NaturalSpeech2" },
+    { base_group: "SONAR", subgroup: "xTTS" },
+    { base_group: "SONAR", subgroup: "PromptTTS2" },
+    { base_group: "SONAR", subgroup: "VoiceBox" },
+    { base_group: "ASVspoof5", subgroup: "flac_E_eval" },
+    { base_group: "In-The-Wild", subgroup: "In-The-Wild" },
+  ],
+  "both"
+);
 
 type ResultRow = [string, string, string, string, string, string];
 
@@ -53,7 +80,11 @@ interface PlotData {
 interface DetectorCatalogRow {
   id: AudioSpoofingDetectorId;
   label: string;
+  description?: string;
   paper?: string;
+  paper_title?: string;
+  paper_url?: string;
+  repo_url?: string;
   available?: boolean;
   unavailable_reason?: string | null;
 }
@@ -77,6 +108,7 @@ interface AnalysisResult {
   detector_scores?: Record<string, { spoof_prob?: number; bonafide_prob?: number; decision?: string }>;
   plot_data?: PlotData;
   plot_by_detector?: Record<string, PlotSeries>;
+  reference_lr?: ReferenceLrResult;
   error?: string;
   message?: string;
 }
@@ -89,6 +121,78 @@ const SCORE_HEADERS = [
   "Classificação",
   "Dispositivo",
 ];
+
+function classificationColor(value: string): string {
+  if (value === "Spoof" || value === "SPOOF") return "#b91c1c";
+  if (value === "Bonafide" || value === "BONAFIDE") return "#166534";
+  return "#b45309";
+}
+
+function deviceBadgeColor(value: string): string {
+  if (value === "GPU") return "#1d4ed8";
+  return "#6b7280";
+}
+
+function DetectorOptionInfo({ detector }: { detector: DetectorCatalogRow }) {
+  const paperUrl = detector.paper_url || (detector.paper?.startsWith("http") ? detector.paper : undefined);
+  const paperTitle = detector.paper_title || detector.paper;
+
+  return (
+    <span>
+      <strong style={{ display: "block", color: "#1f2937" }}>{detector.label}</strong>
+      {detector.description && (
+        <span
+          style={{
+            display: "block",
+            marginTop: "0.25rem",
+            fontSize: "0.74rem",
+            color: "#4b5563",
+            lineHeight: 1.35,
+          }}
+        >
+          {detector.description}
+        </span>
+      )}
+      <span
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "0.35rem",
+          marginTop: "0.35rem",
+          fontSize: "0.72rem",
+        }}
+      >
+        {paperUrl && (
+          <a
+            href={paperUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#1d4ed8", textDecoration: "none" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            📄 {paperTitle || "Paper"}
+          </a>
+        )}
+        {detector.repo_url && (
+          <a
+            href={detector.repo_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#0369a1", textDecoration: "none" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            🔗 {detector.repo_url.includes("huggingface.co") ? "HuggingFace" : "Repositório"}
+          </a>
+        )}
+      </span>
+      {detector.available === false && detector.unavailable_reason && (
+        <span style={{ display: "block", color: "#b45309", fontSize: "0.75rem", marginTop: "0.25rem" }}>
+          {detector.unavailable_reason}
+        </span>
+      )}
+    </span>
+  );
+}
 
 function TemporalChart({ data }: { data: PlotSeries }) {
   const padding = { top: 25, right: 25, bottom: 40, left: 45 };
@@ -196,6 +300,80 @@ function ScoreBadge({ label, value, color }: { label: string; value: number; col
   );
 }
 
+function ResultsTable({ rows }: { rows: ResultRow[] }) {
+  return (
+    <div>
+      <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.88rem", color: "#374151", fontWeight: 600 }}>
+        Resultados dos Detectores
+      </h4>
+      <div style={{ overflow: "auto", maxHeight: 180, border: "1px solid #e5e7eb", borderRadius: 6 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
+          <thead>
+            <tr style={{ background: "#f9fafb", position: "sticky", top: 0 }}>
+              {SCORE_HEADERS.map((h) => (
+                <th
+                  key={h}
+                  style={{
+                    textAlign: "left",
+                    padding: "0.45rem 0.6rem",
+                    borderBottom: "1px solid #e5e7eb",
+                    color: "#4b5563",
+                    fontWeight: 600,
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => {
+              const cells = [...row, ...Array(Math.max(0, SCORE_HEADERS.length - row.length)).fill("—")];
+              return (
+                <tr key={i}>
+                  {cells.map((cell, j) => (
+                    <td
+                      key={j}
+                      style={{
+                        padding: "0.4rem 0.6rem",
+                        borderBottom: "1px solid #f3f4f6",
+                        color:
+                          j === 4
+                            ? classificationColor(cell)
+                            : j === 5
+                              ? deviceBadgeColor(cell)
+                              : "#1f2937",
+                        fontWeight: j === 4 || j === 5 ? 600 : 400,
+                      }}
+                    >
+                      {j === 5 ? (
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "0.1rem 0.45rem",
+                            borderRadius: 4,
+                            fontSize: "0.72rem",
+                            background: cell === "GPU" ? "#dbeafe" : "#f3f4f6",
+                            color: deviceBadgeColor(cell),
+                          }}
+                        >
+                          {cell}
+                        </span>
+                      ) : (
+                        cell
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function AudioSpoofingAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -206,8 +384,21 @@ export default function AudioSpoofingAnalysis() {
   const [selectedDetectors, setSelectedDetectors] = useState<AudioSpoofingDetectorId[]>(DEFAULT_DETECTORS);
   const [plotDetector, setPlotDetector] = useState<AudioSpoofingDetectorId>("df_arena_1b");
   const [plotData, setPlotData] = useState<PlotData | null>(null);
+  const [referenceCatalog, setReferenceCatalog] = useState<MacroCategory[]>([]);
+  const [referenceCatalogLoading, setReferenceCatalogLoading] = useState(true);
+  const [referenceCatalogError, setReferenceCatalogError] = useState<string | null>(null);
+  const [detectorEerLabels, setDetectorEerLabels] = useState<string[]>([]);
+  const [referenceEntries, setReferenceEntries] = useState<ReferencePopulationEntry[]>(DEFAULT_AUDIO_REFERENCE);
+  const [metaClassifier, setMetaClassifier] = useState<string>("logistic");
+  const [useAugmentedReference, setUseAugmentedReference] = useState(false);
+  const [useLatentTypicality, setUseLatentTypicality] = useState(false);
+  const [referenceLrTippettUrl, setReferenceLrTippettUrl] = useState<string | null>(null);
+  const [referenceLrDistributionUrl, setReferenceLrDistributionUrl] = useState<string | null>(null);
+  const [referenceLrIdentityUrl, setReferenceLrIdentityUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [liveInferenceDevice, setLiveInferenceDevice] = useState<string | null>(null);
+  const blobUrlsRef = useRef<string[]>([]);
 
   const {
     running,
@@ -217,10 +408,44 @@ export default function AudioSpoofingAnalysis() {
     progressLabel,
     currentJobId,
     runAnalysis,
+    fetchImage,
     reset,
   } = useForensicJob();
 
   const typedResult = result as AnalysisResult | null;
+
+  useEffect(() => {
+    if (!running) {
+      setLiveInferenceDevice(null);
+      return;
+    }
+    const parsed = parseDeviceFromProgress(progressLabel);
+    if (parsed) setLiveInferenceDevice(parsed);
+  }, [running, progressLabel]);
+
+  const activeInferenceDevice =
+    formatInferenceDevice(typedResult?.inference_device) ?? (running ? liveInferenceDevice : null);
+
+  const revokeBlobs = useCallback(() => {
+    blobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    blobUrlsRef.current = [];
+  }, []);
+
+  const trackBlob = useCallback((url: string | null) => {
+    if (url) blobUrlsRef.current.push(url);
+    return url;
+  }, []);
+
+  const setArtifactUrl = useCallback(
+    (setter: (url: string | null) => void, url: string | null) => {
+      setter(url ? trackBlob(url) : null);
+    },
+    [trackBlob]
+  );
+
+  useEffect(() => {
+    return () => revokeBlobs();
+  }, [revokeBlobs]);
 
   useEffect(() => {
     api
@@ -253,6 +478,27 @@ export default function AudioSpoofingAnalysis() {
       .catch(() => {
         setCatalog(DETECTOR_OPTIONS.map((o) => ({ ...o, available: true })));
       });
+
+    api
+      .get<{
+        categories: MacroCategory[];
+        detector_eer_labels?: string[];
+        default_reference_items?: { base_group: string; subgroup: string }[];
+      }>("/analysis/audio-spoofing-reference-catalog")
+      .then((res) => {
+        setReferenceCatalog(res.data.categories);
+        setDetectorEerLabels(res.data.detector_eer_labels ?? []);
+        if (res.data.default_reference_items?.length) {
+          setReferenceEntries(itemsToEntries(res.data.default_reference_items, "both"));
+        }
+        setReferenceCatalogLoading(false);
+      })
+      .catch((err: unknown) => {
+        const message =
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+        setReferenceCatalogError(message);
+        setReferenceCatalogLoading(false);
+      });
   }, []);
 
   const onSelect = useCallback(
@@ -261,30 +507,74 @@ export default function AudioSpoofingAnalysis() {
       setSelectedFilename(filename);
       reset();
       setPlotData(null);
+      setReferenceLrTippettUrl(null);
+      setReferenceLrDistributionUrl(null);
+      setReferenceLrIdentityUrl(null);
       setSaveMessage(null);
     },
     [reset]
   );
 
-  const toggleDetector = (id: AudioSpoofingDetectorId) => {
+  const toggleDetector = useCallback((id: AudioSpoofingDetectorId, checked: boolean) => {
     setSelectedDetectors((prev) => {
-      if (prev.includes(id)) {
-        const next = prev.filter((x) => x !== id);
-        return next.length ? next : prev;
+      if (checked) {
+        return prev.includes(id) ? prev : [...prev, id];
       }
-      return [...prev, id];
+      const next = prev.filter((x) => x !== id);
+      return next.length ? next : prev;
     });
-  };
+  }, []);
+
+  const referenceCounts = useMemo(
+    () => referenceSelectionCounts(referenceEntries, true),
+    [referenceEntries]
+  );
+  const referencePayload = useMemo(
+    () => referencePopulationPayload(referenceEntries, true),
+    [referenceEntries]
+  );
+  const referenceSelectionValid =
+    referenceCounts.fit > 0 && referenceCounts.test > 0;
+
+  const clearLrArtifacts = useCallback(() => {
+    setReferenceLrTippettUrl(null);
+    setReferenceLrDistributionUrl(null);
+    setReferenceLrIdentityUrl(null);
+  }, []);
 
   const process = useCallback(async () => {
-    if (!selectedId || !runtimeOk || selectedDetectors.length === 0) return;
+    if (!selectedId || !runtimeOk || selectedDetectors.length === 0 || !referenceSelectionValid) return;
     setPlotData(null);
+    clearLrArtifacts();
+    setSaveMessage(null);
     try {
+      const needsLongCalibration = useLatentTypicality || useAugmentedReference;
       const { result: jobResult } = await runAnalysis(
         selectedId,
         "audio_spoofing_detection",
-        { window_seconds: 4.0, selected_analyses: selectedDetectors },
-        { retainResult: true }
+        {
+          window_seconds: 4.0,
+          selected_analyses: selectedDetectors,
+          reference_lr_enabled: true,
+          reference_population: referencePayload,
+          meta_classifier: metaClassifier,
+          use_augmented_reference: useAugmentedReference,
+          use_latent_typicality: useLatentTypicality,
+        },
+        {
+          maxWaitMs: needsLongCalibration ? Number.POSITIVE_INFINITY : undefined,
+          retainResult: true,
+          onArtifactsLoaded: async (jobId) => {
+            const [lrTippett, lrDistribution, lrIdentity] = await Promise.all([
+              fetchImage(jobId, "lr_reference_tippett.png"),
+              fetchImage(jobId, "lr_reference_distribution.png"),
+              fetchImage(jobId, "lr_reference_identity.png"),
+            ]);
+            setArtifactUrl(setReferenceLrTippettUrl, lrTippett);
+            setArtifactUrl(setReferenceLrDistributionUrl, lrDistribution);
+            setArtifactUrl(setReferenceLrIdentityUrl, lrIdentity);
+          },
+        }
       );
       const r = jobResult as AnalysisResult | null;
       if (r?.plot_data) {
@@ -295,20 +585,44 @@ export default function AudioSpoofingAnalysis() {
     } catch {
       // erro ja esta no estado do hook
     }
-  }, [selectedId, runtimeOk, selectedDetectors, runAnalysis]);
+  }, [
+    selectedId,
+    runtimeOk,
+    selectedDetectors,
+    referenceSelectionValid,
+    referencePayload,
+    metaClassifier,
+    useAugmentedReference,
+    useLatentTypicality,
+    runAnalysis,
+    fetchImage,
+    setArtifactUrl,
+    clearLrArtifacts,
+  ]);
 
   async function handleSaveDerivative(artifactFilename: string, label: string) {
     if (!currentJobId) return;
     setSaving(artifactFilename);
     setSaveMessage(null);
     try {
-      await saveDerivative({
+      const res = await saveDerivative({
         job_id: currentJobId,
         artifact_filename: artifactFilename,
         label,
-        effective_parameters: { window_seconds: 4.0, selected_analyses: selectedDetectors },
+        effective_parameters: {
+          window_seconds: 4.0,
+          selected_analyses: selectedDetectors,
+          reference_lr_enabled: true,
+          reference_population: referencePayload,
+          meta_classifier: metaClassifier,
+          use_augmented_reference: useAugmentedReference,
+          use_latent_typicality: useLatentTypicality,
+        },
       });
-      setSaveMessage({ type: "ok", text: `${label} salvo no caso.` });
+      setSaveMessage({
+        type: "ok",
+        text: `${label} salvo na cadeia de custodia. SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
+      });
     } catch (e) {
       setSaveMessage({
         type: "err",
@@ -342,23 +656,74 @@ export default function AudioSpoofingAnalysis() {
     return fromResult?.length ? fromResult : selectedDetectors;
   }, [typedResult, selectedDetectors]);
 
-  return (
-    <AnalysisPageShell caseId={caseId!} title={META.title} subtitle={META.cardSubtitle}>
-      <TechniqueReferenceIntro meta={META} />
+  const detectorRows = catalog.length ? catalog : DETECTOR_OPTIONS.map((o) => ({ ...o, available: true }));
+  const individualRows = typedResult?.individual_results || [];
+  const referenceLr = typedResult?.reference_lr || null;
 
-      {runtimeOk === false && <MessageBox type="err" text={`Detector indisponivel: ${runtimeReason}`} />}
+  if (!caseId) return null;
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 1fr) minmax(320px, 1fr)", gap: "1rem" }}>
-        <AnalysisPanel title="Evidencia de audio">
-          <AudioEvidenceSelector caseId={caseId!} selectedId={selectedId} onSelect={onSelect} />
+  if (runtimeOk === false) {
+    return (
+      <AnalysisPageShell caseId={caseId} title={META.title} subtitle={META.cardSubtitle}>
+        <AnalysisPanel title="Indisponivel">
+          <MessageBox type="err" text={runtimeReason || "Detector de spoofing de audio indisponivel neste servidor."} />
         </AnalysisPanel>
+      </AnalysisPageShell>
+    );
+  }
 
-        <AnalysisPanel title="Detectores de spoofing">
-          <p style={{ margin: "0 0 0.75rem", fontSize: "0.82rem", color: "#4b5563" }}>
-            Selecione um ou mais detectores. Os escores serao agregados em vetor para meta-classificador futuro.
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", marginBottom: "1rem" }}>
-            {(catalog.length ? catalog : DETECTOR_OPTIONS).map((det) => {
+  return (
+    <AnalysisPageShell caseId={caseId} title={META.title} subtitle="">
+      <AnalysisPanel title="Evidencia">
+        <AudioEvidenceSelector caseId={caseId} selectedId={selectedId} onSelect={onSelect} />
+      </AnalysisPanel>
+
+      <AnalysisPanel title="Parametros">
+        <div style={{ marginBottom: "1rem" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "0.75rem",
+              marginBottom: "0.6rem",
+            }}
+          >
+            <div>
+              <h4 style={{ margin: 0, fontSize: "0.9rem", color: "#374151" }}>
+                Detectores a executar
+              </h4>
+              <p style={{ margin: "0.2rem 0 0", fontSize: "0.78rem", color: "#6b7280" }}>
+                Marque os detectores que deseja rodar nesta evidencia. Os logits alimentam o meta-classificador LR.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setSelectedDetectors([...DEFAULT_DETECTORS])}
+                disabled={running}
+                style={smallButtonStyle}
+              >
+                Marcar todas
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedDetectors([])}
+                disabled={running}
+                style={smallButtonStyle}
+              >
+                Limpar
+              </button>
+            </div>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "0.45rem",
+            }}
+          >
+            {detectorRows.map((det) => {
               const id = det.id;
               const checked = selectedDetectors.includes(id);
               const unavailable = det.available === false;
@@ -369,226 +734,316 @@ export default function AudioSpoofingAnalysis() {
                     display: "flex",
                     alignItems: "flex-start",
                     gap: "0.5rem",
-                    fontSize: "0.85rem",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 6,
+                    padding: "0.55rem 0.65rem",
+                    background: checked ? "#f8fafc" : "#fff",
+                    fontSize: "0.83rem",
+                    color: "#374151",
                     opacity: unavailable ? 0.55 : 1,
                   }}
                 >
                   <input
                     type="checkbox"
                     checked={checked}
-                    disabled={unavailable}
-                    onChange={() => toggleDetector(id)}
+                    disabled={running || unavailable}
+                    onChange={(e) => toggleDetector(id, e.target.checked)}
+                    style={{ marginTop: "0.15rem" }}
                   />
-                  <span>
-                    <strong>{det.label}</strong>
-                    {unavailable && det.unavailable_reason ? (
-                      <span style={{ display: "block", color: "#b45309", fontSize: "0.75rem" }}>
-                        {det.unavailable_reason}
-                      </span>
-                    ) : null}
-                  </span>
+                  <DetectorOptionInfo detector={det} />
                 </label>
               );
             })}
           </div>
+          {selectedDetectors.length === 0 && (
+            <p style={{ margin: "0.55rem 0 0", fontSize: "0.78rem", color: "#b91c1c" }}>
+              Selecione pelo menos um detector para executar.
+            </p>
+          )}
+        </div>
 
+        <ReferencePopulationSelector
+          catalog={referenceCatalog}
+          loading={referenceCatalogLoading}
+          error={referenceCatalogError}
+          entries={referenceEntries}
+          onChange={setReferenceEntries}
+          disabled={running}
+          enableSplitRoles
+          defaultPresetItems={DEFAULT_AUDIO_REFERENCE.map(({ base_group, subgroup }) => ({
+            base_group,
+            subgroup,
+          }))}
+          subgroupUnitLabel="subgrupos"
+          detectorEerLabels={detectorEerLabels}
+          hypothesisHint="Defina subgrupos para treino/calibração (splits 1–2) e para avaliação (split 3). LR positiva favorece H1 = bonafide/autêntico."
+        />
+        {!referenceSelectionValid && (
+          <p style={{ margin: "0.55rem 0 0", fontSize: "0.78rem", color: "#b91c1c" }}>
+            Selecione pelo menos um subgrupo em treino/calibração e um em teste.
+          </p>
+        )}
+
+        <div style={{ marginTop: "0.75rem" }}>
+          <MetaClassifierSelect value={metaClassifier} disabled={running} onChange={setMetaClassifier} />
+          <label
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "0.5rem",
+              marginTop: "0.55rem",
+              fontSize: "0.85rem",
+              color: "#374151",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={useAugmentedReference}
+              disabled={running}
+              onChange={(e) => setUseAugmentedReference(e.target.checked)}
+              style={{ marginTop: "0.15rem" }}
+            />
+            <span>
+              Usar população de referência aumentada
+              <span style={{ display: "block", fontSize: "0.74rem", color: "#6b7280", marginTop: "0.15rem" }}>
+                Inclui variações MP3 128 kbps, Opus 32 kbps, ruído ambiente 20 dB e 15 dB SNR na calibração LR.
+                {useLatentTypicality
+                  ? " Requer matriz de representações (scores+embeddings) com variantes aumentadas."
+                  : " Requer score matrix aumentado gerado offline."}
+              </span>
+            </span>
+          </label>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "0.5rem",
+              marginTop: "0.55rem",
+              fontSize: "0.85rem",
+              color: "#374151",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={useLatentTypicality}
+              disabled={running}
+              onChange={(e) => setUseLatentTypicality(e.target.checked)}
+              style={{ marginTop: "0.15rem" }}
+              aria-label="Tipicidade latente (k-NN)"
+            />
+              <span>
+              Tipicidade latente (k-NN)
+              <span style={{ display: "block", fontSize: "0.74rem", color: "#6b7280", marginTop: "0.15rem" }}>
+                Fusão enriquecida com embeddings dos detectores (sistema D, cosine, k=5). A primeira calibração
+                de uma seleção nova pode levar vários minutos; o progresso LR aparece na barra. Repetições usam cache.
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <div style={{ marginTop: "1rem" }}>
           <ProcessButton
             onClick={process}
-            disabled={!selectedId || runtimeOk !== true || selectedDetectors.length === 0}
+            disabled={
+              !selectedId ||
+              runtimeOk !== true ||
+              selectedDetectors.length === 0 ||
+              !referenceSelectionValid
+            }
             running={running}
             label="Analisar audio"
             progress={progress}
             progressLabel={progressLabel}
+            inferenceDevice={activeInferenceDevice}
           />
+        </div>
+        {error && <MessageBox type="err" text={error} />}
+      </AnalysisPanel>
 
-          {error && <MessageBox type="err" text={error} />}
+      {(selectedId || typedResult) && (
+        <AnalysisPanel title="Resultado">
+          {audioUrl && (
+            <div style={{ marginBottom: "1rem" }}>
+              <p style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#374151", fontWeight: 500 }}>
+                {selectedFilename}
+              </p>
+              <audio controls src={audioUrl} style={{ width: "100%" }} />
+            </div>
+          )}
 
           {typedResult?.success === true && (
-            <div style={{ marginTop: "1rem" }}>
+            <>
               <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", marginBottom: "1rem" }}>
                 <ScoreBadge label="Spoof (primario)" value={typedResult.score_spoof ?? 0} color="#dc2626" />
                 <ScoreBadge label="Bonafide (primario)" value={typedResult.score_bonafide ?? 0} color="#16a34a" />
               </div>
 
-              {typedResult.individual_results && typedResult.individual_results.length > 0 && (
-                <div style={{ overflowX: "auto", marginBottom: "1rem" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
-                    <thead>
-                      <tr>
-                        {SCORE_HEADERS.map((h) => (
-                          <th
-                            key={h}
-                            style={{
-                              textAlign: "left",
-                              padding: "0.35rem 0.5rem",
-                              borderBottom: "2px solid #e5e7eb",
-                              color: "#374151",
-                            }}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {typedResult.individual_results.map((row, idx) => (
-                        <tr key={idx}>
-                          {row.map((cell, ci) => (
-                            <td
-                              key={ci}
-                              style={{
-                                padding: "0.35rem 0.5rem",
-                                borderBottom: "1px solid #f3f4f6",
-                                color: ci === 4 && cell === "Spoof" ? "#dc2626" : undefined,
-                              }}
-                            >
-                              {cell}
-                            </td>
-                          ))}
-                        </tr>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(280px, 1fr) minmax(280px, 2fr)",
+                  gap: "1rem",
+                  alignItems: "start",
+                  marginBottom: "1rem",
+                }}
+              >
+                <div>
+                  <p style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#374151" }}>
+                    <strong>Decisao agregada (detector primario):</strong>{" "}
+                    <span
+                      style={{
+                        color:
+                          typedResult.label === "spoof"
+                            ? "#dc2626"
+                            : typedResult.label === "uncertain"
+                              ? "#b45309"
+                              : "#16a34a",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {typedResult.label === "spoof"
+                        ? "Spoof"
+                        : typedResult.label === "uncertain"
+                          ? "Incerto"
+                          : "Bonafide"}
+                    </span>
+                  </p>
+                  <p style={{ margin: 0, fontSize: "0.8rem", color: "#6b7280" }}>
+                    Detectores: {(typedResult.selected_analyses ?? selectedDetectors).join(", ")}
+                    {" · "}
+                    Janelas: {typedResult.window_count ?? 0} de {typedResult.window_seconds ?? 4}s
+                    {" · "}
+                    Dispositivo: {typedResult.inference_device || "auto"}
+                    {" · "}
+                    Duracao: {typedResult.duration_seconds ?? 0}s
+                  </p>
+                </div>
+                {individualRows.length > 0 && <ResultsTable rows={individualRows} />}
+              </div>
+
+              <ReferenceLrPanel
+                lr={referenceLr}
+                tippettUrl={referenceLrTippettUrl}
+                distributionUrl={referenceLrDistributionUrl}
+                identityUrl={referenceLrIdentityUrl}
+                populationUnitLabel="amostras de audio"
+                lrPositiveLabel="bonafide"
+                augmentedDescription={
+                  referenceLr?.augmented_reference
+                    ? `População aumentada ativa (multiplicador ${referenceLr.sample_multiplier ?? "—"}×) — MP3, Opus e ruído ambiente.`
+                    : undefined
+                }
+              />
+
+              {activePlot && (
+                <div style={{ marginTop: "1.5rem", borderTop: "1px solid #e5e7eb", paddingTop: "1rem" }}>
+                  {plotDetectorOptions.length > 1 && (
+                    <div style={{ marginBottom: "0.5rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                      {plotDetectorOptions.map((id) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setPlotDetector(id)}
+                          style={{
+                            padding: "0.25rem 0.6rem",
+                            borderRadius: 6,
+                            border: plotDetector === id ? "2px solid #1a1a2e" : "1px solid #d1d5db",
+                            background: plotDetector === id ? "#f3f4f6" : "#fff",
+                            fontSize: "0.75rem",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {DETECTOR_OPTIONS.find((o) => o.id === id)?.label ?? id}
+                        </button>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  )}
+                  <p style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#374151", fontWeight: 500 }}>
+                    Probabilidade de spoof por janela de {activePlot.window_seconds}s
+                  </p>
+                  <TemporalChart data={activePlot} />
                 </div>
               )}
-
-              <p style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#374151" }}>
-                <strong>Decisao agregada (detector primario):</strong>{" "}
-                <span
-                  style={{
-                    color:
-                      typedResult.label === "spoof"
-                        ? "#dc2626"
-                        : typedResult.label === "uncertain"
-                        ? "#b45309"
-                        : "#16a34a",
-                    fontWeight: 700,
-                  }}
-                >
-                  {typedResult.label === "spoof"
-                    ? "Spoof"
-                    : typedResult.label === "uncertain"
-                    ? "Incerto"
-                    : "Bonafide"}
-                </span>
-              </p>
-              <p style={{ margin: "0 0 0.5rem", fontSize: "0.8rem", color: "#6b7280" }}>
-                Detectores: {(typedResult.selected_analyses ?? selectedDetectors).join(", ")}
-                {" · "}
-                Janelas: {typedResult.window_count ?? 0} de {typedResult.window_seconds ?? 4}s
-                {" · "}
-                Dispositivo: {typedResult.inference_device || "auto"}
-                {" · "}
-                Duracao: {typedResult.duration_seconds ?? 0}s
-              </p>
 
               {currentJobId && (
-                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-                  <button
-                    type="button"
-                    onClick={() => void handleSaveDerivative("detector_scores.txt", "Audio spoofing — escores")}
-                    disabled={saving !== null}
-                    style={{
-                      padding: "0.45rem 0.75rem",
-                      borderRadius: 6,
-                      border: "1px solid #1a1a2e",
-                      background: "#fff",
-                      cursor: saving ? "wait" : "pointer",
-                      fontSize: "0.8rem",
-                    }}
-                  >
-                    {saving === "detector_scores.txt" ? "Salvando…" : "Salvar vetor de escores"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleSaveDerivative("audio_spoofing_details.json", "Audio spoofing — detalhes")}
-                    disabled={saving !== null}
-                    style={{
-                      padding: "0.45rem 0.75rem",
-                      borderRadius: 6,
-                      border: "1px solid #1a1a2e",
-                      background: "#fff",
-                      cursor: saving ? "wait" : "pointer",
-                      fontSize: "0.8rem",
-                    }}
-                  >
-                    {saving === "audio_spoofing_details.json" ? "Salvando…" : "Salvar relatorio JSON"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleSaveDerivative("audio_spoofing_plot.json", "Audio spoofing — plot temporal")}
-                    disabled={saving !== null}
-                    style={{
-                      padding: "0.45rem 0.75rem",
-                      borderRadius: 6,
-                      border: "1px solid #1a1a2e",
-                      background: "#fff",
-                      cursor: saving ? "wait" : "pointer",
-                      fontSize: "0.8rem",
-                    }}
-                  >
-                    {saving === "audio_spoofing_plot.json" ? "Salvando…" : "Salvar plot temporal"}
-                  </button>
+                <div style={{ marginTop: "1.5rem", borderTop: "1px solid #e5e7eb", paddingTop: "1rem" }}>
+                  <h4 style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", color: "#374151" }}>
+                    Salvar em derivados
+                  </h4>
+                  <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#6b7280" }}>
+                    O vetor de escores (TXT) e o artefato principal para reproducibilidade e cadeia de custodia.
+                  </p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                    <SaveButton
+                      label="Escores dos detectores (TXT)"
+                      filename="detector_scores.txt"
+                      saving={saving}
+                      onSave={handleSaveDerivative}
+                      primary
+                    />
+                    <SaveButton
+                      label="Relatorio JSON"
+                      filename="audio_spoofing_details.json"
+                      saving={saving}
+                      onSave={handleSaveDerivative}
+                    />
+                    <SaveButton
+                      label="Plot temporal (JSON)"
+                      filename="audio_spoofing_plot.json"
+                      saving={saving}
+                      onSave={handleSaveDerivative}
+                    />
+                  </div>
+
+                  {referenceLr && referenceLr.success !== false && (
+                    <div style={{ marginTop: "1rem" }}>
+                      <p style={{ margin: "0 0 0.5rem", fontSize: "0.8rem", color: "#6b7280" }}>
+                        Artefatos da calibracao LR (populacao de referencia, CLLR, EER, graficos):
+                      </p>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                        <SaveButton
+                          label="Resumo LR (TXT)"
+                          filename="lr_reference_summary.txt"
+                          saving={saving}
+                          onSave={handleSaveDerivative}
+                        />
+                        <SaveButton
+                          label="Relatorio LR (JSON)"
+                          filename="lr_reference_report.json"
+                          saving={saving}
+                          onSave={handleSaveDerivative}
+                        />
+                        <SaveButton
+                          label="Tippett plot"
+                          filename="lr_reference_tippett.png"
+                          saving={saving}
+                          onSave={handleSaveDerivative}
+                        />
+                        <SaveButton
+                          label="Distribuicao LR"
+                          filename="lr_reference_distribution.png"
+                          saving={saving}
+                          onSave={handleSaveDerivative}
+                        />
+                        <SaveButton
+                          label="Funcao identidade"
+                          filename="lr_reference_identity.png"
+                          saving={saving}
+                          onSave={handleSaveDerivative}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {saveMessage && (
+                    <div style={{ marginTop: "0.75rem" }}>
+                      <MessageBox type={saveMessage.type} text={saveMessage.text} />
+                    </div>
+                  )}
                 </div>
               )}
-              {saveMessage && (
-                <p
-                  style={{
-                    margin: "0.5rem 0 0",
-                    fontSize: "0.78rem",
-                    color: saveMessage.type === "ok" ? "#166534" : "#991b1b",
-                  }}
-                >
-                  {saveMessage.text}
-                </p>
-              )}
-            </div>
+            </>
           )}
-        </AnalysisPanel>
-      </div>
-
-      {(audioUrl || activePlot) && (
-        <AnalysisPanel title="Player e evolucao temporal" className="audio-spoofing-results-panel">
-          <div style={{ display: "grid", gap: "1rem" }}>
-            {audioUrl && (
-              <div>
-                <p style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#374151", fontWeight: 500 }}>
-                  {selectedFilename}
-                </p>
-                <audio controls src={audioUrl} style={{ width: "100%" }} />
-              </div>
-            )}
-
-            {activePlot && (
-              <div>
-                {plotDetectorOptions.length > 1 && (
-                  <div style={{ marginBottom: "0.5rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                    {plotDetectorOptions.map((id) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setPlotDetector(id)}
-                        style={{
-                          padding: "0.25rem 0.6rem",
-                          borderRadius: 6,
-                          border: plotDetector === id ? "2px solid #1a1a2e" : "1px solid #d1d5db",
-                          background: plotDetector === id ? "#f3f4f6" : "#fff",
-                          fontSize: "0.75rem",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {DETECTOR_OPTIONS.find((o) => o.id === id)?.label ?? id}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <p style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#374151", fontWeight: 500 }}>
-                  Probabilidade por janela de {activePlot.window_seconds}s
-                </p>
-                <TemporalChart data={activePlot} />
-              </div>
-            )}
-          </div>
         </AnalysisPanel>
       )}
     </AnalysisPageShell>

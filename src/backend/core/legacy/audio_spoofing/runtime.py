@@ -53,16 +53,34 @@ DETECTOR_CATALOG = [
     {
         "id": AUDIO_SPOOFING_ANALYSIS_DF_ARENA,
         "label": DETECTOR_DISPLAY[AUDIO_SPOOFING_ANALYSIS_DF_ARENA],
-        "paper": "Speech-Arena-2025/DF_Arena_1B",
+        "description": (
+            "Modelo universal antispoofing do Speech DF Arena, treinado em ASVspoof, "
+            "CodecFake, SONAR e outros benchmarks. Janelas de 4 s @ 16 kHz."
+        ),
+        "paper_title": "Speech DF Arena: A Leaderboard for Speech DeepFake Detection Models",
+        "paper_url": "https://arxiv.org/abs/2509.02859",
+        "repo_url": "https://huggingface.co/Speech-Arena-2025/DF_Arena_1B_V_1",
     },
     {
         "id": AUDIO_SPOOFING_ANALYSIS_SLS_XLSR,
         "label": DETECTOR_DISPLAY[AUDIO_SPOOFING_ANALYSIS_SLS_XLSR],
-        "paper": "Audio Deepfake Detection with Self-supervised XLS-R and SLS classifier",
+        "description": (
+            "XLS-R 300M auto-supervisionado + classificador SLS (ACM MM 2024). "
+            "Log-softmax idx0=spoof, idx1=bonafide."
+        ),
+        "paper_title": "Audio Deepfake Detection with Self-Supervised XLS-R and SLS Classifier",
+        "paper_url": "https://doi.org/10.1145/3664647.3681345",
+        "repo_url": "https://github.com/QiShanZhang/SLSforASVspoof-2021-DF",
     },
     {
         "id": AUDIO_SPOOFING_ANALYSIS_WEDEFENSE,
         "label": DETECTOR_DISPLAY[AUDIO_SPOOFING_ANALYSIS_WEDEFENSE],
-        "paper": "JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning",
+        "description": (
+            "WavLM Base podado + MHFA (ASVspoof 2025). "
+            "Logits idx0=bonafide, idx1=spoof — mapeados para convencao VA Suite."
+        ),
+        "paper_title": "WeDefense: WavLM Base Pruning for Anti-Spoofing (ASVspoof 2025)",
+        "paper_url": "https://huggingface.co/JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning",
+        "repo_url": "https://huggingface.co/JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning",
     },
 ]
