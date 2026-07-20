@@ -17,6 +17,11 @@ from typing import Any
 import numpy as np
 import torch
 
+from core.legacy.audio_spoofing.embedding_utils import (
+    aggregate_embeddings,
+    register_df_arena_embedding_hook,
+)
+
 # Caminho para o código legado do DF Arena.
 _DF_ARENA_DIR = Path(__file__).resolve().parents[4] / "Legados" / "audio" / "DF_ARENA_1B"
 
@@ -196,12 +201,56 @@ def _split_audio(audio: np.ndarray, window_samples: int, stride_samples: int) ->
     return windows
 
 
+def _pipeline_device(pipe: Any) -> torch.device:
+    device = getattr(pipe, "device", None)
+    if isinstance(device, torch.device):
+        return device
+    if isinstance(device, int):
+        return torch.device("cuda" if device >= 0 else "cpu")
+    if isinstance(device, str):
+        return torch.device(device)
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def _infer_df_arena_window(
+    pipe: Any,
+    window: np.ndarray,
+    *,
+    return_embedding: bool = False,
+) -> tuple[tuple[float, float], np.ndarray | None]:
+    if not return_embedding:
+        result = pipe(window)
+        if result is None:
+            raise RuntimeError("DF Arena retornou None")
+        spoof_logit, bonafide_logit = _logits_from_result(result)
+        return (spoof_logit, bonafide_logit), None
+
+    backbone = pipe.model.backbone
+    device_obj = _pipeline_device(pipe)
+    hook, store = register_df_arena_embedding_hook(backbone)
+    try:
+        wav = torch.tensor(window.astype(np.float32), dtype=torch.float32, device=device_obj)
+        with torch.no_grad():
+            logits = backbone(wav)
+        if isinstance(logits, (list, tuple)):
+            logits = logits[0]
+        logits_np = logits.detach().cpu().numpy().reshape(-1)
+        spoof_logit = float(logits_np[0])
+        bonafide_logit = float(logits_np[1]) if logits_np.size > 1 else 0.0
+        if not store:
+            raise RuntimeError("DF Arena embedding hook não capturou saída da penúltima camada")
+        return (spoof_logit, bonafide_logit), store[0].astype(np.float32)
+    finally:
+        hook.remove()
+
+
 def infer_df_arena_windows(
     audio: np.ndarray,
     sr: int,
     *,
     window_seconds: float = WINDOW_SECONDS,
     device: torch.device | str | int | None = None,
+    return_embedding: bool = False,
 ) -> dict[str, Any]:
     """Run DF Arena 1B on 4-second windows and aggregate by mean of logits.
 
@@ -242,15 +291,15 @@ def infer_df_arena_windows(
 
     spoof_logits: list[float] = []
     bonafide_logits: list[float] = []
+    window_embeddings: list[np.ndarray] = []
 
     for start, window in windows:
         window = window.astype(np.float32)
-        # The DF Arena pipeline expects a float32 numpy array, not a file path.
-        result = pipe(window)
-        if result is None:
-            raise RuntimeError(f"DF Arena retornou None para janela em {start / SAMPLE_RATE:.2f}s")
-
-        spoof_logit, bonafide_logit = _logits_from_result(result)
+        (spoof_logit, bonafide_logit), embedding = _infer_df_arena_window(
+            pipe, window, return_embedding=return_embedding
+        )
+        if return_embedding and embedding is not None:
+            window_embeddings.append(embedding)
         probs = _softmax(np.array([spoof_logit, bonafide_logit]))
 
         window_results.append({
@@ -292,7 +341,7 @@ def infer_df_arena_windows(
     elif torch.cuda.is_available():
         inference_device = "cuda"
 
-    return {
+    result: dict[str, Any] = {
         "windows": window_results,
         "aggregated": {
             "spoof_logit": round(agg_spoof_logit, 6),
@@ -304,3 +353,7 @@ def infer_df_arena_windows(
         "window_count": len(window_results),
         "inference_device": inference_device,
     }
+    if return_embedding:
+        result["embedding"] = aggregate_embeddings(window_embeddings)
+        result["embedding_dim"] = int(result["embedding"].shape[0])
+    return result

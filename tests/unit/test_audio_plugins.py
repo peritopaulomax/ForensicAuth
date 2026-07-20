@@ -171,7 +171,7 @@ class TestAudioSpoofingDetection:
 
         calls = []
 
-        def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None):
+        def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None, **kwargs):
             calls.append(len(audio))
             return {
                 "individual_results": [["DF Arena 1B", "0.5", "0.5", "0.00", "Incerto", "cpu"]],
@@ -225,10 +225,238 @@ class TestAudioSpoofingDetection:
         assert ok is False
         assert "invalidos" in msg.lower()
 
+    def test_validate_use_augmented_reference(self, monkeypatch):
+        from core.plugins import audio_spoofing_adapter as adapter_mod
+
+        monkeypatch.setattr(adapter_mod, "runtime_status", lambda: (True, ""))
+        plugin = adapter_mod.AudioSpoofingAdapter()
+
+        ok, msg = plugin.validate_parameters({"use_augmented_reference": False})
+        assert ok is True
+        assert msg == ""
+
+        ok, msg = plugin.validate_parameters({"use_augmented_reference": "yes"})
+        assert ok is False
+        assert "booleano" in msg
+
+    def test_validate_use_latent_typicality(self, monkeypatch):
+        from core.plugins import audio_spoofing_adapter as adapter_mod
+
+        monkeypatch.setattr(adapter_mod, "runtime_status", lambda: (True, ""))
+        monkeypatch.setattr(adapter_mod, "representations_matrix_available", lambda _path: False)
+        plugin = adapter_mod.AudioSpoofingAdapter()
+
+        ok, msg = plugin.validate_parameters({"use_latent_typicality": False})
+        assert ok is True
+
+        ok, msg = plugin.validate_parameters({"use_latent_typicality": "yes"})
+        assert ok is False
+        assert "booleano" in msg
+
+        ok, msg = plugin.validate_parameters({"use_latent_typicality": True})
+        assert ok is False
+        assert "representacoes" in msg.lower()
+
+        monkeypatch.setattr(adapter_mod, "representations_matrix_available", lambda _path: True)
+        ok, msg = plugin.validate_parameters({"use_latent_typicality": True})
+        assert ok is True
+
+    def test_validate_augmented_reference_with_representations_matrix(self, monkeypatch):
+        from core.plugins import audio_spoofing_adapter as adapter_mod
+
+        monkeypatch.setattr(adapter_mod, "runtime_status", lambda: (True, ""))
+        monkeypatch.setattr(adapter_mod, "representations_matrix_available", lambda _path: True)
+        plugin = adapter_mod.AudioSpoofingAdapter()
+        ok, msg = plugin.validate_parameters({"use_augmented_reference": True})
+        assert ok is True
+        assert msg == ""
+
+    def test_use_latent_typicality_passes_flag_and_embeddings(self, sample_wav, monkeypatch):
+        from core.plugins import audio_spoofing_adapter as adapter_mod
+
+        monkeypatch.setattr(adapter_mod, "runtime_status", lambda: (True, ""))
+        monkeypatch.setattr(adapter_mod, "representations_matrix_available", lambda _path: True)
+
+        run_calls: list[dict] = []
+
+        def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None, return_embedding=False):
+            run_calls.append({"return_embedding": return_embedding})
+            return {
+                "individual_results": [["DF Arena 1B", "0.5", "0.5", "0.00", "Incerto", "cpu"]],
+                "detector_scores": {
+                    "df_arena_1b": {
+                        "spoof_prob": 0.5,
+                        "bonafide_prob": 0.5,
+                        "bonafide_logit": 0.0,
+                        "label": "uncertain",
+                        "embedding": [0.1, 0.2],
+                    },
+                },
+                "per_detector": {},
+                "plot_by_detector": {},
+                "selected_analyses": ["df_arena_1b"],
+                "inference_device": "cpu",
+                "label": "uncertain",
+                "score_spoof": 0.5,
+                "score_bonafide": 0.5,
+                "window_count": 1,
+            }
+
+        monkeypatch.setattr(adapter_mod, "run_audio_spoofing_analysis", fake_run)
+
+        lr_calls: list[dict] = []
+
+        def fake_compute_reference_lr(**kwargs):
+            lr_calls.append(kwargs)
+            return {
+                "artifact_filenames": {
+                    "tippett": "lr_reference_tippett.png",
+                    "distribution": "lr_reference_distribution.png",
+                    "identity": "lr_reference_identity.png",
+                    "summary": "lr_reference_summary.txt",
+                },
+                "latent_typicality": True,
+            }
+
+        monkeypatch.setattr(adapter_mod, "compute_reference_lr", fake_compute_reference_lr)
+
+        plugin = adapter_mod.AudioSpoofingAdapter()
+        result = plugin.analyze(
+            sample_wav,
+            {
+                "reference_lr_enabled": True,
+                "use_latent_typicality": True,
+                "reference_population": {"items": []},
+                "selected_analyses": ["df_arena_1b"],
+            },
+        )
+
+        assert result["success"] is True
+        assert len(run_calls) == 1
+        assert run_calls[0]["return_embedding"] is True
+        assert len(lr_calls) == 1
+        assert lr_calls[0]["use_latent_typicality"] is True
+
+    def test_use_augmented_reference_uses_representations_when_available(self, sample_wav, monkeypatch):
+        from core.plugins import audio_spoofing_adapter as adapter_mod
+
+        monkeypatch.setattr(adapter_mod, "runtime_status", lambda: (True, ""))
+        monkeypatch.setattr(adapter_mod, "representations_matrix_available", lambda _path: True)
+
+        def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None, **kwargs):
+            return {
+                "individual_results": [["DF Arena 1B", "0.5", "0.5", "0.00", "Incerto", "cpu"]],
+                "detector_scores": {
+                    "df_arena_1b": {"spoof_prob": 0.5, "bonafide_prob": 0.5, "label": "uncertain"},
+                },
+                "per_detector": {},
+                "plot_by_detector": {},
+                "selected_analyses": ["df_arena_1b"],
+                "inference_device": "cpu",
+                "label": "uncertain",
+                "score_spoof": 0.5,
+                "score_bonafide": 0.5,
+                "window_count": 1,
+            }
+
+        monkeypatch.setattr(adapter_mod, "run_audio_spoofing_analysis", fake_run)
+
+        calls = []
+
+        def fake_compute_reference_lr(*, score_matrix, sample_multiplier, **kwargs):
+            calls.append({"score_matrix": score_matrix, "sample_multiplier": sample_multiplier})
+            return {
+                "artifact_filenames": {
+                    "tippett": "lr_reference_tippett.png",
+                    "distribution": "lr_reference_distribution.png",
+                    "identity": "lr_reference_identity.png",
+                    "summary": "lr_reference_summary.txt",
+                }
+            }
+
+        monkeypatch.setattr(adapter_mod, "compute_reference_lr", fake_compute_reference_lr)
+
+        plugin = adapter_mod.AudioSpoofingAdapter()
+        result = plugin.analyze(
+            sample_wav,
+            {
+                "reference_lr_enabled": True,
+                "use_augmented_reference": True,
+                "reference_population": {"items": []},
+                "selected_analyses": ["df_arena_1b"],
+            },
+        )
+
+        assert result["success"] is True
+        assert len(calls) == 1
+        assert calls[0]["score_matrix"] == adapter_mod.DEFAULT_REPRESENTATIONS_MATRIX
+        assert calls[0]["sample_multiplier"] == adapter_mod.AUGMENTATION_MULTIPLIER
+
+    def test_use_augmented_reference_uses_augmented_score_matrix(self, sample_wav, monkeypatch):
+        from core.plugins import audio_spoofing_adapter as adapter_mod
+
+        monkeypatch.setattr(adapter_mod, "runtime_status", lambda: (True, ""))
+        monkeypatch.setattr(adapter_mod, "representations_matrix_available", lambda _path: False)
+
+        class _MatrixPath:
+            def is_file(self) -> bool:
+                return True
+
+        monkeypatch.setattr(adapter_mod, "DEFAULT_AUGMENTED_SCORE_MATRIX", _MatrixPath())
+
+        def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None, **kwargs):
+            return {
+                "individual_results": [["DF Arena 1B", "0.5", "0.5", "0.00", "Incerto", "cpu"]],
+                "detector_scores": {
+                    "df_arena_1b": {"spoof_prob": 0.5, "bonafide_prob": 0.5, "label": "uncertain"},
+                },
+                "per_detector": {},
+                "plot_by_detector": {},
+                "selected_analyses": ["df_arena_1b"],
+                "inference_device": "cpu",
+                "label": "uncertain",
+                "score_spoof": 0.5,
+                "score_bonafide": 0.5,
+                "window_count": 1,
+            }
+
+        monkeypatch.setattr(adapter_mod, "run_audio_spoofing_analysis", fake_run)
+
+        calls = []
+
+        def fake_compute_reference_lr(*, score_matrix, sample_multiplier, **kwargs):
+            calls.append({"score_matrix": score_matrix, "sample_multiplier": sample_multiplier})
+            return {
+                "artifact_filenames": {
+                    "tippett": "lr_reference_tippett.png",
+                    "distribution": "lr_reference_distribution.png",
+                    "identity": "lr_reference_identity.png",
+                    "summary": "lr_reference_summary.txt",
+                }
+            }
+
+        monkeypatch.setattr(adapter_mod, "compute_reference_lr", fake_compute_reference_lr)
+
+        plugin = adapter_mod.AudioSpoofingAdapter()
+        result = plugin.analyze(
+            sample_wav,
+            {
+                "reference_lr_enabled": True,
+                "use_augmented_reference": True,
+                "reference_population": {"items": []},
+                "selected_analyses": ["df_arena_1b"],
+            },
+        )
+
+        assert result["success"] is True
+        assert len(calls) == 1
+        assert calls[0]["score_matrix"] == adapter_mod.DEFAULT_AUGMENTED_SCORE_MATRIX
+        assert calls[0]["sample_multiplier"] == adapter_mod.AUGMENTATION_MULTIPLIER
+
     def test_adapter_multi_detector_mock(self, sample_wav, monkeypatch):
         from core.plugins import audio_spoofing_adapter as adapter_mod
 
-        def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None):
+        def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None, **kwargs):
             return {
                 "individual_results": [
                     ["DF Arena 1B", "0.70", "0.30", "-0.37", "Spoof", "cpu"],

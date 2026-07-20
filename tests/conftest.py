@@ -17,8 +17,9 @@ from jose import jwt
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
-# Ensure src/backend is on path
+# Ensure src/backend and scripts are on path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "backend"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from app.config import get_settings
 from app.database import Base

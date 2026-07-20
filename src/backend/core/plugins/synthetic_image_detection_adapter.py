@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
+import numpy as np
 from PIL import Image
 
 from core.forensic_plugin import ForensicPlugin
@@ -17,16 +18,40 @@ from core.legacy.synthetic_image_detection.pipeline import (
 )
 from core.legacy.synthetic_image_detection.runtime import runtime_status
 from core.progress import pop_progress_callback, report_progress
+from core.latent_typicality.representations_utils import representations_matrix_available
 from core.synthetic_lr_reference import (
+    AUGMENTATION_MULTIPLIER,
+    DEFAULT_REPRESENTATIONS_MATRIX,
     DEFAULT_SCORE_MATRIX,
+    DEFAULT_TYPICALITY_DISTANCE,
+    DEFAULT_TYPICALITY_K,
+    DEFAULT_TYPICALITY_SYSTEM,
     META_CLASSIFIERS,
     compute_reference_lr,
 )
 from core.technique_ids import SYNTHETIC_IMAGE_DETECTION
 
+_TYPICALITY_SYSTEMS = ("A", "B", "C", "D")
+_TYPICALITY_DISTANCES = ("cosine", "euclidean")
+
 _AUGMENTED_SCORE_MATRIX = Path(__file__).resolve().parents[4] / "outputs" / "lr_calibration" / "score_matrices" / "lr_scores_balanced_full_augmented.csv"
 
 _SCORE_HEADERS = ("Modelo", "Score AI", "Score Real", "Razão (Log)", "Classificação", "Dispositivo")
+
+
+def _detector_scores_for_json(detector_scores: dict[str, Any]) -> dict[str, Any]:
+    """Strip non-JSON-serializable embeddings from API payloads."""
+    safe: dict[str, Any] = {}
+    for detector, scores in (detector_scores or {}).items():
+        if not isinstance(scores, dict):
+            safe[detector] = scores
+            continue
+        row = dict(scores)
+        embedding = row.pop("embedding", None)
+        if embedding is not None:
+            row["embedding_dim"] = int(np.asarray(embedding).size)
+        safe[detector] = row
+    return safe
 
 
 def _write_model_scores_txt(out_dir: Path, rows: list[list[str]]) -> Path:
@@ -79,6 +104,24 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
             return False, "use_augmented_reference deve ser booleano"
         if use_aug and not _AUGMENTED_SCORE_MATRIX.is_file():
             return False, "Score matrix aumentado nao encontrado; gere as variantes primeiro."
+        use_lt = parameters.get("use_latent_typicality")
+        if use_lt is not None and not isinstance(use_lt, bool):
+            return False, "use_latent_typicality deve ser booleano"
+        if use_lt and not representations_matrix_available(DEFAULT_REPRESENTATIONS_MATRIX):
+            return False, "Matriz de representacoes nao encontrada; execute extract_synthetic_image_representations_optimized.py primeiro."
+        lt_system = parameters.get("typicality_system")
+        if lt_system is not None and str(lt_system).upper() not in _TYPICALITY_SYSTEMS:
+            return False, f"typicality_system deve ser um de: {', '.join(_TYPICALITY_SYSTEMS)}"
+        lt_k = parameters.get("typicality_k")
+        if lt_k is not None:
+            try:
+                if int(lt_k) < 1:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return False, "typicality_k deve ser um inteiro positivo"
+        lt_distance = parameters.get("typicality_distance")
+        if lt_distance is not None and str(lt_distance).lower() not in _TYPICALITY_DISTANCES:
+            return False, f"typicality_distance deve ser um de: {', '.join(_TYPICALITY_DISTANCES)}"
         return True, ""
 
     def analyze(self, evidence_path: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
@@ -102,12 +145,14 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
             if mode == "fast":
                 generate_visuals = False
             selected_analyses = parameters.get("selected_analyses")
+            use_latent_typicality = bool(parameters.get("use_latent_typicality", False))
 
             analysis = run_synthetic_image_detection_analysis(
                 image,
                 generate_visuals=generate_visuals,
                 selected_analyses=selected_analyses,
                 on_progress=on_progress,
+                return_embedding=use_latent_typicality,
             )
 
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -135,7 +180,7 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
                 "selected_analyses": analysis.get("selected_analyses", selected_analyses),
                 "inference_device": analysis.get("inference_device", "cpu"),
                 "individual_results": analysis["individual_results"],
-                "detector_scores": analysis.get("detector_scores", {}),
+                "detector_scores": _detector_scores_for_json(analysis.get("detector_scores", {})),
                 "model_scores_txt_path": str(scores_path),
                 "model_scores_filename": "model_scores.txt",
                 "input_image_path": save_pil(analysis.get("input_image"), "input_image"),
@@ -147,9 +192,14 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
                 report_progress(on_progress, 96, "Calibrando LR com populacao de referencia…")
                 try:
                     use_augmented = bool(parameters.get("use_augmented_reference"))
-                    score_matrix = _AUGMENTED_SCORE_MATRIX if use_augmented else DEFAULT_SCORE_MATRIX
-                    # 1 original + 4 augmentations (jpeg_85, webp_80, crop_upscale, resize_down_50)
-                    sample_multiplier = 5 if use_augmented else 1
+                    rep_available = representations_matrix_available(DEFAULT_REPRESENTATIONS_MATRIX)
+                    if use_latent_typicality or (use_augmented and rep_available):
+                        score_matrix = DEFAULT_REPRESENTATIONS_MATRIX
+                    elif use_augmented:
+                        score_matrix = _AUGMENTED_SCORE_MATRIX
+                    else:
+                        score_matrix = DEFAULT_SCORE_MATRIX
+                    sample_multiplier = AUGMENTATION_MULTIPLIER if use_augmented else 1
                     lr_report = compute_reference_lr(
                         detector_scores=analysis.get("detector_scores", {}),
                         selection=parameters.get("reference_population"),
@@ -167,6 +217,10 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
                         ),
                         classifier=str(parameters.get("meta_classifier", "logistic")).lower().strip(),
                         sample_multiplier=sample_multiplier,
+                        use_latent_typicality=use_latent_typicality,
+                        typicality_system=str(parameters.get("typicality_system", DEFAULT_TYPICALITY_SYSTEM)),
+                        typicality_k=int(parameters.get("typicality_k", DEFAULT_TYPICALITY_K)),
+                        typicality_distance=str(parameters.get("typicality_distance", DEFAULT_TYPICALITY_DISTANCE)),
                     )
                     result["reference_lr"] = lr_report
                     result["reference_lr_report_filename"] = "lr_reference_report.json"

@@ -23,6 +23,7 @@ ML_GPU_TECHNIQUES = frozenset(
         "stil_video_detection",
         "lowres_fake_video",
         "presentation_attack_detection",
+        "moe_ffd",
     }
 )
 

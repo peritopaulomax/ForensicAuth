@@ -1,0 +1,36 @@
+random_seed: 42
+
+# Bases representativas de casos reais (sem CodecFake)
+datasets:
+  - dataset: In-The-Wild
+    subset: null
+    generator: In-The-Wild
+    description: "YouTube/podcasts — condições acústicas e de canal reais"
+  - dataset: ADD2022
+    subset: track1test
+    generator: track1test
+    description: "Desafio ADD 2022 TTS — deepfakes de competição"
+  - dataset: SONAR
+    subset: xTTS
+    generator: xTTS
+    description: "Clonagem comercial xTTS — ataques por voz sintética recentes"
+
+# Tamanhos por classe e base (spec completa)
+n_train_real_per_dataset: 500
+n_train_synthetic_per_dataset: 500
+n_val_real_per_dataset: 300
+n_val_synthetic_per_dataset: 300
+n_test_real_per_dataset: 300
+n_test_synthetic_per_dataset: 300
+
+k_values: [5, 10, 20, 30, 50]
+distance_metrics: [cosine, euclidean]
+systems: [A, B, C, D]
+
+protocol_csv: protocolo_unificado.csv
+audio_config: config/audio_lr_protocolo.yaml
+window_seconds: 4.0
+min_duration_seconds: 4.5
+typicality_eps: 1.0e-8
+
+output_root: outputs/lr_calibration/audio_spoofing/poc_latent_typicality

@@ -13,6 +13,7 @@ import sys
 from contextlib import contextmanager, suppress
 from typing import Callable
 
+import numpy as np
 import torch
 from PIL import Image
 from torchvision.transforms import CenterCrop, Compose, InterpolationMode, Normalize, Resize, ToTensor
@@ -145,30 +146,84 @@ def _extract_tiles(image: Image.Image, tile_size: int) -> list[Image.Image]:
     return tiles
 
 
-def infer_clipd_from_pil(image: Image.Image, device: torch.device, model_name: str = MODEL_NAME) -> float:
+def infer_clipd_from_pil(
+    image: Image.Image,
+    device: torch.device,
+    model_name: str = MODEL_NAME,
+    *,
+    return_embedding: bool = False,
+) -> float | tuple[float, np.ndarray]:
+    from core.legacy.synthetic_image_detection.embedding_utils import (
+        flatten_embedding,
+        register_fc_input_hook,
+    )
+
     model, transform = _load_model(device, model_name)
     tensor = transform(image.convert("RGB")).unsqueeze(0).to(device)
-    with torch.no_grad():
-        output = model(tensor).detach().cpu().numpy()
-    return _output_to_llr(output)
+    handle = None
+    store: list[torch.Tensor] | None = None
+    if return_embedding:
+        handle, store = register_fc_input_hook(model.fc)
+    try:
+        with torch.no_grad():
+            output = model(tensor).detach().cpu().numpy()
+        llr = _output_to_llr(output)
+        if return_embedding:
+            if not store:
+                raise RuntimeError("CLIP-D embedding hook did not capture any activation")
+            return llr, flatten_embedding(store[0])
+    finally:
+        if handle is not None:
+            handle.remove()
+    return llr
 
 
 def infer_corvi2023_from_pil(
     image: Image.Image,
     device: torch.device,
     tile_size: int = CORVI2023_TILE_SIZE,
-) -> tuple[float, int, bool]:
+    *,
+    return_embedding: bool = False,
+) -> tuple[float, int, bool] | tuple[float, int, bool, np.ndarray]:
+    from core.legacy.synthetic_image_detection.embedding_utils import (
+        flatten_embedding,
+        register_fc_input_hook,
+    )
+
     model, transform = _load_model(device, CORVI2023_MODEL_NAME)
     rgb = image.convert("RGB")
     tiles = _extract_tiles(rgb, tile_size)
     logits: list[float] = []
-    for tile in tiles:
-        tensor = transform(tile).unsqueeze(0).to(device)
-        with torch.no_grad():
-            output = model(tensor).detach().cpu().numpy()
-        logits.append(_output_to_llr(output))
+    tile_embeddings: list[torch.Tensor] = []
+    handle = None
+    store: list[torch.Tensor] | None = None
+    if return_embedding:
+        handle, store = register_fc_input_hook(model.fc)
+
+    try:
+        for tile in tiles:
+            if store is not None:
+                store.clear()
+            tensor = transform(tile).unsqueeze(0).to(device)
+            with torch.no_grad():
+                output = model(tensor).detach().cpu().numpy()
+            logits.append(_output_to_llr(output))
+            if store is not None:
+                if not store:
+                    raise RuntimeError("Corvi2023 embedding hook did not capture any activation")
+                tile_embeddings.append(store[0])
+    finally:
+        if handle is not None:
+            handle.remove()
+
     llr = float(sum(logits) / len(logits)) if logits else 0.0
-    return llr, len(tiles), len(tiles) > 1
+    num_tiles = len(tiles)
+    tiled = num_tiles > 1
+    if return_embedding:
+        stacked = torch.cat(tile_embeddings, dim=0)
+        emb = flatten_embedding(stacked.mean(dim=0, keepdim=True))
+        return llr, num_tiles, tiled, emb
+    return llr, num_tiles, tiled
 
 
 def predict_clipd_row(image: Image.Image, on_progress: ProgressFn = None) -> list[str] | None:

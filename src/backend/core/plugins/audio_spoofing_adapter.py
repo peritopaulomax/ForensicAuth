@@ -20,6 +20,15 @@ from core.legacy.audio_spoofing.runtime import (
     runtime_status,
 )
 from core.progress import pop_progress_callback, report_progress
+from core.audio_spoofing_lr_reference import (
+    AUGMENTATION_MULTIPLIER,
+    DEFAULT_AUGMENTED_SCORE_MATRIX,
+    DEFAULT_REPRESENTATIONS_MATRIX,
+    DEFAULT_SCORE_MATRIX,
+    META_CLASSIFIERS,
+    compute_reference_lr,
+)
+from core.latent_typicality.representations_utils import representations_matrix_available
 from core.technique_ids import AUDIO_SPOOFING_DETECTION
 
 logger = logging.getLogger(__name__)
@@ -27,6 +36,37 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_DURATION_SECONDS = 90.0
 
 _SCORE_HEADERS = ("Detector", "Score Spoof", "Score Bonafide", "Razao (Log)", "Classificacao", "Dispositivo")
+
+
+def _json_default(obj: object) -> object:
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, (np.floating, np.integer)):
+        return obj.item()
+    if isinstance(obj, Path):
+        return str(obj)
+    return str(obj)
+
+
+def _detector_scores_for_json(detector_scores: dict[str, Any]) -> dict[str, Any]:
+    """Strip non-JSON-serializable embeddings from API payloads."""
+    safe: dict[str, Any] = {}
+    for detector, scores in (detector_scores or {}).items():
+        if not isinstance(scores, dict):
+            safe[detector] = scores
+            continue
+        row = dict(scores)
+        embedding = row.pop("embedding", None)
+        if embedding is not None:
+            row["embedding_dim"] = int(np.asarray(embedding).size)
+        safe[detector] = row
+    return safe
+
+
+def _analysis_for_json(analysis: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(analysis)
+    payload["detector_scores"] = _detector_scores_for_json(analysis.get("detector_scores", {}))
+    return payload
 
 
 def _write_detector_scores_txt(out_dir: Path, rows: list[list[str]]) -> Path:
@@ -102,6 +142,32 @@ class AudioSpoofingAdapter(ForensicPlugin):
             if missing:
                 return False, "Detectores indisponiveis: " + "; ".join(missing)
 
+        classifier = parameters.get("meta_classifier")
+        if classifier is not None and str(classifier).lower().strip() not in META_CLASSIFIERS:
+            return False, "meta_classifier deve ser um de: " + ", ".join(META_CLASSIFIERS)
+
+        use_aug = parameters.get("use_augmented_reference")
+        if use_aug is not None and not isinstance(use_aug, bool):
+            return False, "use_augmented_reference deve ser booleano"
+
+        use_latent = parameters.get("use_latent_typicality")
+        if use_latent is not None and not isinstance(use_latent, bool):
+            return False, "use_latent_typicality deve ser booleano"
+        rep_available = representations_matrix_available(DEFAULT_REPRESENTATIONS_MATRIX)
+
+        if use_latent and not rep_available:
+            return (
+                False,
+                "Matriz de representacoes (scores+embeddings) nao encontrada; "
+                "execute o pipeline de tipicidade latente primeiro.",
+            )
+
+        if use_aug and not use_latent and not DEFAULT_AUGMENTED_SCORE_MATRIX.is_file() and not rep_available:
+            return (
+                False,
+                "Populacao aumentada indisponivel: gere representations.csv ou o score matrix aumentado.",
+            )
+
         return True, ""
 
     def analyze(self, evidence_path: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
@@ -140,12 +206,14 @@ class AudioSpoofingAdapter(ForensicPlugin):
             analyzed_duration_seconds = len(audio) / sr
 
             report_progress(on_progress, 15, "Executando detectores de spoofing")
+            use_latent_typicality = bool(parameters.get("use_latent_typicality"))
             analysis = run_audio_spoofing_analysis(
                 audio=np.asarray(audio, dtype=np.float32),
                 sr=int(sr),
                 window_seconds=window_seconds,
                 selected_analyses=selected_analyses,
                 on_progress=on_progress,
+                return_embedding=use_latent_typicality,
             )
 
             report_progress(on_progress, 85, "Gerando artefatos")
@@ -165,10 +233,13 @@ class AudioSpoofingAdapter(ForensicPlugin):
                 "plot_by_detector": plot_by_detector,
             }
             plot_path = out_dir / f"audio_spoofing_plot_{stamp}.json"
-            plot_path.write_text(json.dumps(plot_data, indent=2), encoding="utf-8")
+            plot_path.write_text(
+                json.dumps(plot_data, indent=2, default=_json_default),
+                encoding="utf-8",
+            )
 
             details_payload = {
-                **analysis,
+                **_analysis_for_json(analysis),
                 "per_detector": analysis.get("per_detector", {}),
                 "duration_seconds": plot_data["duration_seconds"],
                 "original_duration_seconds": plot_data["original_duration_seconds"],
@@ -177,13 +248,14 @@ class AudioSpoofingAdapter(ForensicPlugin):
                 "window_seconds": window_seconds,
             }
             details_path = out_dir / f"audio_spoofing_details_{stamp}.json"
-            details_path.write_text(json.dumps(details_payload, indent=2), encoding="utf-8")
+            details_path.write_text(
+                json.dumps(details_payload, indent=2, default=_json_default),
+                encoding="utf-8",
+            )
 
             scores_path = _write_detector_scores_txt(out_dir, analysis["individual_results"])
 
-            report_progress(on_progress, 100, "Concluido")
-
-            return {
+            result: Dict[str, Any] = {
                 "success": True,
                 "adapter": AUDIO_SPOOFING_DETECTION,
                 "status": "completed",
@@ -201,7 +273,7 @@ class AudioSpoofingAdapter(ForensicPlugin):
                 "inference_device": analysis.get("inference_device", "cpu"),
                 "selected_analyses": analysis.get("selected_analyses", selected_analyses),
                 "individual_results": analysis["individual_results"],
-                "detector_scores": analysis.get("detector_scores", {}),
+                "detector_scores": _detector_scores_for_json(analysis.get("detector_scores", {})),
                 "plot_data": plot_data,
                 "plot_by_detector": plot_by_detector,
                 "plot_filename": plot_path.name,
@@ -210,6 +282,55 @@ class AudioSpoofingAdapter(ForensicPlugin):
                 "detector_scores_txt_path": str(scores_path),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+
+            if bool(parameters.get("reference_lr_enabled", False)):
+                def lr_progress(pct: int, message: str) -> None:
+                    mapped = 88 + min(11, max(0, int(round(pct * 0.11))))
+                    report_progress(on_progress, mapped, message)
+
+                try:
+                    use_augmented = bool(parameters.get("use_augmented_reference"))
+                    rep_available = representations_matrix_available(DEFAULT_REPRESENTATIONS_MATRIX)
+                    if use_latent_typicality or (use_augmented and rep_available):
+                        score_matrix = DEFAULT_REPRESENTATIONS_MATRIX
+                    elif use_augmented:
+                        score_matrix = DEFAULT_AUGMENTED_SCORE_MATRIX
+                    else:
+                        score_matrix = DEFAULT_SCORE_MATRIX
+                    sample_multiplier = AUGMENTATION_MULTIPLIER if use_augmented else 1
+                    lr_report = compute_reference_lr(
+                        detector_scores=analysis.get("detector_scores", {}),
+                        selection=parameters.get("reference_population"),
+                        out_dir=out_dir,
+                        score_matrix=score_matrix,
+                        selected_detectors=tuple(
+                            selected_analyses
+                            or (
+                                "df_arena_1b",
+                                "sls_xlsr",
+                                "wedefense_wavlm_mhfa",
+                            )
+                        ),
+                        classifier=str(parameters.get("meta_classifier", "logistic")).lower().strip(),
+                        sample_multiplier=sample_multiplier,
+                        use_latent_typicality=use_latent_typicality,
+                        on_progress=lr_progress,
+                    )
+                    result["reference_lr"] = lr_report
+                    result["reference_lr_report_filename"] = "lr_reference_report.json"
+                    result["reference_lr_summary_filename"] = lr_report["artifact_filenames"]["summary"]
+                    result["reference_lr_tippett_filename"] = lr_report["artifact_filenames"]["tippett"]
+                    result["reference_lr_distribution_filename"] = lr_report["artifact_filenames"]["distribution"]
+                    result["reference_lr_identity_filename"] = lr_report["artifact_filenames"]["identity"]
+                except Exception as exc:
+                    result["reference_lr"] = {
+                        "success": False,
+                        "error": str(exc),
+                    }
+
+            report_progress(on_progress, 100, "Concluido")
+
+            return result
 
         except Exception as exc:
             error_message = str(exc) or repr(exc)

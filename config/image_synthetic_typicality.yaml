@@ -1,0 +1,17 @@
+# Latent-typicality configuration for synthetic-image LR calibration.
+
+system: D
+k: 5
+distance: cosine
+eps: 1.0e-8
+
+score_matrix: outputs/lr_calibration/score_matrices/lr_scores_balanced_full.csv
+augmented_score_matrix: outputs/lr_calibration/score_matrices/lr_scores_balanced_full_augmented.csv
+representations_matrix: outputs/lr_calibration/synthetic_image/representations/representations.csv
+
+originals_embeddings_dir: outputs/lr_calibration/synthetic_image/representations/embeddings
+augmented_embeddings_dir: outputs/lr_calibration/synthetic_image/representations/embeddings
+
+# Environment overrides for batch materialization (see audio_spoofing_lr_reference.py).
+# VA_LR_TYPICALITY_BATCH: 512
+# VA_LR_TYPICALITY_JOBS: 8

@@ -15,7 +15,7 @@ Laboratório forense digital em uma caixa:
 
 | Mídia | UX |
 |---|---|
-| Imagem | Hubs `image-group/:groupId` (clássicas, DL manipulação, sintético, biometria) |
+| Imagem | Hubs `image-group/:groupId` (clássicas, DL manipulação, sintético, spoofing facial) |
 | Áudio espectral | `AudioForensicsHub` (ENF, espectrograma, níveis) |
 | Áudio spoofing | `AudioSpoofingAnalysis` (DF Arena, SLS, WeDefense) |
 | Vídeo/PDF | Páginas dedicadas por técnica |

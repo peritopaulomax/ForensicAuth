@@ -22,6 +22,7 @@ from core.gpu_inference import (
     is_cuda_oom_or_device_error,
     release_gpu_memory as _core_release_gpu_memory,
     resolve_inference_device,
+    run_with_device_fallback,
 )
 from core.legacy.synthetic_image_detection.runtime import (
     MODEL1_XGB_NAME,
@@ -358,9 +359,8 @@ def load_all_detection_models(
     on_progress: ProgressFn = None,
 ) -> dict[str, Any]:
     import torch
-    from transformers import AutoModelForImageClassification, pipeline
+    from transformers import AutoImageProcessor, AutoModelForImageClassification
 
-    pipeline_device: int | str = 0 if device.type == "cuda" else -1
     models: dict[str, Any] = {}
     logger.info("Carregando modelos de deteccao base Detecção imagens sintéticas em %s...", device)
     load_steps = list(PIPELINE_CONFIG["use_models"])
@@ -369,33 +369,25 @@ def load_all_detection_models(
         pct = 10 + int(16 * (idx + 1) / max(len(load_steps), 1))
         report_progress(on_progress, pct, f"Carregando {label}…")
         try:
-            if mid == "model_4":
-                local_path = _hf_local_path(MODEL_PATHS[mid])
-                extractor = _load_model4_feature_extractor(MODEL_PATHS[mid])
-                md = AutoModelForImageClassification.from_pretrained(
-                    local_path,
-                    local_files_only=True,
-                ).to(device)
+            local_path = _hf_local_path(MODEL_PATHS[mid])
+            image_processor = AutoImageProcessor.from_pretrained(local_path, local_files_only=True)
+            md = AutoModelForImageClassification.from_pretrained(
+                local_path,
+                local_files_only=True,
+            ).to(device)
 
-                def infer_fn(i: Image.Image, model=md, feature_extractor=extractor, dev=device):
-                    rgb = _as_rgb(i)
-                    inputs = feature_extractor(rgb, return_tensors="pt").to(dev)
-                    with torch.no_grad():
-                        return model(**inputs)
+            def infer_fn(i: Image.Image, model=md, processor=image_processor, dev=device):
+                rgb = _as_rgb(i)
+                inputs = processor(rgb, return_tensors="pt").to(dev)
+                with torch.no_grad():
+                    return model(**inputs)
 
-                models[mid] = {"model": infer_fn, "type": "logits", "_module": md}
-            else:
-                local_path = _hf_local_path(MODEL_PATHS[mid])
-                pipe = pipeline(
-                    "image-classification",
-                    model=local_path,
-                    device=pipeline_device,
-                )
-                models[mid] = {
-                    "model": pipe,
-                    "type": "pipeline",
-                    "_pipeline": pipe,
-                }
+            models[mid] = {
+                "model": infer_fn,
+                "type": "logits",
+                "_module": md,
+                "_processor": image_processor,
+            }
         except Exception as e:
             logger.error("Falha ao carregar %s: %s", mid, e)
             raise
@@ -535,11 +527,39 @@ def _ensure_fft_extractor(on_progress: ProgressFn = None) -> None:
         _FFT_EXTRACTOR = ResidueFFTFeatureExtractor(PIPELINE_CONFIG)
 
 
+def _hf_detector_logits_and_embedding(
+    model_id: str,
+    image: Image.Image,
+    model_info: dict[str, Any],
+    *,
+    return_embedding: bool,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Single backbone forward for HuggingFace detectors (logits + optional pooler embedding)."""
+    import torch
+
+    from core.legacy.synthetic_image_detection.embedding_utils import flatten_embedding
+
+    module = model_info["_module"]
+    processor = model_info["_processor"]
+    device = next(module.parameters()).device
+    inputs = processor(_as_rgb(image), return_tensors="pt").to(device)
+    with torch.no_grad():
+        if model_id == "model_1":
+            backbone_out = module.swinv2(**inputs)
+        else:
+            backbone_out = module.swin(**inputs)
+        pooled = backbone_out.pooler_output
+        logits = module.classifier(pooled).detach().cpu().numpy()[0]
+        emb = flatten_embedding(pooled.squeeze(-1)) if return_embedding else None
+    return logits, emb
+
+
 def predict_ensemble(
     image: Image.Image,
     on_progress: ProgressFn = None,
     selected_analyses: Optional[list[str] | tuple[str, ...] | set[str]] = None,
     return_scores: bool = False,
+    return_embedding: bool = False,
 ) -> list[list[str]] | tuple[list[list[str]], dict[str, dict[str, Any]]]:
     selected = _normalize_selected_analyses(selected_analyses)
     selected_hf_model_ids: list[str] = []
@@ -568,14 +588,16 @@ def predict_ensemble(
             report_progress(on_progress, pct, f"Inferindo {label} em {ml_device_label}…")
             model_info = _DETECTION_MODELS[model_id]
             try:
-                if model_info.get("type") == "pipeline":
-                    prediction = model_info["model"](image, top_k=5)
-                    scores = {p["label"]: p["score"] for p in prediction}
+                if return_embedding:
+                    logits, emb = _hf_detector_logits_and_embedding(
+                        model_id, image, model_info, return_embedding=True
+                    )
                 else:
                     prediction = model_info["model"](image)
                     logits = prediction.logits.cpu().numpy()[0]
-                    probs = softmax(logits)
-                    scores = {CLASS_NAMES[model_id][j]: probs[j] for j in range(len(probs))}
+                    emb = None
+                probs = softmax(logits)
+                scores = {CLASS_NAMES[model_id][j]: probs[j] for j in range(len(probs))}
 
                 ai_score = 0.5
                 found_score = False
@@ -615,57 +637,200 @@ def predict_ensemble(
                     "decision": decision,
                     "device": ml_device_label,
                 }
+                if return_embedding and emb is not None:
+                    detector_scores[analysis_id]["embedding"] = emb
+                    detector_scores[analysis_id]["embedding_dim"] = int(emb.shape[0])
             except Exception as e:
                 logger.error("Erro na inferencia do %s: %s", model_id, e)
 
     if SYNTHETIC_ANALYSIS_BFREE in selected:
         try:
-            from core.legacy.bfree.bfree_pipeline import predict_bfree_row
+            if return_embedding:
+                from core.legacy.bfree.bfree_pipeline import (
+                    MODEL_LABEL as BFREE_MODEL_LABEL,
+                    _sigmoid as bfree_sigmoid,
+                    bfree_runtime_status,
+                    clear_bfree_model_cache,
+                    infer_bfree_from_pil,
+                )
 
-            bfree_row = predict_bfree_row(image, on_progress=on_progress)
-            if bfree_row is not None:
-                individual_results.append(bfree_row)
-                detector_scores[SYNTHETIC_ANALYSIS_BFREE] = {
-                    "fake_prob": float(bfree_row[1]),
-                    "real_prob": float(bfree_row[2]),
-                    "raw_score": bfree_row[3],
-                    "decision": bfree_row[4],
-                    "device": bfree_row[5],
-                }
+                ok, _reason = bfree_runtime_status()
+                if not ok:
+                    raise RuntimeError("B-Free indisponivel")
+                preferred = resolve_inference_device()
+                report_progress(
+                    on_progress,
+                    52,
+                    f"Inferindo {BFREE_MODEL_LABEL} em {device_display_label(preferred)}...",
+                )
+
+                def _run_bfree(dev):
+                    return infer_bfree_from_pil(image, dev, return_embedding=True)
+
+                (score, emb), device = run_with_device_fallback(
+                    _run_bfree,
+                    on_fallback=clear_bfree_model_cache,
+                    on_before_cpu_fallback=lambda _reason: on_progress
+                    and on_progress(52, f"{BFREE_MODEL_LABEL} em CPU - fallback VRAM..."),
+                )
+                fake_score = bfree_sigmoid(score)
+                real_score = 1.0 - fake_score
+                decision = "AI" if score > 0 else "REAL"
+                bfree_row = [
+                    BFREE_MODEL_LABEL,
+                    f"{fake_score:.4f}",
+                    f"{real_score:.4f}",
+                    f"score={score:.4f}",
+                    decision,
+                    device_display_label(device.type),
+                ]
+            else:
+                from core.legacy.bfree.bfree_pipeline import predict_bfree_row
+
+                bfree_row = predict_bfree_row(image, on_progress=on_progress)
+                emb = None
+                if bfree_row is None:
+                    raise RuntimeError("B-Free indisponivel")
+
+            individual_results.append(bfree_row)
+            detector_scores[SYNTHETIC_ANALYSIS_BFREE] = {
+                "fake_prob": float(bfree_row[1]),
+                "real_prob": float(bfree_row[2]),
+                "raw_score": bfree_row[3],
+                "decision": bfree_row[4],
+                "device": bfree_row[5],
+            }
+            if return_embedding:
+                detector_scores[SYNTHETIC_ANALYSIS_BFREE]["embedding"] = emb
+                detector_scores[SYNTHETIC_ANALYSIS_BFREE]["embedding_dim"] = int(emb.shape[0])
         except Exception as exc:
             logger.warning("B-Free indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
 
     if SYNTHETIC_ANALYSIS_CORVI2023 in selected:
         try:
-            from core.legacy.truebees_clip_d.clipd_pipeline import predict_corvi2023_row
+            if return_embedding:
+                from core.legacy.truebees_clip_d.clipd_pipeline import (
+                    CORVI2023_MODEL_LABEL,
+                    CORVI2023_MODEL_NAME,
+                    CORVI2023_REPO,
+                    CORVI2023_TILE_SIZE,
+                    _sigmoid_from_llr,
+                    clipd_runtime_status,
+                    clear_clipd_model_cache,
+                    infer_corvi2023_from_pil,
+                )
 
-            corvi_row = predict_corvi2023_row(image, on_progress=on_progress)
-            if corvi_row is not None:
-                individual_results.append(corvi_row)
-                detector_scores[SYNTHETIC_ANALYSIS_CORVI2023] = {
-                    "fake_prob": float(corvi_row[1]),
-                    "real_prob": float(corvi_row[2]),
-                    "raw_score": corvi_row[3],
-                    "decision": corvi_row[4],
-                    "device": corvi_row[5],
-                }
+                ok, _reason = clipd_runtime_status(CORVI2023_MODEL_NAME)
+                if not ok:
+                    raise RuntimeError("Corvi2023 indisponivel")
+
+                preferred = resolve_inference_device()
+                report_progress(
+                    on_progress,
+                    54,
+                    f"Inferindo {CORVI2023_MODEL_LABEL} em tiles {CORVI2023_TILE_SIZE}px "
+                    f"({device_display_label(preferred)})...",
+                )
+
+                def _run_corvi(dev):
+                    return infer_corvi2023_from_pil(
+                        image, dev, CORVI2023_TILE_SIZE, return_embedding=True
+                    )
+
+                (llr, num_tiles, tiled, emb), device = run_with_device_fallback(
+                    _run_corvi,
+                    on_fallback=clear_clipd_model_cache,
+                    on_before_cpu_fallback=lambda _reason: on_progress
+                    and on_progress(54, f"{CORVI2023_MODEL_LABEL} em CPU - fallback VRAM..."),
+                )
+                prob = _sigmoid_from_llr(llr)
+                real_score = 1.0 - prob
+                decision = "AI" if llr > 0 else "REAL"
+                tile_note = (
+                    f"LLR={llr:.4f}; tiles={num_tiles}x{CORVI2023_TILE_SIZE}px"
+                    if tiled
+                    else f"LLR={llr:.4f}"
+                )
+                corvi_row = [
+                    CORVI2023_MODEL_LABEL,
+                    f"{prob:.4f}",
+                    f"{real_score:.4f}",
+                    f"{tile_note}; repo={CORVI2023_REPO}",
+                    decision,
+                    device_display_label(device.type),
+                ]
+            else:
+                from core.legacy.truebees_clip_d.clipd_pipeline import predict_corvi2023_row
+
+                corvi_row = predict_corvi2023_row(image, on_progress=on_progress)
+                emb = None
+                if corvi_row is None:
+                    raise RuntimeError("Corvi2023 indisponivel")
+
+            individual_results.append(corvi_row)
+            detector_scores[SYNTHETIC_ANALYSIS_CORVI2023] = {
+                "fake_prob": float(corvi_row[1]),
+                "real_prob": float(corvi_row[2]),
+                "raw_score": corvi_row[3],
+                "decision": corvi_row[4],
+                "device": corvi_row[5],
+            }
+            if return_embedding:
+                detector_scores[SYNTHETIC_ANALYSIS_CORVI2023]["embedding"] = emb
+                detector_scores[SYNTHETIC_ANALYSIS_CORVI2023]["embedding_dim"] = int(emb.shape[0])
         except Exception as exc:
             logger.warning("Corvi2023 indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
 
     if SYNTHETIC_ANALYSIS_SAFE in selected:
         try:
-            from core.legacy.safe.safe_pipeline import predict_safe_row
+            if return_embedding:
+                from core.legacy.effort.effort_pipeline import effort_row
+                from core.legacy.safe.safe_pipeline import (
+                    MODEL_LABEL as SAFE_MODEL_LABEL,
+                    clear_safe_model_cache,
+                    infer_safe_from_pil,
+                    safe_runtime_status,
+                )
 
-            safe_row = predict_safe_row(image, on_progress=on_progress)
-            if safe_row is not None:
-                individual_results.append(safe_row)
-                detector_scores[SYNTHETIC_ANALYSIS_SAFE] = {
-                    "fake_prob": float(safe_row[1]),
-                    "real_prob": float(safe_row[2]),
-                    "raw_score": safe_row[3],
-                    "decision": safe_row[4],
-                    "device": safe_row[5],
-                }
+                ok, _reason = safe_runtime_status()
+                if not ok:
+                    raise RuntimeError("SAFE indisponivel")
+                preferred = resolve_inference_device()
+                report_progress(
+                    on_progress,
+                    62,
+                    f"Inferindo {SAFE_MODEL_LABEL} em {device_display_label(preferred)}…",
+                )
+
+                def _run_safe(dev):
+                    return infer_safe_from_pil(image, dev, return_embedding=True)
+
+                (prob, emb), device = run_with_device_fallback(
+                    _run_safe,
+                    on_fallback=clear_safe_model_cache,
+                    on_before_cpu_fallback=lambda _reason: on_progress
+                    and on_progress(62, f"{SAFE_MODEL_LABEL} em CPU — fallback VRAM…"),
+                )
+                safe_row = effort_row(SAFE_MODEL_LABEL, prob, inference_device=device.type)
+            else:
+                from core.legacy.safe.safe_pipeline import predict_safe_row
+
+                safe_row = predict_safe_row(image, on_progress=on_progress)
+                emb = None
+                if safe_row is None:
+                    raise RuntimeError("SAFE indisponivel")
+
+            individual_results.append(safe_row)
+            detector_scores[SYNTHETIC_ANALYSIS_SAFE] = {
+                "fake_prob": float(safe_row[1]),
+                "real_prob": float(safe_row[2]),
+                "raw_score": safe_row[3],
+                "decision": safe_row[4],
+                "device": safe_row[5],
+            }
+            if return_embedding:
+                detector_scores[SYNTHETIC_ANALYSIS_SAFE]["embedding"] = emb
+                detector_scores[SYNTHETIC_ANALYSIS_SAFE]["embedding_dim"] = int(emb.shape[0])
         except Exception as exc:
             logger.warning("SAFE indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
 
@@ -686,8 +851,18 @@ def run_synthetic_image_detection_analysis(
     generate_visuals: bool = True,
     selected_analyses: Optional[list[str] | tuple[str, ...] | set[str]] = None,
     on_progress: Optional[Callable[[int, str], None]] = None,
+    return_embedding: bool = False,
 ) -> dict[str, Any]:
-    """Run full Detecção imagens sintéticas analysis and return structured results (no file I/O)."""
+    """Run full Detecção imagens sintéticas analysis and return structured results (no file I/O).
+
+    Args:
+        image: input RGB/RGBA image.
+        generate_visuals: whether to produce FFT/residue visualizations.
+        selected_analyses: subset of detectors to run.
+        on_progress: optional progress callback.
+        return_embedding: if True, also capture penultimate-layer embeddings for
+            every selected detector.  This is required by latent-typicality LR.
+    """
     image = _as_rgb(image)
     selected = _normalize_selected_analyses(selected_analyses)
     needs_base_models = bool(
@@ -719,6 +894,7 @@ def run_synthetic_image_detection_analysis(
                 on_progress=on_progress,
                 selected_analyses=selected,
                 return_scores=True,
+                return_embedding=return_embedding,
             )
         except RuntimeError as exc:
             if (
@@ -738,6 +914,7 @@ def run_synthetic_image_detection_analysis(
                 on_progress=on_progress,
                 selected_analyses=selected,
                 return_scores=True,
+                return_embedding=return_embedding,
             )
 
         report_progress(on_progress, 68, "Gerando FFT da imagem de entrada…")

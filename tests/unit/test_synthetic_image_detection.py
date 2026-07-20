@@ -1,6 +1,7 @@
 """Unit tests for synthetic image detection ensemble."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -133,6 +134,11 @@ class TestSyntheticImageDetectionRuntime:
             "core.plugins.synthetic_image_detection_adapter.runtime_status",
             lambda: (True, ""),
         )
+        monkeypatch.setattr(
+            adapter_module,
+            "representations_matrix_available",
+            lambda _path: False,
+        )
 
         from PIL import Image
 
@@ -212,6 +218,196 @@ class TestSyntheticImageDetectionRuntime:
         assert len(calls) == 1
         assert calls[0]["score_matrix"] == adapter_module._AUGMENTED_SCORE_MATRIX
         assert calls[0]["sample_multiplier"] == 5
+
+    def test_use_latent_typicality_with_augmented_uses_representations_and_multiplier(self, monkeypatch):
+        import tempfile
+        from pathlib import Path
+
+        import numpy as np
+        from PIL import Image
+
+        from core.plugins import synthetic_image_detection_adapter as adapter_module
+        from core.plugins.synthetic_image_detection_adapter import SyntheticImageDetectionAdapter
+
+        monkeypatch.setattr(
+            "core.plugins.synthetic_image_detection_adapter.runtime_status",
+            lambda: (True, ""),
+        )
+        monkeypatch.setattr(
+            adapter_module,
+            "representations_matrix_available",
+            lambda _path: True,
+        )
+
+        def fake_run_analysis(*args, **kwargs):
+            return {
+                "individual_results": [["model", "0.9", "0.1", "0", "AI", "CPU"]],
+                "detector_scores": {"ai_image_detector_deploy": {"fake_prob": 0.9}},
+                "selected_analyses": ["ai_image_detector_deploy"],
+                "inference_device": "cpu",
+                "input_image": Image.new("RGB", (64, 64), color="red"),
+                "input_fft": None,
+            }
+
+        monkeypatch.setattr(
+            adapter_module,
+            "run_synthetic_image_detection_analysis",
+            fake_run_analysis,
+        )
+
+        calls: list[dict] = []
+
+        def fake_compute_reference_lr(*, score_matrix, sample_multiplier, use_latent_typicality, **kwargs):
+            calls.append(
+                {
+                    "score_matrix": score_matrix,
+                    "sample_multiplier": sample_multiplier,
+                    "use_latent_typicality": use_latent_typicality,
+                }
+            )
+            return {
+                "artifact_filenames": {
+                    "tippett": "lr_reference_tippett.png",
+                    "distribution": "lr_reference_distribution.png",
+                    "identity": "lr_reference_identity.png",
+                    "summary": "lr_reference_summary.txt",
+                }
+            }
+
+        monkeypatch.setattr(adapter_module, "compute_reference_lr", fake_compute_reference_lr)
+
+        plugin = SyntheticImageDetectionAdapter()
+        with tempfile.TemporaryDirectory() as tmp:
+            img_path = Path(tmp) / "dummy.png"
+            Image.new("RGB", (64, 64), color="red").save(img_path)
+            result = plugin.analyze(
+                str(img_path),
+                {
+                    "reference_lr_enabled": True,
+                    "use_augmented_reference": True,
+                    "use_latent_typicality": True,
+                    "reference_population": {"items": []},
+                    "selected_analyses": ["ai_image_detector_deploy"],
+                    "job_id": "test-job",
+                    "evidence_id": "test-evidence",
+                    "case_id": "test-case",
+                    "result_dir": tmp,
+                },
+            )
+
+        assert result["success"] is True
+        assert len(calls) == 1
+        assert calls[0]["score_matrix"] == adapter_module.DEFAULT_REPRESENTATIONS_MATRIX
+        assert calls[0]["sample_multiplier"] == adapter_module.AUGMENTATION_MULTIPLIER
+        assert calls[0]["use_latent_typicality"] is True
+
+    def test_detector_scores_strip_embeddings_for_json(self):
+        import json
+
+        import numpy as np
+
+        from core.plugins.synthetic_image_detection_adapter import _detector_scores_for_json
+        from services.job_service import JobService
+
+        raw = {
+            "bfree": {
+                "fake_prob": 0.42,
+                "embedding": np.arange(768, dtype=np.float32),
+            }
+        }
+        safe = _detector_scores_for_json(raw)
+        assert "embedding" not in safe["bfree"]
+        assert safe["bfree"]["embedding_dim"] == 768
+        assert safe["bfree"]["fake_prob"] == 0.42
+
+        payload = {"detector_scores": safe}
+        json.dumps(payload, default=JobService._json_default)
+
+    def test_analyze_strips_embeddings_when_latent_typicality_enabled(self, monkeypatch):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        import numpy as np
+        from PIL import Image
+
+        from core.plugins import synthetic_image_detection_adapter as adapter_module
+        from core.plugins.synthetic_image_detection_adapter import SyntheticImageDetectionAdapter
+        from services.job_service import JobService
+
+        monkeypatch.setattr(
+            "core.plugins.synthetic_image_detection_adapter.runtime_status",
+            lambda: (True, ""),
+        )
+        monkeypatch.setattr(
+            adapter_module,
+            "representations_matrix_available",
+            lambda _path: True,
+        )
+
+        embedding = np.arange(16, dtype=np.float32)
+
+        def fake_run_analysis(*args, **kwargs):
+            assert kwargs.get("return_embedding") is True
+            return {
+                "individual_results": [["model", "0.9", "0.1", "0", "AI", "CPU"]],
+                "detector_scores": {
+                    "ai_image_detector_deploy": {
+                        "fake_prob": 0.9,
+                        "embedding": embedding,
+                    }
+                },
+                "selected_analyses": ["ai_image_detector_deploy"],
+                "inference_device": "cpu",
+                "input_image": Image.new("RGB", (64, 64), color="red"),
+                "input_fft": None,
+            }
+
+        monkeypatch.setattr(
+            adapter_module,
+            "run_synthetic_image_detection_analysis",
+            fake_run_analysis,
+        )
+
+        lr_calls: list[dict[str, Any]] = []
+
+        def fake_compute_reference_lr(*, detector_scores, **kwargs):
+            lr_calls.append(detector_scores)
+            return {
+                "artifact_filenames": {
+                    "tippett": "lr_reference_tippett.png",
+                    "distribution": "lr_reference_distribution.png",
+                    "identity": "lr_reference_identity.png",
+                    "summary": "lr_reference_summary.txt",
+                }
+            }
+
+        monkeypatch.setattr(adapter_module, "compute_reference_lr", fake_compute_reference_lr)
+
+        plugin = SyntheticImageDetectionAdapter()
+        with tempfile.TemporaryDirectory() as tmp:
+            img_path = Path(tmp) / "dummy.png"
+            Image.new("RGB", (64, 64), color="red").save(img_path)
+            result = plugin.analyze(
+                str(img_path),
+                {
+                    "reference_lr_enabled": True,
+                    "use_latent_typicality": True,
+                    "reference_population": {"items": []},
+                    "selected_analyses": ["ai_image_detector_deploy"],
+                    "job_id": "test-job",
+                    "evidence_id": "test-evidence",
+                    "case_id": "test-case",
+                    "result_dir": tmp,
+                },
+            )
+
+        assert result["success"] is True
+        assert lr_calls
+        assert np.asarray(lr_calls[0]["ai_image_detector_deploy"]["embedding"]).size == 16
+        assert "embedding" not in result["detector_scores"]["ai_image_detector_deploy"]
+        assert result["detector_scores"]["ai_image_detector_deploy"]["embedding_dim"] == 16
+        json.dumps(result, default=JobService._json_default)
 
 
 class TestSyntheticImageDetectionModel4:

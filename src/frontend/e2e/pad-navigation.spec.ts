@@ -7,9 +7,9 @@ async function mockAuth(page: import("@playwright/test").Page) {
       contentType: "application/json",
       body: JSON.stringify({
         id: "1",
-        username: "e2euser",
+        username: "e2eadmin",
         email: "e2e@pf.gov.br",
-        role: "perito",
+        role: "admin",
         is_active: true,
       }),
     });
@@ -107,6 +107,11 @@ test.describe("PAD navigation", () => {
             unavailable_reason: null,
           },
           {
+            name: "moe_ffd",
+            supported_types: ["imagem"],
+            available: true,
+          },
+          {
             name: "synthetic_image_detection",
             supported_types: ["imagem"],
             available: true,
@@ -125,12 +130,14 @@ test.describe("PAD navigation", () => {
 
     await page.goto("/cases/case-pad?tab=analises&media=imagem");
 
-    const card = page.getByRole("heading", { name: /Biometria Facial/i });
+    const card = page.getByRole("heading", { name: /Deep Learning: Manipulação e Spoofing Facial/i });
     await expect(card).toBeVisible({ timeout: 15000 });
     await card.click();
 
-    await page.waitForURL("**/cases/case-pad/analysis/image-group/biometria-facial", { timeout: 10000 });
-    await expect(page.getByRole("heading", { name: /Biometria Facial/i }).first()).toBeVisible();
+    await page.waitForURL("**/cases/case-pad/analysis/image-group/dl-facial-spoofing**", { timeout: 10000 });
+    await expect(
+      page.getByRole("heading", { name: /Deep Learning: Manipulação e Spoofing Facial/i }).first(),
+    ).toBeVisible();
     await expect(page.getByRole("tab", { name: /Detecção de Ataques de Apresentação/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Analisar imagem/i })).toBeVisible();
   });

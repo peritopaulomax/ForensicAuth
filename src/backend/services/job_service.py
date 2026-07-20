@@ -338,7 +338,10 @@ class JobService:
         techniques = []
         for name, plugin_cls in self.registry.PLUGINS.items():
             plugin = plugin_cls()
-            available, reason = technique_runtime_status(plugin.name)
+            try:
+                available, reason = technique_runtime_status(plugin.name)
+            except Exception as exc:
+                available, reason = False, f"Falha ao verificar runtime: {type(exc).__name__}: {exc}"
             techniques.append({
                 "name": plugin.name,
                 "supported_types": plugin.supported_types,
@@ -435,8 +438,17 @@ class JobService:
     def _json_default(obj: object) -> object:
         if isinstance(obj, Path):
             return str(obj)
+        if hasattr(obj, "tolist"):
+            size = getattr(obj, "size", 1)
+            if size != 1:
+                return obj.tolist()
         if hasattr(obj, "item"):
-            return obj.item()
+            try:
+                return obj.item()
+            except ValueError:
+                if hasattr(obj, "tolist"):
+                    return obj.tolist()
+                raise
         if hasattr(obj, "tolist"):
             return obj.tolist()
         return str(obj)

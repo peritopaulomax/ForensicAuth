@@ -26,7 +26,7 @@ React 18 + TypeScript + Vite + Zustand + Axios + Playwright
 
 ## Grupos imagem
 
-`estrutura-arquivo`, `classicas-compressao`, `classicas-correlacao`, `classicas-aquisicao`, `dl-manipulacao`, `dl-sintetico`, `biometria-facial`
+`estrutura-arquivo`, `classicas-compressao`, `classicas-correlacao`, `classicas-aquisicao`, `dl-manipulacao`, `dl-sintetico`, `dl-facial-spoofing` (alias legado `biometria-facial`)
 
 ## Áudio
 

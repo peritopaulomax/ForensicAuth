@@ -25,6 +25,7 @@ ForensicAuth orchestrates multiple ML models for image, audio, video and PDF for
 | `lowres_fake_video` | `lowres_fake_video` | `vendor/fake-video-detection` | Low-resolution fake video |
 | `noiseprint` | `noiseprint` | `vendor/grip-unina-noiseprint` | Noiseprint camera fingerprint |
 | `pad` | `presentation_attack_detection` | — | Presentation attack detection |
+| `moe_ffd` | `moe_ffd` | **Requer `model_params_best_*.pkl`** (gates MoE treinados). O `MoE-FFD.tar` do HF (epoch 14, gates≈0) e **rejeitado** pelo runtime. RetinaFace PAD para crop. | Face forgery ViT-MoE; nao usar HF tar mid-training |
 | `prnu` | `prnu` | — | PRNU camera fingerprint |
 | `safe` | standby legacy | `vendor/SAFE` | Synthetic face detection |
 | `safire` | `safire` | `vendor/SAFIRE` | SAFIRE |

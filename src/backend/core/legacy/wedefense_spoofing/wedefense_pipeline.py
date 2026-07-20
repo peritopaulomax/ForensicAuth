@@ -139,7 +139,9 @@ def _infer_window(
     ds_args: dict[str, Any],
     window: np.ndarray,
     device_obj: torch.device,
-) -> tuple[float, float, float, float]:
+    *,
+    return_embedding: bool = False,
+) -> tuple[float, float, float, float] | tuple[tuple[float, float, float, float], np.ndarray]:
     from wedefense.dataset.dataset_utils import apply_cmvn
 
     wavs = torch.tensor(window.astype(np.float32), dtype=torch.float32, device=device_obj).unsqueeze(0)
@@ -157,7 +159,10 @@ def _infer_window(
         logits = logits_out[0] if isinstance(logits_out, tuple) else logits_out
         logits_np = logits.detach().cpu().numpy()[0]
 
-    return _wedefense_probs_to_scores(logits_np)
+    scores = _wedefense_probs_to_scores(logits_np)
+    if return_embedding:
+        return scores, embeds.detach().cpu().numpy()[0].astype(np.float32)
+    return scores
 
 
 def infer_wedefense_windows(
@@ -166,6 +171,7 @@ def infer_wedefense_windows(
     *,
     window_seconds: float = WINDOW_SECONDS,
     device: torch.device | str | int | None = None,
+    return_embedding: bool = False,
 ) -> dict[str, Any]:
     """Run WeDefense on ~4s windows. Logits: idx0=bonafide, idx1=spoof."""
     ok, reason = runtime_status()
@@ -194,11 +200,17 @@ def infer_wedefense_windows(
     window_results: list[dict[str, Any]] = []
     spoof_log_scores: list[float] = []
     bonafide_log_scores: list[float] = []
+    window_embeddings: list[np.ndarray] = []
 
     for start, window in windows:
-        spoof_log, bonafide_log, spoof_prob, bonafide_prob = _infer_window(
-            model, ds_args, window, device_obj
+        infer_out = _infer_window(
+            model, ds_args, window, device_obj, return_embedding=return_embedding
         )
+        if return_embedding:
+            (spoof_log, bonafide_log, spoof_prob, bonafide_prob), embedding = infer_out
+            window_embeddings.append(embedding)
+        else:
+            spoof_log, bonafide_log, spoof_prob, bonafide_prob = infer_out
         window_results.append({
             "start_seconds": round(start / SAMPLE_RATE, 3),
             "center_seconds": round((start + len(window) / 2) / SAMPLE_RATE, 3),
@@ -228,7 +240,7 @@ def infer_wedefense_windows(
     else:
         label = "uncertain"
 
-    return {
+    result: dict[str, Any] = {
         "windows": window_results,
         "aggregated": {
             "spoof_logit": round(agg_spoof, 6),
@@ -242,3 +254,9 @@ def infer_wedefense_windows(
         "inference_device": str(device_obj),
         "checkpoint": AVG_CHECKPOINT_NAME,
     }
+    if return_embedding:
+        from core.legacy.audio_spoofing.embedding_utils import aggregate_embeddings
+
+        result["embedding"] = aggregate_embeddings(window_embeddings)
+        result["embedding_dim"] = int(result["embedding"].shape[0])
+    return result

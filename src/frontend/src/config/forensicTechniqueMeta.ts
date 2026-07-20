@@ -262,16 +262,37 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
     license: "Apache-2.0",
     repoUrl: "https://github.com/minivision-ai/Silent-Face-Anti-Spoofing",
   },
+  moe_ffd: {
+    title: "MoE-FFD (Face Forgery Detection)",
+    citation:
+      "KONG, Chenqi; LUO, Anwei; BAO, Peijun; YU, Yi; LI, Haoliang; ZHENG, Zengwei; WANG, Shiqi; KOT, Alex C. MoE-FFD: Mixture of Experts for Generalized and Parameter-Efficient Face Forgery Detection. IEEE Transactions on Dependable and Secure Computing, 2025.\n\nCódigo: <https://github.com/LoveSiameseCat/MoE-FFD>. Pesos: <https://huggingface.co/luobo91/MoE-FFD>.",
+    cardSubtitle: "ViT-B/16 + Mixture-of-Experts · deepfake / face swap",
+    detail:
+      "Detecta manipulação facial (deepfake, FaceSwap, Face2Face, NeuralTextures) com ViT-B/16 + MoE (LoRA/Adapter). Pré-processamento: RetinaFace → crop 1.3× → albumentations 224. Softmax classe 1 = fake. IMPORTANTE: o MoE-FFD.tar publicado no Hugging Face (jul/2026) é um checkpoint mid-training com gates MoE zerados e é rejeitado pelo runtime; é necessário o model_params_best_*.pkl dos autores.",
+    summary:
+      "Exige vendor + RetinaFace PAD + checkpoint com gates MoE treinados (best.pkl). HF MoE-FFD.tar atual é inválido para uso forense.",
+    license: "MIT",
+    repoUrl: "https://github.com/LoveSiameseCat/MoE-FFD",
+  },
   audio_spoofing_detection: {
     title: "Detecção de Spoofing de Áudio",
     citation:
+      "SPEECH-ARENA-2025. DF Arena 1B V1 — antispoofing com Wav2Vec2 XLS-R-1B + Conformer. Modelo HuggingFace: Speech-Arena-2025/DF_Arena_1B_V_1. Disponível em: <https://huggingface.co/Speech-Arena-2025/DF_Arena_1B_V_1>. Acesso em: 4 jul. 2026.\n\n" +
+      "KULKARNI, Ajinkya; DOWERAH, Sandipana; KULKARNI, Atharva; ALUMÄE, Tanel; MAGIMAI DOSS, Mathew. Audio Deepfake Detection with Self-supervised XLS-R and SLS classifier. In: ACM MULTIMEDIA (ACM MM), 2024. Repositório: <https://github.com/Speech-Arena-2025/SLSforASVspoof-2021-DF>. Acesso em: 4 jul. 2026.\n\n" +
+      "JYP2024. WeDefense ASV2025 — WavLM Base pruning + MHFA para detecção de spoofing. Repositório HuggingFace: JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning. Disponível em: <https://huggingface.co/JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning>. Acesso em: 4 jul. 2026.\n\n" +
       "KULKARNI, Ajinkya; DOWERAH, Sandipana; KULKARNI, Atharva; ALUMÄE, Tanel; MAGIMAI DOSS, Mathew. Do Compact SSL Backbones Matter for Audio Deepfake Detection? A Controlled Study with RAPTOR. arXiv:2603.06164, 2026.",
-    cardSubtitle: "DF Arena 1B + SLS XLS-R · vetor de escores por detector",
+    cardSubtitle: "DF Arena 1B + SLS XLS-R + WeDefense · meta-classificador LR",
     detail:
-      "Hub multi-detector de spoofing de audio. DF Arena 1B (Wav2Vec2 XLS-R-1B + Conformer) e SLS XLS-R (ACM MM 2024) analisam janelas de 4 segundos; cada detector contribui com escores spoof/bonafide para composicao futura de meta-classificador e calibracao LR.",
+      "Hub multi-detector de spoofing de áudio com calibração LR por população de referência versionada. " +
+      "DF Arena 1B (Wav2Vec2 XLS-R-1B + Conformer), SLS XLS-R (ACM MM 2024) e WeDefense WavLM+MHFA (ASVspoof 2025) " +
+      "analisam janelas de 4 segundos; os logits bonafide alimentam meta-classificador e bi-Gaussianized LR. " +
+      "Opcionalmente, tipicidade latente (k-NN nos embeddings, sistema D) enriquece a fusão. " +
+      "LR positiva favorece H1 = bonafide (áudio autêntico). População padrão: clonagem comercial "
+      + "(StyleTTS2, NaturalSpeech2, xTTS, PromptTTS2, VoiceBox), ASVspoof 5 e In-The-Wild "
+      + "(distribuição via redes/mensageiros). CodecFake permanece opcional no catálogo.",
     summary:
-      "Processamento local com GPU/CPU. Selecione um ou mais detectores; artefato principal: detector_scores.txt.",
-    license: "Non-commercial (ver LICENSE.txt do modelo)",
+      "Processamento local com GPU/CPU. Selecione detectores e subgrupos de calibração; artefatos: detector_scores.txt e gráficos LR.",
+    license: "Non-commercial (ver LICENSE.txt de cada modelo)",
     repoUrl: "https://huggingface.co/Speech-Arena-2025/DF_Arena_1B_V_1",
   },
 };

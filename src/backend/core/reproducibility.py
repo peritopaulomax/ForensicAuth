@@ -79,6 +79,8 @@ REPRODUCIBILITY_REGISTRY: dict[str, dict[str, Any]] = {
         "profile": "strict",
     },
     "mock_technique": {"mode": "canonical_result", "profile": "strict"},
+    "presentation_attack_detection": {"primary": "pad_result.json", "profile": "gpu_ml"},
+    "moe_ffd": {"primary": "moe_ffd_result.json", "profile": "gpu_ml"},
 }
 
 _VOLATILE_RESULT_KEYS = frozenset(

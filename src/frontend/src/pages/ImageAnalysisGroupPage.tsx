@@ -8,6 +8,7 @@ import {
   isImageTechniqueBatchEligible,
   isImageTechniqueDisabled,
   isImageTechniqueVisible,
+  resolveImageGroupId,
   resolveTechniqueTabLabel,
   techniqueEntryKey,
   type ImageTechniqueEntry,
@@ -24,7 +25,8 @@ export default function ImageAnalysisGroupPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const userRole = useAuthStore((s) => s.user?.role);
-  const group = groupId ? getImageAnalysisGroup(groupId) : undefined;
+  const resolvedGroupId = groupId ? resolveImageGroupId(groupId) : undefined;
+  const group = resolvedGroupId ? getImageAnalysisGroup(resolvedGroupId) : undefined;
 
   const [caseTitle, setCaseTitle] = useState<string | null>(null);
   const [evidenceId, setEvidenceId] = useState<string | null>(null);
@@ -99,6 +101,16 @@ export default function ImageAnalysisGroupPage() {
     const next = new URLSearchParams(searchParams);
     next.set("tab", tabId);
     setSearchParams(next, { replace: true });
+  }
+
+  if (caseId && groupId && resolvedGroupId && groupId !== resolvedGroupId) {
+    const qs = searchParams.toString();
+    return (
+      <Navigate
+        to={`/cases/${caseId}/analysis/image-group/${resolvedGroupId}${qs ? `?${qs}` : ""}`}
+        replace
+      />
+    );
   }
 
   if (!caseId || !group) {

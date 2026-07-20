@@ -1,0 +1,11 @@
+system: D
+distance: cosine
+k: 5
+typicality_eps: 1.0e-8
+window_seconds: 4.0
+representations_root: outputs/lr_calibration/audio_spoofing/representations
+score_matrix_base: outputs/lr_calibration/audio_spoofing/score_matrices/lr_scores_balanced_full.csv
+augmented_manifest: outputs/lr_calibration/audio_spoofing/samples/augmented/manifest.csv
+originals_embeddings_dir: outputs/lr_calibration/audio_spoofing/representations/originals
+augmented_embeddings_dir: outputs/lr_calibration/audio_spoofing/representations/augmented
+merged_representations_csv: outputs/lr_calibration/audio_spoofing/representations/representations.csv

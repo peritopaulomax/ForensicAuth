@@ -142,6 +142,10 @@ def official_runtime_ready(method: str) -> tuple[bool, str]:
             return False, "Dependencias APSC-Net ausentes: instale mmcv 1.3.x-1.7.x compativel com o ambiente CUDA."
         except AssertionError as exc:
             return False, f"Dependencia APSC-Net incompatível: {exc}"
+        except Exception as exc:
+            # Importlib can raise KeyError/ModuleNotFoundError when vendor context
+            # purges a partially-loaded mmcv from sys.modules; treat as unavailable.
+            return False, f"Dependencias APSC-Net indisponiveis: {type(exc).__name__}: {exc}"
         return True, ""
 
     return False, f"Metodo MIML desconhecido: {method}"

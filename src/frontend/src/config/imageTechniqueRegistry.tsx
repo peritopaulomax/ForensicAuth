@@ -24,6 +24,7 @@ const SyntheticImageDetectionAnalysis = lazy(() => import("@/pages/SyntheticImag
 const PresentationAttackDetectionAnalysis = lazy(
   () => import("@/pages/PresentationAttackDetectionAnalysis"),
 );
+const MoeFfdAnalysis = lazy(() => import("@/pages/MoeFfdAnalysis"));
 const ImdlMethodAnalysis = lazy(() => import("@/pages/ImdlMethodAnalysis"));
 
 const PLUGIN_COMPONENTS: Record<string, ComponentType<ImageTechniqueComponentProps>> = {
@@ -44,6 +45,7 @@ const PLUGIN_COMPONENTS: Record<string, ComponentType<ImageTechniqueComponentPro
   safire: SafireAnalysis,
   synthetic_image_detection: SyntheticImageDetectionAnalysis,
   presentation_attack_detection: PresentationAttackDetectionAnalysis,
+  moe_ffd: MoeFfdAnalysis,
 };
 
 export function resolveImageTechniqueComponent(

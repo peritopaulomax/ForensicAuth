@@ -1,0 +1,39 @@
+# Configuração para calibração LR de spoofing de áudio (POC e produção).
+# Copie para config/audio_lr_protocolo.yaml e ajuste os prefixos de caminho.
+
+protocol_csv: protocolo_unificado.csv
+
+# Remapeamento de prefixos quando os áudios estão montados em outro ponto da LAN.
+# O primeiro prefixo que casar substitui o início de file_path.
+path_prefixes:
+  - remote: /media/paulopmgir/HD10T-Bases
+    local: /mnt/bases
+  # Exemplo NFS/SMB na máquina de processamento:
+  # - remote: /media/paulopmgir/HD10T-Bases
+  #   local: /srv/nfs/HD10T-Bases
+
+# Diretório local onde amostras sincronizadas serão materializadas.
+samples_root: outputs/lr_calibration/audio_spoofing/samples
+
+# Diretório de saída para matrizes de score e modelos.
+output_root: outputs/lr_calibration/audio_spoofing
+
+# POC inicial: 150 bonafide + 150 spoof por subgrupo selecionado.
+poc:
+  sample_per_class: 150
+  train_per_class: 75
+  calib_per_class: 38
+  test_per_class: 37
+  seed: 20260704
+
+# Subconjuntos sugeridos para prova de conceito (balanceados no protocolo).
+poc_defaults:
+  - dataset: CodecFake
+    subset: C1
+    description: "CodecFake C1 — 13228 bonafide + 13228 spoof (perfeitamente balanceado)"
+  - dataset: ADD2022
+    subset: track1test
+    description: "ADD 2022 track1 — abundante, desbalanceado spoof>bonafide"
+  - dataset: DFADD
+    subset: test_converted2
+    description: "DFADD test — spoof com gerador no nome do arquivo (GradTTS, etc.)"
