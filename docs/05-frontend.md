@@ -78,7 +78,8 @@ Pasta `src/frontend/src/services/`: `api.ts`, `auth.ts`, `cases.ts`, `evidence.t
 ## Testes de frontend
 
 - Unit: Vitest  
-- E2E: Playwright em `src/frontend/e2e/`  
+- E2E: Playwright em `src/frontend/e2e/` (catálogo sintético atual: `synthetic-image-detectors.spec.ts`; specs CLIDE/DeeCLIP/FSD antigos removidos)  
+
 
 ## Como verificar
 
