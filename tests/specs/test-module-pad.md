@@ -2,7 +2,7 @@
 
 ## 1. Filosofia
 
-Aplicar TDD + SDD: testes são escritos antes ou junto com a implementação, cobrindo backend, worker, frontend e cadeia de custódia. O objetivo é garantir que o fluxo fim a fim de detecção de ataques de apresentação funcione e esteja integrado ao ForensicAuth.
+Aplicar TDD + SDD: testes são escritos antes ou junto com a implementação, cobrindo backend, worker e frontend. Jobs são previews exploratórios (hashes no `AnalysisJob`); custódia oficial nos eventos de lifecycle / derivado — alinhado ao módulo jobs.
 
 ## 2. Pirâmide de Testes
 
@@ -65,12 +65,12 @@ tests/
 | `test_pad_worker_updates_failed_on_error` | Worker atualiza para failed quando não detecta face. | Integration |
 | `test_pad_job_uses_gpu_queue` | Job é roteado para fila `gpu`. | Unit |
 
-### 4.5 Cadeia de Custódia
+### 4.5 Rastreabilidade do job (sem CustodyRecord por job)
 
 | Teste | Descrição | Tipo |
 |---|---|---|
-| `test_pad_custody_record_created` | Ao completar job, cria `CustodyRecord` com hashes. | Integration |
-| `test_pad_custody_chain_verifiable` | Cadeia de custódia do caso pode ser verificada. | Integration |
+| `test_pad_job_persists_hashes` | Job `completed` persiste `result_sha256` / parâmetros; **não** cria `CustodyRecord` só por concluir. | Integration |
+| `test_pad_case_custody_chain_still_verifiable` | Cadeia do caso (upload etc.) permanece verificável após jobs PAD. | Integration |
 
 ### 4.6 E2E Frontend
 
@@ -103,7 +103,7 @@ O gate E2E do protótipo v0 é executado por:
 pytest tests/e2e/test_presentation_attack_detection_e2e.py -v
 ```
 
-Critério: todos os testes E2E passam, incluindo navegação frontend, submissão de job, execução worker, exibição de resultado e verificação de cadeia de custódia.
+Critério: todos os testes E2E passam, incluindo navegação frontend, submissão de job, execução worker e exibição de resultado. Custódia do caso (upload) permanece verificável; job PAD não deve criar elo automático.
 
 ## 7. Definition of Done
 

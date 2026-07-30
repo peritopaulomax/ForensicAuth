@@ -8,7 +8,7 @@ from typing import Any, Dict, Tuple
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.pdf.pdf_font_color_overlay import run_font_color_overlay
+from forensics.pdf.pdf_font_color_overlay import run_font_color_overlay
 
 
 class PDFFontColorOverlayPlugin(ForensicPlugin):

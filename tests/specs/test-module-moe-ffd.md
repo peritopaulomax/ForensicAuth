@@ -25,7 +25,7 @@ Garantir registro, runtime, inferência (mocked e opcionalmente real), API e nav
 ## Comandos
 
 ```bash
-conda activate va-suite
+conda activate forensicauth
 PYTHONPATH=src/backend pytest tests/unit/test_moe_ffd.py tests/integration/test_moe_ffd_api.py -v
 cd src/frontend && npx vitest run src/config/imageAnalysisGroups.test.ts
 cd src/frontend && npx playwright test e2e/moe-ffd-navigation.spec.ts e2e/pad-navigation.spec.ts

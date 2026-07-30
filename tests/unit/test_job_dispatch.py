@@ -62,7 +62,7 @@ class TestJobRunnerRouting:
 
         job_id = uuid4()
         mock_job = MagicMock()
-        mock_job.technique = "noiseprint"
+        mock_job.technique = "safire"
 
         mock_service = MagicMock()
         mock_service.get_job.return_value = mock_job

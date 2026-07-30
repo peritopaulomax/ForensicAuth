@@ -1,0 +1,24 @@
+version: 1
+media: image
+domain: synthetic_image
+updated: "2026-07-28"
+
+datasets:
+  - id: aigcdetectbenchmark
+    label: AIGCDetectBenchmark / GenImage-style pools
+    status: published
+  - id: aigibench
+    label: AIGIBench pools
+    status: published
+
+features:
+  scores: features/scores/lr_scores_balanced_full.csv
+  scores_augmented: features/scores/lr_scores_balanced_full_augmented.csv
+  representations: features/representations/representations.csv
+
+lifecycle:
+  register: "Add entry here with status=draft (optional)"
+  ingest: >
+    scripts/ingest_synthetic_image_reference.py
+    (protocol CSV → va-reference_build originals/augs → reference_data scores+embeddings)
+  publish: "Set status=published after validating LR sampling on the new base"

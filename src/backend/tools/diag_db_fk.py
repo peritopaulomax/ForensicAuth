@@ -9,7 +9,7 @@ def main() -> None:
     conn = sqlite3.connect(DB)
     conn.execute("PRAGMA foreign_keys=ON")
     cur = conn.cursor()
-    for table in ("custody_records", "analysis_jobs", "evidences", "reports", "cases"):
+    for table in ("custody_records", "analysis_jobs", "evidences", "cases"):
         print(f"\n== {table} ==")
         cur.execute(f"PRAGMA foreign_key_list({table})")
         for row in cur.fetchall():

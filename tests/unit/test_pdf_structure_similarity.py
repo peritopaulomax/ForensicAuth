@@ -4,14 +4,14 @@ import pytest
 import fitz
 import networkx as nx
 
-from core.legacy.pdf.pdf_structure_similarity import (
+from forensics.pdf.pdf_structure_similarity import (
     compute_jaccard_cross,
     compute_jaccard_square,
     compute_wl_cross_kernel,
     graph_jaccard_similarity,
     run_similarity_analysis,
 )
-from core.legacy.pdf.pdf_structure_graph import parse_pdf_structure
+from forensics.pdf.pdf_structure_graph import parse_pdf_structure
 
 
 @pytest.fixture

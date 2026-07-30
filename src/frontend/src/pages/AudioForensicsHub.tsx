@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import TechniquePageShell from "@/components/TechniquePageShell";
+import { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
 import AudioEvidenceSelector from "@/components/AudioEvidenceSelector";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
 import AudioOverlayPlot, { type AudioOverlayPlotHandle } from "@/components/AudioOverlayPlot";
 import PlotlyHtmlFrame from "@/components/PlotlyHtmlFrame";
 import SpectrogramPlot, {
@@ -12,16 +13,9 @@ import SpectrogramPlot, {
   type SpectrogramPlotHandle,
 } from "@/components/SpectrogramPlot";
 import { useForensicJob } from "@/hooks/useForensicJob";
-import { saveDerivative } from "@/services/evidence";
-import {
-  appendOverlayLayer,
-  appendLtasOverlays,
-  emptyLtasOverlays,
-  type AudioOverlayLayer,
-  type LtasPanelKey,
-  type PlotBundleJson,
-  LTAS_PANELS,
-} from "@/lib/audioComparison";
+import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 import api from "@/services/api";
 
 type AudioTab = "spectrogram" | "enf" | "levels" | "dc" | "ltas";
@@ -51,6 +45,16 @@ const TECHNIQUE: Record<AudioTab, string> = {
   ltas: "audio_ltas",
 };
 
+import {
+  appendOverlayLayer,
+  appendLtasOverlays,
+  emptyLtasOverlays,
+  type AudioOverlayLayer,
+  type LtasPanelKey,
+  type PlotBundleJson,
+  LTAS_PANELS,
+} from "@/lib/audioComparison";
+
 const LTAS_ARTIFACTS: Record<LtasPanelKey, { filename: string; label: string; title: string }> = {
   normal: { filename: "ltas_normal.html", label: "ltas_normal", title: "LTAS normal" },
   "6db": { filename: "ltas_6db.html", label: "ltas_6db", title: "LTAS 6 dB/oitava" },
@@ -78,20 +82,31 @@ const LTAS_OVERLAY_SNAPSHOT: Record<LtasPanelKey, string> = {
 };
 
 const COMPARE_PLOT_HEIGHT = 560;
-/** Altura de cada painel LTAS empilhado (largura 100% do painel). */
 const LTAS_PANEL_HEIGHT = 520;
-/** Estéreo com canal 0 (ambos): curvas empilhadas verticalmente (altura 700px). */
 const LEVELS_STACKED_PLOT_HEIGHT = COMPARE_PLOT_HEIGHT + 120;
 
-export default function AudioForensicsHub() {
+export default function AudioForensicsHub({
+  forceAudioGroup,
+  forceAudioTab,
+}: {
+  forceAudioGroup?: AudioGroup;
+  forceAudioTab?: AudioTab;
+} = {}) {
   const { caseId } = useParams<{ caseId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabParam = searchParams.get("tab") as AudioTab | null;
-  const groupParam = (searchParams.get("group") as AudioGroup | null) || "spectral";
+  const tabParam =
+    forceAudioTab ?? (searchParams.get("tab") as AudioTab | null);
+  const groupParam =
+    (forceAudioGroup ?? (searchParams.get("group") as AudioGroup | null)) || "spectral";
+  const embedLocked = forceAudioGroup != null;
+
+  const [localTab, setLocalTab] = useState<AudioTab | null>(null);
+  const effectiveTabParam = embedLocked ? (localTab ?? tabParam) : tabParam;
+
   const tab =
-    tabParam && TABS.some((t) => t.id === tabParam)
-      ? tabParam
+    effectiveTabParam && TABS.some((t) => t.id === effectiveTabParam)
+      ? effectiveTabParam
       : groupParam === "levels"
         ? "levels"
         : "spectrogram";
@@ -101,7 +116,6 @@ export default function AudioForensicsHub() {
     activeGroup === "levels" ? LEVELS_TAB_IDS.has(t.id) : SPECTRAL_TAB_IDS.has(t.id)
   );
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedFilename, setSelectedFilename] = useState("");
   const [retainForComparison, setRetainForComparison] = useState(false);
   const [stereoDiff, setStereoDiff] = useState(false);
@@ -112,8 +126,7 @@ export default function AudioForensicsHub() {
   const [specResample, setSpecResample] = useState("");
   const [spectrogramAutoRefresh, setSpectrogramAutoRefresh] = useState(true);
   const [decimateDisplay, setDecimateDisplay] = useState(false);
-  const [savingDerivativeKey, setSavingDerivativeKey] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
   const spectrogramPlotRef = useRef<SpectrogramPlotHandle>(null);
   const compareOverlayRef = useRef<AudioOverlayPlotHandle>(null);
   const ltasOverlayRefs = {
@@ -145,7 +158,6 @@ export default function AudioForensicsHub() {
   const [ltasResample, setLtasResample] = useState("");
 
   const [comparePlotUrls, setComparePlotUrls] = useState<Partial<Record<CompareTab, string>>>({});
-  /** Job concluído por aba comparativa — mantém exportação após trocar de sub-aba. */
   const [exportJobByTab, setExportJobByTab] = useState<Partial<Record<CompareTab, string>>>({});
   const [spectrogramData, setSpectrogramData] = useState<SpectrogramFullData | null>(null);
   const [colorscale, setColorscale] = useState<SpectrogramColorscale>(DEFAULT_SPECTROGRAM_COLORSCALE);
@@ -168,6 +180,11 @@ export default function AudioForensicsHub() {
 
   const { running, currentJobId, error, progress, progressLabel, runAnalysis, reset, clearRunDisplay } =
     useForensicJob();
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
+  const { status: runtimeStatus } = useTechniqueRuntime(TECHNIQUE[tab]);
+
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
 
   const revokeAll = useCallback(() => {
     Object.values(comparePlotUrls).forEach((u) => {
@@ -196,13 +213,21 @@ export default function AudioForensicsHub() {
 
   function setGroup(next: AudioGroup) {
     const defaultTab: AudioTab = next === "levels" ? "levels" : "spectrogram";
+    if (embedLocked) {
+      setLocalTab(defaultTab);
+      return;
+    }
     setSearchParams({ tab: defaultTab, group: next });
   }
 
   function setTab(next: AudioTab) {
     if (next !== tab) {
-      setSaveMessage(null);
+      clearMessage();
       clearRunDisplay();
+    }
+    if (embedLocked) {
+      setLocalTab(next);
+      return;
     }
     const group: AudioGroup = LEVELS_TAB_IDS.has(next) ? "levels" : "spectral";
     setSearchParams({ tab: next, group });
@@ -276,36 +301,11 @@ export default function AudioForensicsHub() {
   async function handleSaveJobDerivative(artifactFilename: string, label: string) {
     const jobId = jobIdForDerivativeExport();
     if (!jobId) return;
-    setSavingDerivativeKey(artifactFilename);
-    setSaveMessage(null);
-    try {
-      const res = await saveDerivative({
-        job_id: jobId,
-        artifact_filename: artifactFilename,
-        label,
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${res.message} «${res.evidence.original_filename}». SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined;
-      setSaveMessage({
-        type: "err",
-        text: detail || (err instanceof Error ? err.message : "Erro ao salvar derivado"),
-      });
-    } finally {
-      setSavingDerivativeKey(null);
-    }
+    await save(jobId, artifactFilename, label);
   }
 
   async function handleSaveSpectrogramDerivative() {
     if (!currentJobId || !spectrogramData) return;
-    setSavingDerivativeKey("spectrogram_snapshot.png");
-    setSaveMessage(null);
     try {
       const blob = await spectrogramPlotRef.current?.exportPngBlob();
       if (!blob) throw new Error("Grafico nao pronto");
@@ -316,34 +316,15 @@ export default function AudioForensicsHub() {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      const res = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: "spectrogram_snapshot.png",
-        label: "espectrograma",
-        effective_parameters: {
-          fft_points: fftExp,
-          window_type: windowType,
-          window_size_percent: windowSizePct,
-          resample_rate: specResample ? Number(specResample) : null,
-          colorscale,
-          stereo_diff: stereoDiff,
-        },
+      await save(currentJobId, "spectrogram_snapshot.png", "espectrograma", {
+        fft_points: fftExp,
+        window_type: windowType,
+        window_size_percent: windowSizePct,
+        resample_rate: specResample ? Number(specResample) : null,
+        colorscale,
+        stereo_diff: stereoDiff,
       });
-      setSaveMessage({
-        type: "ok",
-        text: `${res.message} «${res.evidence.original_filename}». SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined;
-      setSaveMessage({
-        type: "err",
-        text: detail || (err instanceof Error ? err.message : "Erro ao salvar derivado"),
-      });
-    } finally {
-      setSavingDerivativeKey(null);
+    } catch {
     }
   }
 
@@ -365,8 +346,6 @@ export default function AudioForensicsHub() {
   ) {
     const jobId = jobIdForDerivativeExport();
     if (!jobId || layers.length === 0) return;
-    setSavingDerivativeKey(artifactFilename);
-    setSaveMessage(null);
     try {
       const blob = await plotRef.current?.exportPngBlob();
       if (!blob) throw new Error("Grafico nao pronto");
@@ -378,27 +357,8 @@ export default function AudioForensicsHub() {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      const res = await saveDerivative({
-        job_id: jobId,
-        artifact_filename: artifactFilename,
-        label,
-        effective_parameters: overlayEffectiveParameters(layers),
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${res.message} «${res.evidence.original_filename}». SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined;
-      setSaveMessage({
-        type: "err",
-        text: detail || (err instanceof Error ? err.message : "Erro ao salvar derivado"),
-      });
-    } finally {
-      setSavingDerivativeKey(null);
+      await save(jobId, artifactFilename, label, overlayEffectiveParameters(layers));
+    } catch {
     }
   }
 
@@ -410,13 +370,12 @@ export default function AudioForensicsHub() {
     buttonText = "Salvar composição nos derivados"
   ) {
     if (!jobIdForDerivativeExport() || !caseId || layers.length === 0) return null;
-    const saving = savingDerivativeKey === artifactFilename;
     return (
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
         <button
           type="button"
           onClick={() => handleSaveOverlayDerivative(artifactFilename, label, layers, plotRef)}
-          disabled={!!savingDerivativeKey}
+          disabled={!!saving}
           style={btnPrimary}
         >
           {saving ? "Salvando…" : buttonText}
@@ -434,13 +393,12 @@ export default function AudioForensicsHub() {
     buttonText = "Salvar nos derivados"
   ) {
     if (!jobIdForDerivativeExport() || !caseId) return null;
-    const saving = savingDerivativeKey === artifactFilename;
     return (
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
         <button
           type="button"
           onClick={() => handleSaveJobDerivative(artifactFilename, label)}
-          disabled={!!savingDerivativeKey}
+          disabled={!!saving}
           style={btnPrimary}
         >
           {saving ? "Salvando…" : buttonText}
@@ -452,12 +410,24 @@ export default function AudioForensicsHub() {
     );
   }
 
-  function onSelectEvidence(id: string, filename: string) {
-    setSelectedId(id);
-    setSelectedFilename(filename);
-    clearPlots();
-    setSaveMessage(null);
-  }
+  const applyEvidence = useCallback(
+    (_id: string) => {
+      clearPlots();
+      clearMessage();
+    },
+    []
+  );
+
+  const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
+    useGroupAwareEvidence(caseId!, applyEvidence);
+
+  const onSelectAudio = useCallback(
+    (id: string, filename: string) => {
+      setSelectedFilename(filename);
+      onSelectEvidence(id, "original");
+    },
+    [onSelectEvidence]
+  );
 
   async function loadHtml(jobId: string, filename: string): Promise<string> {
     const response = await api.get(`/analysis/${jobId}/result/file?filename=${encodeURIComponent(filename)}`, {
@@ -497,7 +467,7 @@ export default function AudioForensicsHub() {
   }
 
   async function process(fromAutoRefresh = false) {
-    if (!selectedId) return;
+    if (!evidenceId || !runtimeOk) return;
     const evidenceLabel = selectedFilename || "evidência";
     const keepSpectrogramVisible =
       fromAutoRefresh && tab === "spectrogram" && spectrogramData !== null;
@@ -527,7 +497,7 @@ export default function AudioForensicsHub() {
 
     const technique = TECHNIQUE[tab];
     try {
-      await runAnalysis(selectedId, technique, buildParams(), {
+      await runAnalysis(evidenceId, technique, buildParams(), {
         onArtifactsLoaded: async (jobId, jobResult) => {
           setResultByTab((prev) => ({ ...prev, [tab]: jobResult }));
           if (isCompareTab(tab)) {
@@ -547,7 +517,6 @@ export default function AudioForensicsHub() {
                 appendLtasOverlays(prev, retainForComparison, evidenceLabel, panels)
               );
             } catch {
-              /* HTML interativo ja carregado */
             }
           } else if (tab === "spectrogram") {
             setSpectrogramData(await loadSpectrogramDisplay(jobId, jobResult));
@@ -600,7 +569,6 @@ export default function AudioForensicsHub() {
         },
       });
     } catch {
-      /* hook */
     }
   }
 
@@ -611,10 +579,10 @@ export default function AudioForensicsHub() {
 
   useEffect(() => {
     specAutoParamsBaseline.current = null;
-  }, [selectedId]);
+  }, [evidenceId]);
 
   useEffect(() => {
-    if (tab !== "spectrogram" || !spectrogramAutoRefresh || !selectedId || running) return;
+    if (tab !== "spectrogram" || !spectrogramAutoRefresh || !evidenceId || running) return;
     if (!spectrogramData && !currentJobId) return;
 
     const paramKey = `${fftExp}|${windowType}|${windowSizePct}`;
@@ -633,7 +601,7 @@ export default function AudioForensicsHub() {
   }, [
     tab,
     spectrogramAutoRefresh,
-    selectedId,
+    evidenceId,
     running,
     spectrogramData,
     currentJobId,
@@ -660,7 +628,6 @@ export default function AudioForensicsHub() {
     tab === "levels" && levelsCanais === 0 ? LEVELS_STACKED_PLOT_HEIGHT : COMPARE_PLOT_HEIGHT;
   const showCompareOverlay = isCompareTab(tab) && compareLayers.length > 1;
   const compareDerivative = isCompareTab(tab) ? COMPARE_DERIVATIVE[tab] : undefined;
-  /** Painel de resultado já exibe gráfico + ações de derivado — evita duplicar o bloco fallback. */
   const showCompareDerivativePanel =
     isCompareTab(tab) &&
     (showCompareOverlay || !!activePlotUrl || compareLayers.length === 1);
@@ -676,10 +643,22 @@ export default function AudioForensicsHub() {
   if (!caseId) return null;
 
   return (
-    <AnalysisPageShell
+    <TechniquePageShell
       caseId={caseId}
-      title="Análise forense de Áudio"
-      subtitle="Análise espectral (espectrograma, ENF, LTAS) e análise de níveis (níveis, DC local)."
+      techniqueId={TECHNIQUE[tab]}
+      mediaType="audio"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={false}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
     >
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
         <button
@@ -714,9 +693,11 @@ export default function AudioForensicsHub() {
         </button>
       </div>
 
-      <AnalysisPanel title="Evidência de áudio">
-        <AudioEvidenceSelector caseId={caseId} selectedId={selectedId} onSelect={onSelectEvidence} />
-      </AnalysisPanel>
+      {showEvidencePicker && (
+        <AnalysisPanel title="Evidência de áudio">
+          <AudioEvidenceSelector caseId={caseId} selectedId={evidenceId} onSelect={onSelectAudio} />
+        </AnalysisPanel>
+      )}
 
       <AnalysisPanel title="Pré-processamento">
         <label style={checkRow}>
@@ -958,8 +939,8 @@ export default function AudioForensicsHub() {
       <AnalysisPanel title="Executar">
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
           <ProcessButton
-            onClick={process}
-            disabled={!selectedId || (tab === "enf" && fnomCustomInvalid)}
+            onClick={() => process()}
+            disabled={!evidenceId || runtimeOk === false || (tab === "enf" && fnomCustomInvalid)}
             running={running}
             progress={progress}
             progressLabel={progressLabel}
@@ -1013,55 +994,55 @@ export default function AudioForensicsHub() {
                 </span>
               </div>
             )}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "1.25rem", marginBottom: "0.75rem", alignItems: "flex-end" }}>
-            <label style={{ ...lbl, maxWidth: 280 }}>
-              Paleta de cores
-              <select
-                value={colorscale}
-                onChange={(e) => setColorscale(e.target.value as SpectrogramColorscale)}
-                style={inputBlock}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "1.25rem", marginBottom: "0.75rem", alignItems: "flex-end" }}>
+              <label style={{ ...lbl, maxWidth: 280 }}>
+                Paleta de cores
+                <select
+                  value={colorscale}
+                  onChange={(e) => setColorscale(e.target.value as SpectrogramColorscale)}
+                  style={inputBlock}
+                >
+                  {SPECTROGRAM_COLORSCALES.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={checkRow}>
+                <input
+                  type="checkbox"
+                  checked={decimateDisplay}
+                  onChange={(e) => setDecimateDisplay(e.target.checked)}
+                />
+                Decimar exibição (max-pool 2000×512)
+              </label>
+            </div>
+            <SpectrogramPlot
+              ref={spectrogramPlotRef}
+              data={spectrogramData}
+              colorscale={colorscale}
+              decimateDisplay={decimateDisplay}
+              height={560}
+            />
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+              <button
+                type="button"
+                onClick={handleSaveSpectrogramDerivative}
+                disabled={!currentJobId || !!saving}
+                style={btnPrimary}
               >
-                {SPECTROGRAM_COLORSCALES.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label style={checkRow}>
-              <input
-                type="checkbox"
-                checked={decimateDisplay}
-                onChange={(e) => setDecimateDisplay(e.target.checked)}
-              />
-              Decimar exibição (max-pool 2000×512)
-            </label>
-          </div>
-          <SpectrogramPlot
-            ref={spectrogramPlotRef}
-            data={spectrogramData}
-            colorscale={colorscale}
-            decimateDisplay={decimateDisplay}
-            height={560}
-          />
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-            <button
-              type="button"
-              onClick={handleSaveSpectrogramDerivative}
-              disabled={!currentJobId || !!savingDerivativeKey}
-              style={btnPrimary}
-            >
-              {savingDerivativeKey === "spectrogram_snapshot.png" ? "Salvando…" : "Salvar nos derivados"}
-            </button>
-            {caseId && (
-              <button type="button" onClick={() => navigate(`/cases/${caseId}?tab=derivados`)} style={btnSecondary}>
-                Abrir derivados
+                {saving ? "Salvando…" : "Salvar nos derivados"}
               </button>
+              {caseId && (
+                <button type="button" onClick={() => navigate(`/cases/${caseId}?tab=derivados`)} style={btnSecondary}>
+                  Abrir derivados
+                </button>
+              )}
+            </div>
+            {saveMessage && tab === "spectrogram" && (
+              <MessageBox type={saveMessage.type} text={saveMessage.text} />
             )}
-          </div>
-          {saveMessage && tab === "spectrogram" && (
-            <MessageBox type={saveMessage.type} text={saveMessage.text} />
-          )}
           </div>
         </AnalysisPanel>
       )}
@@ -1201,7 +1182,7 @@ export default function AudioForensicsHub() {
           <pre style={metricsPre}>{JSON.stringify(tabMetrics, null, 2)}</pre>
         </AnalysisPanel>
       )}
-    </AnalysisPageShell>
+    </TechniquePageShell>
   );
 }
 

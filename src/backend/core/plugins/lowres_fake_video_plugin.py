@@ -7,8 +7,8 @@ from typing import Any, Dict, Tuple
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.lowres_fake_video.lfv_pipeline import run_lfv_analysis, write_lfv_report
-from core.legacy.lowres_fake_video.lfv_runtime import lfv_runtime_status
+from forensics.lowres_fake_video.lfv_pipeline import run_lfv_analysis, write_lfv_report
+from forensics.lowres_fake_video.lfv_runtime import lfv_runtime_status
 from core.progress import pop_progress_callback, report_progress
 
 

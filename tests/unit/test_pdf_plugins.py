@@ -8,8 +8,8 @@ from core.plugin_registry import PluginRegistry, STANDBY_PLUGIN_NAMES
 
 from core.plugins.pdf_touchup_plugin import PDFTouchupPlugin
 from core.plugins.pdf_font_color_overlay_plugin import PDFFontColorOverlayPlugin
-from core.legacy.pdf.pdf_forensic_scanner import resolve_page_resources, resolve_page_resources_xref
-from core.legacy.pdf.pdf_font_color_overlay import collect_page_glyph_runs, run_font_color_overlay
+from forensics.pdf.pdf_forensic_scanner import resolve_page_resources, resolve_page_resources_xref
+from forensics.pdf.pdf_font_color_overlay import collect_page_glyph_runs, run_font_color_overlay
 
 
 @pytest.fixture
@@ -75,7 +75,7 @@ class TestPDFFontColorOverlayPlugin:
             res_xref = resolve_page_resources_xref(doc, page.xref)
             assert res_xref is not None
             visited: set[int] = set()
-            from core.legacy.pdf.pdf_forensic_scanner import _read_subresource_map
+            from forensics.pdf.pdf_forensic_scanner import _read_subresource_map
 
             _read_subresource_map(doc, res_xref, "Font", visited)
             _read_subresource_map(doc, res_xref, "Font", visited)

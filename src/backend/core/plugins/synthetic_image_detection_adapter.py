@@ -11,30 +11,32 @@ from PIL import Image
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.synthetic_image_detection.pipeline import (
+from forensics.synthetic_image_detection.pipeline import (
     VALID_SYNTHETIC_ANALYSES,
     _as_rgb,
     run_synthetic_image_detection_analysis,
 )
-from core.legacy.synthetic_image_detection.runtime import runtime_status
+from forensics.synthetic_image_detection.runtime import runtime_status
 from core.progress import pop_progress_callback, report_progress
 from core.latent_typicality.representations_utils import representations_matrix_available
+from core.reference_data.paths import (
+    synthetic_augmented_score_matrix,
+    synthetic_representations_matrix,
+    synthetic_score_matrix,
+)
 from core.synthetic_lr_reference import (
     AUGMENTATION_MULTIPLIER,
-    DEFAULT_REPRESENTATIONS_MATRIX,
-    DEFAULT_SCORE_MATRIX,
     DEFAULT_TYPICALITY_DISTANCE,
     DEFAULT_TYPICALITY_K,
     DEFAULT_TYPICALITY_SYSTEM,
     META_CLASSIFIERS,
+    normalize_meta_classifier,
     compute_reference_lr,
 )
 from core.technique_ids import SYNTHETIC_IMAGE_DETECTION
 
 _TYPICALITY_SYSTEMS = ("A", "B", "C", "D")
 _TYPICALITY_DISTANCES = ("cosine", "euclidean")
-
-_AUGMENTED_SCORE_MATRIX = Path(__file__).resolve().parents[4] / "outputs" / "lr_calibration" / "score_matrices" / "lr_scores_balanced_full_augmented.csv"
 
 _SCORE_HEADERS = ("Modelo", "Score AI", "Score Real", "Razão (Log)", "Classificação", "Dispositivo")
 
@@ -97,17 +99,20 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
             if invalid:
                 return False, "Analises sinteticas invalidas: " + ", ".join(invalid)
         classifier = parameters.get("meta_classifier")
-        if classifier is not None and str(classifier).lower().strip() not in META_CLASSIFIERS:
-            return False, "meta_classifier deve ser um de: " + ", ".join(META_CLASSIFIERS)
+        if classifier is not None:
+            try:
+                normalize_meta_classifier(str(classifier))
+            except RuntimeError:
+                return False, "meta_classifier deve ser um de: " + ", ".join(META_CLASSIFIERS)
         use_aug = parameters.get("use_augmented_reference")
         if use_aug is not None and not isinstance(use_aug, bool):
             return False, "use_augmented_reference deve ser booleano"
-        if use_aug and not _AUGMENTED_SCORE_MATRIX.is_file():
+        if use_aug and not synthetic_augmented_score_matrix().is_file():
             return False, "Score matrix aumentado nao encontrado; gere as variantes primeiro."
         use_lt = parameters.get("use_latent_typicality")
         if use_lt is not None and not isinstance(use_lt, bool):
             return False, "use_latent_typicality deve ser booleano"
-        if use_lt and not representations_matrix_available(DEFAULT_REPRESENTATIONS_MATRIX):
+        if use_lt and not representations_matrix_available(synthetic_representations_matrix()):
             return False, "Matriz de representacoes nao encontrada; execute extract_synthetic_image_representations_optimized.py primeiro."
         lt_system = parameters.get("typicality_system")
         if lt_system is not None and str(lt_system).upper() not in _TYPICALITY_SYSTEMS:
@@ -189,16 +194,44 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
             }
 
             if bool(parameters.get("reference_lr_enabled", False)):
-                report_progress(on_progress, 96, "Calibrando LR com populacao de referencia…")
+                pop = parameters.get("reference_population") or {}
+                n_items = 0
+                if isinstance(pop, dict):
+                    fit_items = pop.get("fit_items") or []
+                    test_items = pop.get("test_items") or []
+                    if fit_items or test_items:
+                        keys: set[str] = set()
+                        for row in (*fit_items, *test_items):
+                            if isinstance(row, dict):
+                                keys.add(
+                                    f"{row.get('base_group') or ''}/{row.get('subgroup') or ''}"
+                                )
+                        n_items = len(keys)
+                    else:
+                        n_items = len(pop.get("items") or [])
+                use_augmented = bool(parameters.get("use_augmented_reference"))
+                if use_latent_typicality and n_items >= 10:
+                    report_progress(
+                        on_progress,
+                        96,
+                        (
+                            f"Calibrando LR+tipicidade ({n_items} subgrupos"
+                            f"{', aumentada ×5' if use_augmented else ''}). "
+                            "Buscando cache local antes de recalibrar…"
+                        ),
+                    )
+                else:
+                    report_progress(on_progress, 96, "Calibrando LR com populacao de referencia…")
                 try:
                     use_augmented = bool(parameters.get("use_augmented_reference"))
-                    rep_available = representations_matrix_available(DEFAULT_REPRESENTATIONS_MATRIX)
+                    reps = synthetic_representations_matrix()
+                    rep_available = representations_matrix_available(reps)
                     if use_latent_typicality or (use_augmented and rep_available):
-                        score_matrix = DEFAULT_REPRESENTATIONS_MATRIX
+                        score_matrix = reps
                     elif use_augmented:
-                        score_matrix = _AUGMENTED_SCORE_MATRIX
+                        score_matrix = synthetic_augmented_score_matrix()
                     else:
-                        score_matrix = DEFAULT_SCORE_MATRIX
+                        score_matrix = synthetic_score_matrix()
                     sample_multiplier = AUGMENTATION_MULTIPLIER if use_augmented else 1
                     lr_report = compute_reference_lr(
                         detector_scores=analysis.get("detector_scores", {}),
@@ -228,6 +261,14 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
                     result["reference_lr_tippett_filename"] = lr_report["artifact_filenames"]["tippett"]
                     result["reference_lr_distribution_filename"] = lr_report["artifact_filenames"]["distribution"]
                     result["reference_lr_identity_filename"] = lr_report["artifact_filenames"]["identity"]
+                    if lr_report.get("used_cache"):
+                        report_progress(on_progress, 98, "LR reutilizado do cache local")
+                    else:
+                        report_progress(
+                            on_progress,
+                            98,
+                            "LR calibrado e gravado em reference_data/cache (nao havia cache para esta selecao)",
+                        )
                 except Exception as exc:
                     result["reference_lr"] = {
                         "success": False,

@@ -247,7 +247,7 @@ export default function RectRoiCanvas({ imageUrl, rect, onRectChange, maxHeight 
       </div>
       <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-          Clique e arraste para selecionar a regiao retangular. O restante da imagem fica escurecido.
+          Clique e arraste para selecionar a região retangular.
         </span>
         {rect && (
           <button

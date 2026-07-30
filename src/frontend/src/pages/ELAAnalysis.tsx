@@ -1,14 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { buildReturnToCaseAnalysesUrl } from "@/utils/caseAnalysisNav";
-import { saveDerivative } from "@/services/evidence";
-import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
-import SyncedImagePairViewer, { type SyncedImagePairViewerHandle } from "@/components/SyncedImagePairViewer";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
+import TechniquePageShell from "@/components/TechniquePageShell";
 import { ForensicProgressBar, MessageBox } from "@/components/AnalysisPageShell";
-import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
-import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
+import SyncedImagePairViewer, { type SyncedImagePairViewerHandle } from "@/components/SyncedImagePairViewer";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 import { buildElaGainBlobUrl } from "@/utils/elaGainPreview";
 import type { Evidence } from "@/types/api";
 
@@ -51,14 +49,11 @@ function isBlobUrl(src: string | null | undefined): src is string {
 
 export default function ELAAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
-  const navigate = useNavigate();
-  const location = useLocation();
 
   const [displayLeftSrc, setDisplayLeftSrc] = useState("");
   const [displayRightSrc, setDisplayRightSrc] = useState<string | null>(null);
   const [heatmapBaseSrc, setHeatmapBaseSrc] = useState<string | null>(null);
-  const [savingDerivative, setSavingDerivative] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const { saving: savingDerivative, saveMessage, save, clearMessage } = useDerivativeSave();
 
   const [quality, setQuality] = useState(95);
   const [gain, setGain] = useState(1.0);
@@ -92,6 +87,9 @@ export default function ELAAnalysis() {
     setError,
   } = useForensicJob();
 
+  const { status: runtimeStatus } = useTechniqueRuntime("ela");
+  const runtimeOk = runtimeStatus?.available ?? null;
+
   const revokeBlob = useCallback((url: string | null | undefined) => {
     if (!isBlobUrl(url)) return;
     URL.revokeObjectURL(url);
@@ -119,7 +117,7 @@ export default function ELAAnalysis() {
 
   const applyEvidence = useCallback(
     (evId: string, _source: "original" | "derivative") => {
-      setSaveMessage(null);
+      clearMessage();
       setError(null);
       setHeatmapBaseSrc((prev) => {
         revokeBlob(prev);
@@ -132,10 +130,10 @@ export default function ELAAnalysis() {
       viewerRef.current?.resetZoom();
       void swapLeftEvidence(evidenceFileUrl(evId));
     },
-    [setError, swapLeftEvidence, revokeBlob],
+    [setError, swapLeftEvidence, revokeBlob, clearMessage],
   );
 
-  const { showPageShell, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
+  const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
     useGroupAwareEvidence(caseId!, applyEvidence);
 
   useEffect(() => {
@@ -170,10 +168,10 @@ export default function ELAAnalysis() {
   );
 
   const runELA = useCallback(async () => {
-    if (!evidenceId || !caseId) return;
+    if (!evidenceId || !caseId || runtimeOk === false) return;
     const gen = ++runGenRef.current;
     gainGenRef.current += 1;
-    setSaveMessage(null);
+    clearMessage();
 
     const prevLeft = displayLeftRef.current;
     const prevRight = displayRightRef.current;
@@ -225,7 +223,6 @@ export default function ELAAnalysis() {
         },
       );
     } catch {
-      /* hook define error */
     }
   }, [
     evidenceId,
@@ -239,6 +236,8 @@ export default function ELAAnalysis() {
     registerBlob,
     revokeBlob,
     applyGainPreview,
+    runtimeOk,
+    clearMessage,
   ]);
 
   useEffect(() => {
@@ -279,187 +278,131 @@ export default function ELAAnalysis() {
 
   async function handleSaveDerivative() {
     if (!currentJobId) return;
-    setSavingDerivative(true);
-    setSaveMessage(null);
-    try {
-      const result = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: "heatmap.png",
-        effective_parameters: {
-          quality,
-          gain,
-          discard_vertical: discardV,
-          discard_horizontal: discardH,
-          channel_mode: channelMode,
-        },
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${result.message}. Exporte na aba Derivados do caso. SHA-256: ${result.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined;
-      setSaveMessage({ type: "err", text: detail || "Erro ao salvar derivado" });
-    } finally {
-      setSavingDerivative(false);
-    }
+    await save(currentJobId, "heatmap.png", "Heatmap ELA", {
+      quality,
+      gain,
+      discard_vertical: discardV,
+      discard_horizontal: discardH,
+      channel_mode: channelMode,
+    });
   }
+
+  if (!caseId) return null;
+
+  const parametersPanel = (
+    <>
+      <div style={{ marginBottom: "1rem" }}>
+        <span style={{ fontSize: "0.8rem", color: "#6b7280", display: "block", marginBottom: "0.4rem" }}>
+          Canal / componente
+        </span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
+          {CHANNEL_OPTIONS.map((opt) => (
+            <label
+              key={opt.value}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.35rem",
+                fontSize: "0.85rem",
+                color: "#374151",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="radio"
+                name="channel_mode"
+                value={opt.value}
+                checked={channelMode === opt.value}
+                onChange={() => setChannelMode(opt.value)}
+              />
+              {opt.label}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+        <div>
+          <label style={{ fontSize: "0.8rem", color: "#6b7280", display: "block", marginBottom: "0.25rem" }}>
+            Qualidade JPEG ({quality})
+          </label>
+          <input
+            type="range"
+            min={50}
+            max={100}
+            value={quality}
+            onChange={(e) => setQuality(parseInt(e.target.value))}
+            style={{ width: "100%" }}
+          />
+        </div>
+        <div>
+          <label style={{ fontSize: "0.8rem", color: "#6b7280", display: "block", marginBottom: "0.25rem" }}>
+            Ganho/Brilho ({gain.toFixed(1)}) — preview instantaneo
+          </label>
+          <input
+            type="range"
+            min={0.5}
+            max={5}
+            step={0.1}
+            value={gain}
+            onChange={(e) => setGain(parseFloat(e.target.value))}
+            style={{ width: "100%" }}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "0.5rem" }}>
+        <div>
+          <label style={{ fontSize: "0.8rem", color: "#6b7280", display: "block", marginBottom: "0.25rem" }}>
+            Descartar linhas (0-7)
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={7}
+            value={discardV}
+            onChange={(e) => setDiscardV(Math.min(7, Math.max(0, parseInt(e.target.value) || 0)))}
+            style={{
+              width: "100%",
+              padding: "0.4rem 0.6rem",
+              border: "1px solid #d1d5db",
+              borderRadius: "4px",
+              fontSize: "0.85rem",
+              color: "#1a1a2e",
+            }}
+          />
+        </div>
+        <div>
+          <label style={{ fontSize: "0.8rem", color: "#6b7280", display: "block", marginBottom: "0.25rem" }}>
+            Descartar colunas (0-7)
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={7}
+            value={discardH}
+            onChange={(e) => setDiscardH(Math.min(7, Math.max(0, parseInt(e.target.value) || 0)))}
+            style={{
+              width: "100%",
+              padding: "0.4rem 0.6rem",
+              border: "1px solid #d1d5db",
+              borderRadius: "4px",
+              fontSize: "0.85rem",
+              color: "#1a1a2e",
+            }}
+          />
+        </div>
+      </div>
+
+      <ForensicProgressBar progress={progress} progressLabel={progressLabel} running={running} />
+      {error && <MessageBox type="err" text={error} />}
+    </>
+  );
 
   const showViewer = Boolean(displayLeftSrc);
 
-  return (
-    <div style={{ padding: "2rem" }}>
-      {showPageShell && (
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
-          <button
-            onClick={() => navigate(buildReturnToCaseAnalysesUrl(caseId!, location.pathname))}
-            style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: "0.9rem", padding: 0 }}
-          >
-            ← Voltar ao caso
-          </button>
-        </div>
-      )}
-
-      {showPageShell && (
-        <h1 style={{ fontSize: "1.5rem", color: "#1a1a2e", marginBottom: "0.75rem" }}>
-          {FORENSIC_TECHNIQUE_META.ela.title}
-        </h1>
-      )}
-      <TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.ela} techniqueId="ela" />
-
-      {caseId && showEvidencePicker && (
-        <ImageEvidenceSelector
-          caseId={caseId}
-          selectedId={evidenceId}
-          selectionSource={selectionSource}
-          onSelect={onSelectEvidence}
-          onLoaded={handleEvidenceLoaded}
-        />
-      )}
-
-      <div
-        style={{
-          background: "#f9fafb",
-          border: "1px solid #e5e7eb",
-          borderRadius: "8px",
-          padding: "1.25rem",
-          marginBottom: "1.5rem",
-        }}
-      >
-        <h3 style={{ fontSize: "0.9rem", color: "#374151", marginBottom: "0.75rem", fontWeight: 600 }}>
-          Parâmetros ELA
-        </h3>
-
-        <div style={{ marginBottom: "1rem" }}>
-          <span style={{ fontSize: "0.8rem", color: "#6b7280", display: "block", marginBottom: "0.4rem" }}>
-            Canal / componente
-          </span>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
-            {CHANNEL_OPTIONS.map((opt) => (
-              <label
-                key={opt.value}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                  fontSize: "0.85rem",
-                  color: "#374151",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="radio"
-                  name="channel_mode"
-                  value={opt.value}
-                  checked={channelMode === opt.value}
-                  onChange={() => setChannelMode(opt.value)}
-                />
-                {opt.label}
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
-          <div>
-            <label style={{ fontSize: "0.8rem", color: "#6b7280", display: "block", marginBottom: "0.25rem" }}>
-              Qualidade JPEG ({quality})
-            </label>
-            <input
-              type="range"
-              min={50}
-              max={100}
-              value={quality}
-              onChange={(e) => setQuality(parseInt(e.target.value))}
-              style={{ width: "100%" }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: "0.8rem", color: "#6b7280", display: "block", marginBottom: "0.25rem" }}>
-              Ganho/Brilho ({gain.toFixed(1)}) — preview instantaneo
-            </label>
-            <input
-              type="range"
-              min={0.5}
-              max={5}
-              step={0.1}
-              value={gain}
-              onChange={(e) => setGain(parseFloat(e.target.value))}
-              style={{ width: "100%" }}
-            />
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "0.5rem" }}>
-          <div>
-            <label style={{ fontSize: "0.8rem", color: "#6b7280", display: "block", marginBottom: "0.25rem" }}>
-              Descartar linhas (0-7)
-            </label>
-            <input
-              type="number"
-              min={0}
-              max={7}
-              value={discardV}
-              onChange={(e) => setDiscardV(Math.min(7, Math.max(0, parseInt(e.target.value) || 0)))}
-              style={{
-                width: "100%",
-                padding: "0.4rem 0.6rem",
-                border: "1px solid #d1d5db",
-                borderRadius: "4px",
-                fontSize: "0.85rem",
-                color: "#1a1a2e",
-              }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: "0.8rem", color: "#6b7280", display: "block", marginBottom: "0.25rem" }}>
-              Descartar colunas (0-7)
-            </label>
-            <input
-              type="number"
-              min={0}
-              max={7}
-              value={discardH}
-              onChange={(e) => setDiscardH(Math.min(7, Math.max(0, parseInt(e.target.value) || 0)))}
-              style={{
-                width: "100%",
-                padding: "0.4rem 0.6rem",
-                border: "1px solid #d1d5db",
-                borderRadius: "4px",
-                fontSize: "0.85rem",
-                color: "#1a1a2e",
-              }}
-            />
-          </div>
-        </div>
-
-        <ForensicProgressBar progress={progress} progressLabel={progressLabel} running={running} />
-        {error && <MessageBox type="err" text={error} />}
-      </div>
-
+  const resultPanel = (
+    <>
       {showViewer && (
         <div style={{ position: "relative" }}>
           <SyncedImagePairViewer
@@ -553,27 +496,27 @@ export default function ELAAnalysis() {
                 {savingDerivative ? "Salvando…" : "Salvar como derivado"}
               </button>
             )}
-            {caseId && (
-              <button
-                type="button"
-                onClick={() => navigate(`/cases/${caseId}?tab=derivados`)}
-                style={{
-                  padding: "0.6rem 1rem",
-                  background: "#fff",
-                  color: "#1a1a2e",
-                  border: "1px solid #1a1a2e",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  fontSize: "0.9rem",
-                }}
-              >
-                Abrir derivados
-              </button>
-            )}
           </div>
           {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
         </div>
       )}
-    </div>
+    </>
+  );
+
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="ela"
+      mediaType="imagem"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      runtimeOk={runtimeOk}
+      evidenceSelectorProps={{ onLoaded: handleEvidenceLoaded }}
+      parametersPanel={parametersPanel}
+      resultPanel={resultPanel}
+    />
   );
 }

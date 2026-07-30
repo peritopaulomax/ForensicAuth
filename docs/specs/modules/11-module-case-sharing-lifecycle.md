@@ -18,7 +18,7 @@ Gerenciar compartilhamento controlado de casos entre peritos, bloqueio de mutaç
 
 ## Papéis de compartilhamento
 
-- **viewer**: leitura, audit, verificação forense, exportar relatório.
+- **viewer**: leitura, audit, verificação forense, exportar VCP (conforme permissões do caso).
 - **editor**: viewer + upload, derivados, jobs; **não** pode excluir caso, compartilhar nem fechar.
 
 ## API

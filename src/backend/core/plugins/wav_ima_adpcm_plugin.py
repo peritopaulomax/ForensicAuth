@@ -1,8 +1,7 @@
 """WAV IMA ADPCM consistency plugin.
 
-Wraps the legacy WAV IMA ADPCM parser that decodes block headers,
-simulates nibble processing, and detects step_index inconsistencies
-between sequential blocks.
+Decodes block headers, simulates nibble processing, and detects step_index
+inconsistencies between sequential blocks.
 """
 
 import sys
@@ -12,7 +11,7 @@ from typing import Any, Dict, Tuple
 
 from core.forensic_plugin import ForensicPlugin
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "legacy" / "audio"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "forensics" / "audio"))
 from wav_ima_adpcm import read_wave_ima_adpcm
 
 

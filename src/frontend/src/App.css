@@ -132,7 +132,7 @@ body {
 }
 
 .nav-brand {
-  /* legacy — substituido por BrandIdentity */
+  /* Oculto: marca renderizada por BrandIdentity. */
   display: none;
 }
 

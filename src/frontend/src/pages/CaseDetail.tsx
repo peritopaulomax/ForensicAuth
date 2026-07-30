@@ -93,6 +93,14 @@ export default function CaseDetail() {
   const [evidences, setEvidences] = useState<Evidence[]>([]);
   const [derivativesCount, setDerivativesCount] = useState(0);
   const [derivativesRefreshKey, setDerivativesRefreshKey] = useState(0);
+  const [analysisDerivativeTypes, setAnalysisDerivativeTypes] = useState<string[]>([]);
+  const [analysisDerivativeCounts, setAnalysisDerivativeCounts] = useState<
+    Partial<Record<string, number>>
+  >({});
+  const [analysisGlobalRefTypes, setAnalysisGlobalRefTypes] = useState<string[]>([]);
+  const [analysisGlobalRefCounts, setAnalysisGlobalRefCounts] = useState<
+    Partial<Record<string, number>>
+  >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -156,7 +164,30 @@ export default function CaseDetail() {
       setClosureStatus(closure);
       setEvidences(filterForensicAuthEvidences(evs));
       setDerivativesCount(derivatives.length);
-      setReferencesCount(refs.groups.reduce((n, g) => n + g.files.length, 0));
+      {
+        const derCounts: Partial<Record<string, number>> = {};
+        for (const d of derivatives) {
+          const t = d.file_type;
+          if (!t) continue;
+          derCounts[t] = (derCounts[t] ?? 0) + 1;
+        }
+        setAnalysisDerivativeCounts(derCounts);
+        setAnalysisDerivativeTypes(Object.keys(derCounts));
+      }
+      {
+        const refCounts: Partial<Record<string, number>> = {};
+        for (const g of refs.global_groups) {
+          const t = g.reference_type;
+          if (!t) continue;
+          refCounts[t] = (refCounts[t] ?? 0) + g.files.length;
+        }
+        setAnalysisGlobalRefCounts(refCounts);
+        setAnalysisGlobalRefTypes(Object.keys(refCounts));
+      }
+      setReferencesCount(
+        refs.groups.reduce((n, g) => n + g.files.length, 0) +
+          refs.global_groups.reduce((n, g) => n + g.files.length, 0),
+      );
       if (c.storage_mode === "peritus") {
         listPeritusFiles(caseId)
           .then((listing) => {
@@ -193,9 +224,49 @@ export default function CaseDetail() {
   function switchTab(tab: "evidencias" | "peritus_arquivos" | "analises" | "derivados" | "custodia") {
     setActiveTab(tab);
     setSearchParams(tab === "evidencias" ? {} : { tab }, { replace: true });
-    if (tab === "derivados" && caseId) {
+    if (!caseId) return;
+    if (tab === "derivados") {
       setDerivativesRefreshKey((k) => k + 1);
-      listCaseDerivatives(caseId).then((d) => setDerivativesCount(d.length));
+      listCaseDerivatives(caseId).then((d) => {
+        setDerivativesCount(d.length);
+        const derCounts: Partial<Record<string, number>> = {};
+        for (const item of d) {
+          const t = item.file_type;
+          if (!t) continue;
+          derCounts[t] = (derCounts[t] ?? 0) + 1;
+        }
+        setAnalysisDerivativeCounts(derCounts);
+        setAnalysisDerivativeTypes(Object.keys(derCounts));
+      });
+    }
+    if (tab === "analises") {
+      // Atualiza tipos liberados por refs/derivados recém-enviados sem reload completo.
+      void Promise.all([listCaseDerivatives(caseId), listCaseReferences(caseId)]).then(
+        ([derivatives, refs]) => {
+          setDerivativesCount(derivatives.length);
+          const derCounts: Partial<Record<string, number>> = {};
+          for (const item of derivatives) {
+            const t = item.file_type;
+            if (!t) continue;
+            derCounts[t] = (derCounts[t] ?? 0) + 1;
+          }
+          setAnalysisDerivativeCounts(derCounts);
+          setAnalysisDerivativeTypes(Object.keys(derCounts));
+
+          const refCounts: Partial<Record<string, number>> = {};
+          for (const g of refs.global_groups) {
+            const t = g.reference_type;
+            if (!t) continue;
+            refCounts[t] = (refCounts[t] ?? 0) + g.files.length;
+          }
+          setAnalysisGlobalRefCounts(refCounts);
+          setAnalysisGlobalRefTypes(Object.keys(refCounts));
+          setReferencesCount(
+            refs.groups.reduce((n, g) => n + g.files.length, 0) +
+              refs.global_groups.reduce((n, g) => n + g.files.length, 0),
+          );
+        },
+      );
     }
   }
 
@@ -394,7 +465,6 @@ export default function CaseDetail() {
 
   return (
     <div style={{ padding: "2rem" }}>
-      {/* Header do Caso */}
       <div style={{ marginBottom: "2rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
           <button
@@ -637,7 +707,6 @@ export default function CaseDetail() {
         </div>
       )}
 
-      {/* Abas internas do caso */}
       <div
         style={{
           display: "flex",
@@ -767,7 +836,7 @@ export default function CaseDetail() {
             color: evidenceSubview === "lista" ? "#0369a1" : "#6b7280",
           }}
         >
-          Evidencias ({evidences.length})
+          Questionados ({evidences.length})
         </button>
         <button
           type="button"
@@ -795,10 +864,9 @@ export default function CaseDetail() {
         <CaseReferencesPanel caseId={caseId!} refreshKey={referencesRefreshKey} />
       ) : (
         <>
-      {/* Area de Upload */}
       <div style={{ marginBottom: "1.5rem" }}>
         <h2 style={{ fontSize: "1.15rem", color: "#1a1a2e", marginBottom: "0.75rem" }}>
-          Evidencias do caso
+          Questionados do caso
         </h2>
         {!isLocked ? (
           <div
@@ -843,7 +911,6 @@ export default function CaseDetail() {
         )}
       </div>
 
-      {/* Progresso de Upload */}
       {uploading && Object.keys(uploadProgress).length > 0 && (
         <div style={{ marginBottom: "1.5rem" }}>
           {Object.entries(uploadProgress).map(([name, percent]) => (
@@ -867,7 +934,6 @@ export default function CaseDetail() {
         </div>
       )}
 
-      {/* Toolbar da lista */}
       {evidences.length > 0 && (
         <FileListViewHeader
           viewMode={evidenceViewMode}
@@ -926,7 +992,6 @@ export default function CaseDetail() {
         </FileListViewHeader>
       )}
 
-      {/* Lista de Evidencias estilo gerenciador */}
       {evidences.length === 0 ? (
         <div
           style={{
@@ -1357,6 +1422,10 @@ export default function CaseDetail() {
         <CaseAnalysisPanels
           evidences={evidences}
           peritusFiles={peritusFiles}
+          globalReferenceTypes={analysisGlobalRefTypes}
+          globalReferenceCounts={analysisGlobalRefCounts}
+          derivativeTypes={analysisDerivativeTypes}
+          derivativeCounts={analysisDerivativeCounts}
         />
       ) : activeTab === "derivados" ? (
         <DerivativesPanel
@@ -1452,7 +1521,7 @@ export default function CaseDetail() {
                 title="Disponivel em versao futura"
               >
                 <input type="radio" name="sig" disabled />
-                ICP-Brasil (em breve)
+                ICP-Brasil (indisponível)
               </label>
             </fieldset>
             <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>

@@ -21,7 +21,8 @@ node_modules
 dist
 build
 
-# Development data and uploads
+# Development data and uploads (never bake into image)
+data
 uploads-dev
 results-dev
 derivatives-dev
@@ -37,6 +38,8 @@ peritus_cases
 # Models and vendor (mount as volume in production)
 models
 vendor
+reference_data
+outputs
 
 # Documentation and knowledge (not needed at runtime)
 docs

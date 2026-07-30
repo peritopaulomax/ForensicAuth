@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
 import PolygonRoiCanvas, { type PolygonPoint } from "@/components/PolygonRoiCanvas";
 import SyncedImagePairViewer, { type SyncedImagePairViewerHandle } from "@/components/SyncedImagePairViewer";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
-import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
-import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
+import { AnalysisPanel, MessageBox } from "@/components/AnalysisPageShell";
+import TechniquePageShell from "@/components/TechniquePageShell";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
-import { saveDerivative } from "@/services/evidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 import api from "@/services/api";
 
 type ChannelMode = "luminance" | "r" | "g" | "b" | "consolidated";
@@ -27,13 +26,16 @@ export default function ResamplingAnalysis() {
   const [specCombinedUrl, setSpecCombinedUrl] = useState<string | null>(null);
   const [isColorInput, setIsColorInput] = useState(true);
   const [loadingInput, setLoadingInput] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
   const viewerEntradaRef = useRef<SyncedImagePairViewerHandle>(null);
   const viewerDerivRef = useRef<SyncedImagePairViewerHandle>(null);
   const inputBlobRef = useRef<string | null>(null);
   const { running, currentJobId, result, error, progress, progressLabel, runAnalysis, fetchImage, reset } =
     useForensicJob();
+  const { status: runtimeStatus } = useTechniqueRuntime("resampling");
+
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
 
   function revokeBlob(url: string | null) {
     if (url && url.startsWith("blob:")) {
@@ -82,20 +84,20 @@ export default function ResamplingAnalysis() {
       setSpecHUrl(null);
       setSpecCombinedUrl(null);
       setIsColorInput(true);
-      setSaveMessage(null);
+      clearMessage();
       viewerEntradaRef.current?.resetZoom();
       viewerDerivRef.current?.resetZoom();
       loadInputBlob(id);
     },
-    [reset],
+    [reset, clearMessage],
   );
 
   const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
     useGroupAwareEvidence(caseId!, applyEvidence);
 
   async function process() {
-    if (!evidenceId) return;
-    setSaveMessage(null);
+    if (!evidenceId || !runtimeOk) return;
+    clearMessage();
     try {
       const params: Record<string, unknown> = { channel_mode: channelMode };
       if (polygon && polygon.length >= 3) {
@@ -125,35 +127,21 @@ export default function ResamplingAnalysis() {
         },
       });
     } catch {
-      /* error in hook */
     }
   }
 
   async function handleSaveCustodyBundle() {
     if (!currentJobId) return;
-    setSaving(true);
-    setSaveMessage(null);
     const files: { name: string; label: string }[] = [
-      { name: "spectrum_combined.png", label: "FFT combinado" },
       { name: "spectrum_vertical.png", label: "FFT vertical" },
       { name: "spectrum_horizontal.png", label: "FFT horizontal" },
     ];
     if (polygon && polygon.length >= 3) {
       files.push({ name: "original.png", label: "Entrada apos selecao" });
     }
-    try {
-      await Promise.all(
-        files.map((f) => saveDerivative({ job_id: currentJobId, artifact_filename: f.name }))
-      );
-      setSaveMessage({
-        type: "ok",
-        text: `${files.length} artefato(s) salvos na cadeia de custodia (FFT + entrada).`,
-      });
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Erro ao salvar";
-      setSaveMessage({ type: "err", text: msg });
-    } finally {
-      setSaving(false);
+    files.push({ name: "spectrum_combined.png", label: "FFT combinado" });
+    for (const f of files) {
+      await save(currentJobId, f.name, f.label);
     }
   }
 
@@ -161,55 +149,59 @@ export default function ResamplingAnalysis() {
 
   const showChannelSelect = isColorInput || !result;
 
-  return (
-    <AnalysisPageShell
-      caseId={caseId}
-      title={FORENSIC_TECHNIQUE_META.resampling.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.resampling} techniqueId="resampling" />}
-      embedded={embedded}
-    >
-      <AnalysisPanel title="Evidencia">
-        {showEvidencePicker && (
-          <ImageEvidenceSelector
-            caseId={caseId}
-            selectedId={evidenceId}
-            selectionSource={selectionSource}
-            onSelect={onSelectEvidence}
-          />
-        )}
-      </AnalysisPanel>
-
-      <AnalysisPanel title="Parametros">
-        <p style={{ fontSize: "0.82rem", color: "#6b7280", margin: "0 0 0.75rem 0" }}>
-          Ordem fixa: 2ª derivada (Mahdian &amp; Saic).
-        </p>
-        {showChannelSelect && (
-          <label style={{ fontSize: "0.85rem", display: "block", marginBottom: "0.75rem" }}>
-            Canal (imagens coloridas):{" "}
-            <select
-              value={channelMode}
-              onChange={(e) => setChannelMode(e.target.value as ChannelMode)}
-              style={{ marginLeft: 4, padding: "0.25rem 0.4rem" }}
-            >
-              <option value="luminance">Luminancia (Y)</option>
-              <option value="r">Vermelho (R)</option>
-              <option value="g">Verde (G)</option>
-              <option value="b">Azul (B)</option>
-              <option value="consolidated">Consolidado (media FFT R+G+B)</option>
-            </select>
-          </label>
-        )}
-        <ProcessButton
+  const parametersPanel = (
+    <>
+      <p style={{ fontSize: "0.82rem", color: "#6b7280", margin: "0 0 0.75rem 0" }}>
+        Ordem fixa: 2ª derivada (Mahdian &amp; Saic).
+      </p>
+      {showChannelSelect && (
+        <label style={{ fontSize: "0.85rem", display: "block", marginBottom: "0.75rem" }}>
+          Canal (imagens coloridas):{" "}
+          <select
+            value={channelMode}
+            onChange={(e) => setChannelMode(e.target.value as ChannelMode)}
+            style={{ marginLeft: 4, padding: "0.25rem 0.4rem" }}
+          >
+            <option value="luminance">Luminancia (Y)</option>
+            <option value="r">Vermelho (R)</option>
+            <option value="g">Verde (G)</option>
+            <option value="b">Azul (B)</option>
+            <option value="consolidated">Consolidado (media FFT R+G+B)</option>
+          </select>
+        </label>
+      )}
+      <div style={{ marginTop: "1rem" }}>
+        <button
+          type="button"
           onClick={process}
-          disabled={!evidenceId}
-          running={running}
-          progress={progress}
-          progressLabel={progressLabel}
-          label="Processar reamostragem"
-        />
-        {error && <MessageBox type="err" text={error} />}
-      </AnalysisPanel>
+          disabled={!evidenceId || runtimeOk !== true || running}
+          style={btnPrimary}
+        >
+          {running ? "Processando…" : "Processar reamostragem"}
+        </button>
+      </div>
+    </>
+  );
 
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="resampling"
+      mediaType="imagem"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      parametersPanel={parametersPanel}
+    >
       {evidenceId && (
         <AnalysisPanel title="Entrada — selecione regiao (opcional)">
           {loadingInput && <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>Carregando imagem…</p>}
@@ -311,10 +303,9 @@ export default function ResamplingAnalysis() {
               </button>
             </div>
           )}
-          {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
         </AnalysisPanel>
       )}
-    </AnalysisPageShell>
+    </TechniquePageShell>
   );
 }
 
@@ -333,6 +324,16 @@ const saveBtnStyle: React.CSSProperties = {
   borderRadius: 6,
   cursor: "pointer",
   fontSize: "0.82rem",
+};
+
+const btnPrimary: React.CSSProperties = {
+  padding: "0.5rem 1rem",
+  background: "#0369a1",
+  color: "#fff",
+  border: "none",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: "0.85rem",
 };
 
 const primarySaveStyle: React.CSSProperties = {

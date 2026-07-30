@@ -12,7 +12,7 @@ import pytest
 WORKSPACE = Path(__file__).resolve().parents[2]
 FIXTURE = WORKSPACE / "tests" / "fixtures" / "images" / "copymove.jpg"
 GOLDEN = WORKSPACE / "tests" / "fixtures" / "images" / "copymove_pca_golden_mask.png"
-EXEMPLO3_26JPG = WORKSPACE / "uploads-dev" / "73508d40-a644-4429-8c81-73c348ae98d5.jpg"
+EXEMPLO3_26JPG = WORKSPACE / "tests" / "fixtures" / "images" / "exemplo3_26.jpg"
 PERITUS_26_SCREENSHOT = (
     Path(__file__).resolve().parents[2]
     / "tests"
@@ -41,7 +41,7 @@ def sample_copymove_path(tmp_path) -> Path:
 
 class TestCopyMovePcaPipeline:
     def test_smoke_defaults(self, sample_copymove_path):
-        from core.legacy.copy_move_pca import run_copy_move_pca
+        from forensics.copy_move_pca import run_copy_move_pca
 
         gray = cv2.imread(str(sample_copymove_path), cv2.IMREAD_GRAYSCALE)
         result = run_copy_move_pca(gray)
@@ -50,14 +50,14 @@ class TestCopyMovePcaPipeline:
         assert result["clone_regions_detected"] >= 0
 
     def test_detects_synthetic_copymove(self, sample_copymove_path):
-        from core.legacy.copy_move_pca import run_copy_move_pca
+        from forensics.copy_move_pca import run_copy_move_pca
 
         gray = cv2.imread(str(sample_copymove_path), cv2.IMREAD_GRAYSCALE)
         result = run_copy_move_pca(gray, {"nf": 64, "nd": 8})
         assert int(np.count_nonzero(result["mask"])) > 0
 
     def test_deterministic_mask(self, sample_copymove_path):
-        from core.legacy.copy_move_pca import run_copy_move_pca
+        from forensics.copy_move_pca import run_copy_move_pca
 
         gray = cv2.imread(str(sample_copymove_path), cv2.IMREAD_GRAYSCALE)
         params = {"nf": 96, "morph": False, "max_side": 512}
@@ -68,7 +68,7 @@ class TestCopyMovePcaPipeline:
         assert h1 == h2
 
     def test_roi_reduces_blocks(self):
-        from core.legacy.copy_move_pca import run_copy_move_pca
+        from forensics.copy_move_pca import run_copy_move_pca
 
         gray = _make_copymove_array(320)
         full = run_copy_move_pca(gray, {"max_side": 0, "nf": 128})
@@ -80,7 +80,7 @@ class TestCopyMovePcaPipeline:
 
     @pytest.mark.slow
     def test_golden_mask_regression(self, sample_copymove_path):
-        from core.legacy.copy_move_pca import run_copy_move_pca
+        from forensics.copy_move_pca import run_copy_move_pca
 
         gray = cv2.imread(str(sample_copymove_path), cv2.IMREAD_GRAYSCALE)
         params = {"nf": 96, "morph": False, "max_side": 512}
@@ -103,7 +103,7 @@ class TestExemplo3CopyMoveRegression:
     @pytest.mark.skipif(not EXEMPLO3_26JPG.is_file(), reason="26.jpg do caso Exemplo3 ausente")
     def test_exemplo3_26jpg_matches_peritus_structure(self):
         """Regressao Exemplo3/26.jpg — 4 pares clonados como no Peritus Desktop."""
-        from core.legacy.copy_move_pca import run_copy_move_pca
+        from forensics.copy_move_pca import run_copy_move_pca
 
         gray = cv2.imread(str(EXEMPLO3_26JPG), cv2.IMREAD_GRAYSCALE)
         assert gray is not None
@@ -127,6 +127,39 @@ class TestExemplo3CopyMoveRegression:
 
 
 class TestCopyMovePcaPlugin:
+    def test_plugin_roi_overlay_matches_full_frame(self, sample_copymove_path, tmp_path):
+        """ROI results must be pasted onto full-frame before OpenCV blend."""
+        from core.plugins.copy_move_pca_plugin import CopyMovePcaPlugin
+
+        plugin = CopyMovePcaPlugin()
+        gray = cv2.imread(str(sample_copymove_path), cv2.IMREAD_GRAYSCALE)
+        assert gray is not None
+        h, w = gray.shape
+        # Small ROI in the middle — historically crashed addWeighted (ROI vs full size).
+        rw, rh = min(120, w), min(120, h)
+        x = max(0, (w - rw) // 2)
+        y = max(0, (h - rh) // 2)
+
+        result = plugin.analyze(
+            str(sample_copymove_path),
+            {
+                "nf": 64,
+                "nd": 8,
+                "max_side": 0,
+                "morph": False,
+                "region": [x, y, rw, rh],
+                "job_id": "test-roi-overlay",
+                "results_dir": str(tmp_path),
+            },
+        )
+        assert result["success"] is True, result.get("error")
+        overlay = cv2.imread(result["overlay_image_path"])
+        mask = cv2.imread(result["mask_image_path"], cv2.IMREAD_GRAYSCALE)
+        colored = cv2.imread(result["colored_overlay_image_path"])
+        assert overlay is not None and overlay.shape[:2] == (h, w)
+        assert mask is not None and mask.shape == (h, w)
+        assert colored is not None and colored.shape[:2] == (h, w)
+
     @pytest.mark.slow
     def test_plugin_runs(self, sample_copymove_path):
         from core.plugins.copy_move_pca_plugin import CopyMovePcaPlugin

@@ -14,10 +14,10 @@ import torch
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.pad.anti_spoof_predict import AntiSpoofPredict
-from core.legacy.pad.generate_patches import CropImage
-from core.legacy.pad.runtime import pad_models_dir, pad_runtime_status
-from core.legacy.pad.utility import parse_model_name
+from forensics.pad.anti_spoof_predict import AntiSpoofPredict
+from forensics.pad.generate_patches import CropImage
+from forensics.pad.runtime import pad_models_dir, pad_runtime_status
+from forensics.pad.utility import parse_model_name
 from core.progress import pop_progress_callback, report_progress
 from core.technique_ids import PRESENTATION_ATTACK_DETECTION
 

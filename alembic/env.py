@@ -25,6 +25,7 @@ from models import (  # noqa: E402,F401
     case_share,
     custody_record,
     evidence,
+    refresh_token,
     report,
     user,
 )

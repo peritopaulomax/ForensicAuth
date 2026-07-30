@@ -8,7 +8,7 @@ from typing import Any, Dict, Tuple
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.pdf.pdf_structure_similarity import run_similarity_analysis
+from forensics.pdf.pdf_structure_similarity import run_similarity_analysis
 
 
 class PDFStructureSimilarityPlugin(ForensicPlugin):

@@ -18,7 +18,7 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
-    """Decode JWT and return the current user."""
+    """Decode access JWT and return the current user."""
     settings = get_settings()
     token = credentials.credentials
     credentials_exception = HTTPException(
@@ -30,6 +30,10 @@ def get_current_user(
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         user_id: str = payload.get("sub")
         if user_id is None:
+            raise credentials_exception
+        # Access only: reject explicit non-access types; legacy tokens without type OK.
+        token_type = payload.get("type", "access")
+        if token_type != "access":
             raise credentials_exception
     except JWTError:
         raise credentials_exception

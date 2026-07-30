@@ -138,12 +138,13 @@ class TestPresentationAttackDetectionApiIntegration:
         assert detail.json()["status"] == "failed"
         assert "NO_FACE_DETECTED" in detail.json().get("error_message", "")
 
+    @pytest.mark.weights
     def test_pad_smoke_with_real_weights(
         self, client, auth_headers, db_session, sample_case, test_user, tmp_path, monkeypatch
     ):
         import urllib.request
 
-        from core.legacy.pad.runtime import pad_runtime_status
+        from forensics.pad.runtime import pad_runtime_status
         from models.evidence import Evidence
 
         monkeypatch.setattr("api.v1.endpoints.analysis.run_job_in_background", lambda _job_id: None)

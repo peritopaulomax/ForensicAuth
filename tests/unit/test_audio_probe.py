@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from scipy.io import wavfile
 
-from core.legacy.audio.audio_probe import probe_audio_metadata
+from forensics.audio.audio_probe import probe_audio_metadata
 
 
 def test_probe_wav_pcm(tmp_path):

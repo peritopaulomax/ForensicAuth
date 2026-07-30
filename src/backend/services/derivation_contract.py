@@ -435,6 +435,32 @@ TECHNIQUE_PROVENANCE_CONTRACT: dict[str, dict[str, Any]] = {
         "min_parameters": ["sample_every", "max_frames"],
         "savable_artifacts": ["lfv_report.json", "lfv_scores_chart.png", "lfv_summary.txt"],
     },
+    "truvil": {
+        "parent_roles": ["input"],
+        "min_parameters": ["sample_every", "max_clips"],
+        "savable_artifacts": [
+            "truvil_report.json",
+            "truvil_scores_chart.png",
+            "truvil_summary.txt",
+            "truvil_overlay_preview.png",
+            "truvil_mask_preview.png",
+            "truvil_heatmap_preview.png",
+            "truvil_input_preview.png",
+        ],
+    },
+    "vilocal": {
+        "parent_roles": ["input"],
+        "min_parameters": ["sample_every", "max_clips"],
+        "savable_artifacts": [
+            "vilocal_report.json",
+            "vilocal_scores_chart.png",
+            "vilocal_summary.txt",
+            "vilocal_overlay_preview.png",
+            "vilocal_mask_preview.png",
+            "vilocal_heatmap_preview.png",
+            "vilocal_input_preview.png",
+        ],
+    },
     "videofact": {
         "parent_roles": ["input"],
         "min_parameters": ["mode"],

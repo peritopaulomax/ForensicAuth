@@ -45,13 +45,23 @@
 
 ## Execucao
 
+Suite **default** (honesto, sem pesos/GPU) — hábito pós-poda:
+
 ```bash
-# Backend
-pytest tests/unit/ -v --cov=src/backend --cov-report=term-missing
-pytest tests/integration/ -v --cov-append
-pytest tests/e2e/ -v
+conda activate forensicauth
+PYTHONPATH=src/backend pytest tests/unit tests/integration -m "not weights and not gpu" -q
+```
+
+Completo / só pesos: ver `docs/developer/02-guia-contribuidor.md` §11 e `pytest.ini`.
+
+```bash
+# Cobertura (opcional)
+PYTHONPATH=src/backend pytest tests/unit tests/integration -m "not weights and not gpu" \
+  --cov=src/backend --cov-report=term-missing -q
 
 # Frontend
 npm run test
 npm run test:e2e
 ```
+
+Estes arquivos em `tests/specs/*.md` **não** são executados pelo pytest; ver `README.md` nesta pasta.

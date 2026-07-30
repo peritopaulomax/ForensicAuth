@@ -152,7 +152,6 @@ export default function ImdlBencoHub() {
         }
       );
     } catch {
-      /* hook */
     }
   }
 
@@ -192,7 +191,7 @@ export default function ImdlBencoHub() {
       title="IMDL-BenCo — Hub de Localização"
       subtitle="NeurIPS'24 Spotlight · benchmark modular para deteccao e localizacao de manipulacao."
     >
-      <AnalysisPanel title="Metodos do benchmark">
+      <AnalysisPanel title="Métodos do benchmark">
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.85rem" }}>
           {(["all", "native", "ecosystem"] as const).map((f) => (
             <button key={f} type="button" onClick={() => setFilter(f)} style={filterBtn(filter === f)}>
@@ -208,7 +207,7 @@ export default function ImdlBencoHub() {
         </div>
 
         {loadingMethods ? (
-          <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>Carregando metodos...</p>
+          <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>Carregando métodos...</p>
         ) : (
           <div style={methodGridStyle}>
             {filtered.map((m) => (
@@ -252,7 +251,7 @@ export default function ImdlBencoHub() {
         {active && (
           <div style={{ marginTop: "1rem", display: "grid", gap: "0.75rem", maxWidth: 520 }}>
             <p style={{ margin: 0, fontSize: "0.82rem", color: "#374151" }}>
-              Metodo selecionado: <strong>{active.name}</strong>
+              Método selecionado: <strong>{active.name}</strong>
               {active.repo_url && (
                 <>
                   {" "}

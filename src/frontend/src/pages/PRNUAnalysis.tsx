@@ -6,15 +6,15 @@ import EvidenceFileGrid from "@/components/EvidenceFileGrid";
 import EvidenceFilePreview from "@/components/EvidenceFilePreview";
 import FileListViewHeader from "@/components/FileListViewHeader";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
-import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
-import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
-import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
+import { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
+import TechniquePageShell from "@/components/TechniquePageShell";
 import PlotlyHtmlFrame from "@/components/PlotlyHtmlFrame";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
 import { useBusyProgress } from "@/hooks/useBusyProgress";
-import { listCaseReferences, saveDerivative, uploadPrnuReference } from "@/services/evidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
+import { listCaseReferences, uploadPrnuReference } from "@/services/evidence";
 import {
   createCaseFingerprint,
   listCaseFingerprints,
@@ -30,6 +30,9 @@ const MODE_LABELS: Record<PrnuMode, string> = {
   cropped: "Recortada",
   scaled: "Recortada e redimensionada",
 };
+
+/** Modo scaled indisponível nesta versão (pipeline incompleta). */
+const DISABLED_PRNU_MODES = new Set<PrnuMode>(["scaled"]);
 
 export default function PRNUAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
@@ -57,13 +60,20 @@ export default function PRNUAnalysis() {
   const [localizedMapUrl, setLocalizedMapUrl] = useState<string | null>(null);
   const [localizedOverlayUrl, setLocalizedOverlayUrl] = useState<string | null>(null);
   const [localizedPositiveUrl, setLocalizedPositiveUrl] = useState<string | null>(null);
-  const [savingLocalized, setSavingLocalized] = useState(false);
   const [surfaceHtmlUrl, setSurfaceHtmlUrl] = useState<string | null>(null);
   const [scaleCurveUrl, setScaleCurveUrl] = useState<string | null>(null);
-  const [savingPlot, setSavingPlot] = useState(false);
-  const [savePlotMessage, setSavePlotMessage] = useState<{ type: "ok" | "err"; text: string } | null>(
-    null
-  );
+  const {
+    saving: savingLocalized,
+    saveMessage: localizedSaveMessage,
+    save: saveLocalized,
+    clearMessage: clearLocalizedSave,
+  } = useDerivativeSave();
+  const {
+    saving: savingPlot,
+    saveMessage: plotSaveMessage,
+    save: savePlot,
+    clearMessage: clearPlotSave,
+  } = useDerivativeSave();
   const [localizedParamsSnapshot, setLocalizedParamsSnapshot] = useState<{
     blockHalf: number;
     overlapK: number;
@@ -85,6 +95,10 @@ export default function PRNUAnalysis() {
     reset: resetFpProgress,
     stopLoop: stopFpProgressLoop,
   } = useBusyProgress();
+  const { status: runtimeStatus } = useTechniqueRuntime("prnu");
+
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
 
   useEffect(() => {
     return () => {
@@ -262,9 +276,10 @@ export default function PRNUAnalysis() {
       setLocalizedOverlayUrl(null);
       setLocalizedPositiveUrl(null);
       setLocalizedParamsSnapshot(null);
-      setSavePlotMessage(null);
+      clearPlotSave();
+      clearLocalizedSave();
     },
-    [reset, surfaceHtmlUrl],
+    [reset, surfaceHtmlUrl, clearPlotSave, clearLocalizedSave],
   );
 
   const { embedded, showEvidencePicker, evidenceId, onSelectEvidence } = useGroupAwareEvidence(
@@ -294,13 +309,11 @@ export default function PRNUAnalysis() {
   async function handleSaveLocalizedArtifacts() {
     if (!currentJobId) return;
     if (localizedParamsStale) {
-      setSavePlotMessage({
-        type: "err",
-        text: "Parametros do mapa localizado mudaram. Clique em «Reprocessar somente mapa localizado» antes de salvar.",
-      });
+      clearLocalizedSave();
+      // eslint-disable-next-line no-console
+      console.warn("Parametros do mapa localizado mudaram. Reprocesse antes de salvar.");
       return;
     }
-    setSavingLocalized(true);
     const effective_parameters: Record<string, unknown> = {
       fingerprint_id: selectedFingerprintId,
       sigma: analysisSigma,
@@ -310,30 +323,18 @@ export default function PRNUAnalysis() {
       localized_threshold: localizedThreshold,
       localized_map: localizedMap,
     };
-    try {
-      const files = ["localized_map.png", "localized_positive.png", "localized_overlay.png"];
-      await Promise.all(
-        files.map((f) =>
-          saveDerivative({
-            job_id: currentJobId,
-            artifact_filename: f,
-            label: `prnu_${f.replace(".png", "")}`,
-            effective_parameters,
-          })
-        )
-      );
-      setSavePlotMessage({ type: "ok", text: "Mapas localizados salvos nos derivados." });
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Erro ao salvar";
-      setSavePlotMessage({ type: "err", text: String(msg) });
-    } finally {
-      setSavingLocalized(false);
+    const files: { name: string; label: string }[] = [
+      { name: "localized_map.png", label: "Mapa PRNU localizado" },
+      { name: "localized_positive.png", label: "Mascara positiva PRNU" },
+      { name: "localized_overlay.png", label: "Overlay PRNU localizado" },
+    ];
+    for (const f of files) {
+      await saveLocalized(currentJobId, f.name, f.label, effective_parameters);
     }
   }
 
   async function reprocessLocalizedOnly() {
-    if (!evidenceId || !caseId || !selectedFingerprintId) return;
+    if (!evidenceId || !caseId || !selectedFingerprintId || !runtimeOk) return;
     try {
       await runAnalysis(
         evidenceId,
@@ -354,35 +355,20 @@ export default function PRNUAnalysis() {
         }
       );
     } catch {
-      /* hook */
     }
   }
 
   async function handleSaveSurfacePlot() {
     if (!currentJobId) return;
-    setSavingPlot(true);
-    setSavePlotMessage(null);
-    try {
-      const res = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: "correlation_surface.html",
-        label: "prnu_superficie_C",
-      });
-      setSavePlotMessage({
-        type: "ok",
-        text: `Superficie 3D salva nos derivados. SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Erro ao salvar";
-      setSavePlotMessage({ type: "err", text: String(msg) });
-    } finally {
-      setSavingPlot(false);
-    }
+    await savePlot(currentJobId, "correlation_surface.html", "Superficie 3D PRNU");
   }
 
   async function process() {
-    if (!evidenceId || !caseId || !selectedFingerprintId) return;
+    if (!evidenceId || !caseId || !selectedFingerprintId || !runtimeOk) return;
+    if (DISABLED_PRNU_MODES.has(mode)) {
+      setMode("full");
+      return;
+    }
     try {
       await runAnalysis(
         evidenceId,
@@ -426,7 +412,6 @@ export default function PRNUAnalysis() {
         }
       );
     } catch {
-      /* hook */
     }
   }
 
@@ -442,11 +427,20 @@ export default function PRNUAnalysis() {
   if (!caseId) return null;
 
   return (
-    <AnalysisPageShell
+    <TechniquePageShell
       caseId={caseId}
-      title={FORENSIC_TECHNIQUE_META.prnu.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.prnu} techniqueId="prnu" />}
+      techniqueId="prnu"
+      mediaType="imagem"
       embedded={embedded}
+      evidenceId={evidenceId}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
     >
       <AnalysisPanel title="1. Imagens de referencia (padrao do sensor)">
         <p style={hintStyle}>
@@ -651,26 +645,38 @@ export default function PRNUAnalysis() {
         <p style={{ ...hintStyle, marginBottom: "0.75rem" }}>
           Apenas evidencias originais do caso — sem referencias PRNU nem derivados.
         </p>
-        {showEvidencePicker && (
-          <ImageEvidenceSelector
-            caseId={caseId}
-            selectedId={evidenceId}
-            selectionSource="original"
-            onSelect={onSelectEvidence}
-            excludeReferences
-            excludeDerivatives
-            excludePrnuFingerprints
-          />
-        )}
 
         <fieldset style={{ border: "none", padding: 0, margin: "1rem 0 0" }}>
           <legend style={{ fontSize: "0.88rem", fontWeight: 600, marginBottom: 8 }}>Modo de correlacao</legend>
-          {(Object.keys(MODE_LABELS) as PrnuMode[]).map((m) => (
-            <label key={m} style={{ display: "block", fontSize: "0.85rem", marginBottom: 4 }}>
-              <input type="radio" name="prnu-mode" checked={mode === m} onChange={() => setMode(m)} />{" "}
-              {MODE_LABELS[m]}
-            </label>
-          ))}
+          {(Object.keys(MODE_LABELS) as PrnuMode[]).map((m) => {
+            const disabled = DISABLED_PRNU_MODES.has(m);
+            return (
+              <label
+                key={m}
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  marginBottom: 4,
+                  opacity: disabled ? 0.45 : 1,
+                  cursor: disabled ? "not-allowed" : "pointer",
+                  color: disabled ? "#9ca3af" : undefined,
+                }}
+                title={disabled ? "Modo indisponível nesta versão" : undefined}
+              >
+                <input
+                  type="radio"
+                  name="prnu-mode"
+                  checked={mode === m}
+                  disabled={disabled}
+                  onChange={() => {
+                    if (!disabled) setMode(m);
+                  }}
+                />{" "}
+                {MODE_LABELS[m]}
+                {disabled ? " (indisponível)" : ""}
+              </label>
+            );
+          })}
         </fieldset>
 
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.85rem", marginTop: "0.75rem" }}>
@@ -742,16 +748,15 @@ export default function PRNUAnalysis() {
         )}
 
         <div style={{ marginTop: "1rem" }}>
-          <ProcessButton
+          <button
+            type="button"
             onClick={process}
-            disabled={!evidenceId || !selectedFingerprintId}
-            running={running}
-            progress={progress}
-            progressLabel={progressLabel}
-            label="Correlacionar PRNU"
-          />
+            disabled={!evidenceId || !selectedFingerprintId || runtimeOk !== true || running}
+            style={btnPrimary}
+          >
+            {running ? "Processando…" : "Correlacionar PRNU"}
+          </button>
         </div>
-        {error && <MessageBox type="err" text={error} />}
       </AnalysisPanel>
 
       {result && (
@@ -827,7 +832,7 @@ export default function PRNUAnalysis() {
                   </button>
                 </div>
               )}
-              {savePlotMessage && <MessageBox type={savePlotMessage.type} text={savePlotMessage.text} />}
+              {plotSaveMessage && <MessageBox type={plotSaveMessage.type} text={plotSaveMessage.text} />}
             </div>
           )}
 
@@ -880,11 +885,18 @@ export default function PRNUAnalysis() {
                   </button>
                 </div>
               )}
+              {localizedParamsStale && currentJobId && (
+                <MessageBox
+                  type="err"
+                  text="Parametros do mapa localizado mudaram. Clique em «Reprocessar somente mapa localizado» antes de salvar."
+                />
+              )}
+              {localizedSaveMessage && <MessageBox type={localizedSaveMessage.type} text={localizedSaveMessage.text} />}
             </div>
           )}
         </AnalysisPanel>
       )}
-    </AnalysisPageShell>
+    </TechniquePageShell>
   );
 }
 

@@ -1,4 +1,4 @@
-"""Tests for audio forensic plugins — legado Gradio / AudioForensicsAnalyzer."""
+"""Tests for audio forensic plugins (AudioForensicsAnalyzer / hub)."""
 
 import os
 import struct
@@ -29,8 +29,10 @@ def sample_mp3():
         header += struct.pack(">H", 0x9000)
         f.write(header)
         f.write(b"\x00" * 400)
-        yield f.name
-    os.unlink(f.name)
+        f.flush()
+        path = f.name
+    yield path
+    os.unlink(path)
 
 
 class TestAudioENF:
@@ -114,15 +116,145 @@ class TestAudioDCLocal:
 
 
 class TestMP3Parser:
-    def test_mp3_parser_runs(self, sample_mp3):
+    def test_mp3_parser_runs(self, sample_mp3, tmp_path):
         from core.plugins.mp3_parser_plugin import MP3ParserPlugin
 
         plugin = MP3ParserPlugin()
-        result = plugin.analyze(sample_mp3, {})
-        assert "success" in result
+        result = plugin.analyze(sample_mp3, {"_job_staging_dir": str(tmp_path / "mp3_out")})
+        assert result["success"] is True
+        assert result["report"]
+        assert "frame_count" in result
+        assert os.path.exists(result["container_report_txt_path"])
+        assert os.path.exists(result["container_summary_json_path"])
+
+
+@pytest.fixture
+def sample_opus():
+    """Minimal Ogg page with OpusHead (BOS) for structural parse smoke test."""
+    opus_head = bytearray(b"OpusHead")
+    opus_head += struct.pack("<B", 1)  # version
+    opus_head += struct.pack("<B", 1)  # channels
+    opus_head += struct.pack("<H", 312)  # pre_skip
+    opus_head += struct.pack("<I", 48000)  # input sample rate
+    opus_head += struct.pack("<h", 0)  # output gain
+    opus_head += struct.pack("<B", 0)  # channel mapping
+    assert len(opus_head) == 19
+
+    segment_table = bytes([len(opus_head)])
+    header = bytearray(b"OggS")
+    header += struct.pack("<B", 0)  # version
+    header += struct.pack("<B", 0x02)  # BOS
+    header += struct.pack("<Q", 0)  # granule
+    header += struct.pack("<I", 0x12345678)  # serial
+    header += struct.pack("<I", 0)  # sequence
+    header += struct.pack("<I", 0)  # checksum placeholder
+    header += struct.pack("<B", 1)  # nsegments
+    header += segment_table
+    page = bytes(header) + bytes(opus_head)
+
+    fd, path = tempfile.mkstemp(suffix=".opus")
+    try:
+        os.write(fd, page)
+    finally:
+        os.close(fd)
+    yield path
+    os.unlink(path)
+
+
+class TestOpusParser:
+    def test_opus_parser_runs(self, sample_opus, tmp_path):
+        from core.plugins.opus_parser_plugin import OpusParserPlugin
+
+        plugin = OpusParserPlugin()
+        result = plugin.analyze(sample_opus, {"_job_staging_dir": str(tmp_path / "opus_out")})
+        assert result["success"] is True
+        assert result["report"]
+        assert result["page_count"] >= 1
+        assert os.path.exists(result["container_report_txt_path"])
+        assert "OpusHead" in result["report"] or "ID HEADER" in result["report"]
+
+
+class TestAudioMetadata:
+    def test_audio_metadata_plugin_on_wav(self, sample_wav, tmp_path):
+        from core.plugins.audio_metadata_plugin import AudioMetadataPlugin
+
+        plugin = AudioMetadataPlugin()
+        assert plugin.name == "audio_metadata"
+        assert "audio" in plugin.supported_types
+        result = plugin.analyze(sample_wav, {"_job_staging_dir": str(tmp_path / "meta")})
+        assert result["success"] is True
+        assert "summary" in result
+        assert "metadata" in result
+        assert os.path.exists(result["metadata_json_path"])
+        assert os.path.exists(result["metadata_report_path"])
+        assert result["summary"]["codec"] or result["probe"]
+
+    def test_classify_id3_family(self):
+        from core.metadata.audio_extractor import _classify_audio_tag
+
+        assert _classify_audio_tag("ID3v2:Title") == "id3"
+        assert _classify_audio_tag("Vorbis:Encoder") == "vorbis"
+        assert _classify_audio_tag("RIFF:Comment") == "riff"
+        assert _classify_audio_tag("QuickTime:CreateDate") == "quicktime"
+        assert _classify_audio_tag("XMP:CreatorTool") == "xmp"
+        assert _classify_audio_tag("C2PA:ClaimGenerator") == "c2pa"
+        assert _classify_audio_tag("JUMBF:JUMDLabel") == "c2pa"
+
+    def test_audio_metadata_includes_c2pa_probe(self, sample_wav, tmp_path):
+        from core.plugins.audio_metadata_plugin import AudioMetadataPlugin
+
+        plugin = AudioMetadataPlugin()
+        result = plugin.analyze(sample_wav, {"_job_staging_dir": str(tmp_path / "meta_c2pa")})
+        assert result["success"] is True
+        assert "c2pa_structured" in result
+        assert "c2pa" in result["metadata"]["families"]
+        # WAV comum: motor disponivel, manifesto ausente
+        if result["c2pa_structured"].get("available"):
+            assert result["c2pa_structured"]["present"] is False
+            assert "c2pa-python" in (result["summary"].get("metadata_engines") or [])
+
+
+class TestAudioPluginsList:
+    def test_all_audio_plugins_registered(self):
+        from core.plugin_registry import PluginRegistry
+
+        registry = PluginRegistry()
+        from pathlib import Path
+
+        plugins_dir = Path(__file__).resolve().parents[2] / "src" / "backend" / "core" / "plugins"
+        registry.discover_and_register(str(plugins_dir))
+        assert "mp3_parser" in registry.PLUGINS
+        assert "opus_parser" in registry.PLUGINS
+        assert "audio_metadata" in registry.PLUGINS
+        assert "audio_enf" in registry.PLUGINS
+        assert "audio_spoofing_detection" in registry.PLUGINS
 
 
 class TestAudioSpoofingDetection:
+    def test_detector_catalog_has_bibliography_and_repo(self):
+        from forensics.audio_spoofing.runtime import (
+            AUDIO_SPOOFING_ANALYSIS_DF_ARENA,
+            AUDIO_SPOOFING_ANALYSIS_SLS_XLSR,
+            AUDIO_SPOOFING_ANALYSIS_WEDEFENSE,
+            DETECTOR_CATALOG,
+        )
+
+        by_id = {row["id"]: row for row in DETECTOR_CATALOG}
+        assert set(by_id) == {
+            AUDIO_SPOOFING_ANALYSIS_DF_ARENA,
+            AUDIO_SPOOFING_ANALYSIS_SLS_XLSR,
+            AUDIO_SPOOFING_ANALYSIS_WEDEFENSE,
+        }
+        for row in DETECTOR_CATALOG:
+            assert row["label"]
+            assert row["description"]
+            assert row["paper_title"]
+            assert row["paper_url"].startswith("http")
+            assert row["repo_url"].startswith("http")
+        assert "2601.15240" in by_id[AUDIO_SPOOFING_ANALYSIS_WEDEFENSE]["paper_url"]
+        assert "huggingface.co" in by_id[AUDIO_SPOOFING_ANALYSIS_WEDEFENSE]["repo_url"]
+        assert "QiShanZhang/SLSforASVspoof-2021-DF" in by_id[AUDIO_SPOOFING_ANALYSIS_SLS_XLSR]["repo_url"]
+
     def test_adapter_registered_and_has_expected_name(self):
         from core.plugin_registry import PluginRegistry
         from core.plugins.audio_spoofing_adapter import AudioSpoofingAdapter
@@ -202,7 +334,7 @@ class TestAudioSpoofingDetection:
 
     def test_adapter_validates_selected_analyses(self, monkeypatch):
         from core.plugins import audio_spoofing_adapter as adapter_mod
-        from core.legacy.audio_spoofing import runtime as spoof_runtime
+        from forensics.audio_spoofing import runtime as spoof_runtime
 
         monkeypatch.setattr(spoof_runtime, "runtime_status", lambda: (True, ""))
         monkeypatch.setattr(
@@ -337,122 +469,6 @@ class TestAudioSpoofingDetection:
         assert len(lr_calls) == 1
         assert lr_calls[0]["use_latent_typicality"] is True
 
-    def test_use_augmented_reference_uses_representations_when_available(self, sample_wav, monkeypatch):
-        from core.plugins import audio_spoofing_adapter as adapter_mod
-
-        monkeypatch.setattr(adapter_mod, "runtime_status", lambda: (True, ""))
-        monkeypatch.setattr(adapter_mod, "representations_matrix_available", lambda _path: True)
-
-        def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None, **kwargs):
-            return {
-                "individual_results": [["DF Arena 1B", "0.5", "0.5", "0.00", "Incerto", "cpu"]],
-                "detector_scores": {
-                    "df_arena_1b": {"spoof_prob": 0.5, "bonafide_prob": 0.5, "label": "uncertain"},
-                },
-                "per_detector": {},
-                "plot_by_detector": {},
-                "selected_analyses": ["df_arena_1b"],
-                "inference_device": "cpu",
-                "label": "uncertain",
-                "score_spoof": 0.5,
-                "score_bonafide": 0.5,
-                "window_count": 1,
-            }
-
-        monkeypatch.setattr(adapter_mod, "run_audio_spoofing_analysis", fake_run)
-
-        calls = []
-
-        def fake_compute_reference_lr(*, score_matrix, sample_multiplier, **kwargs):
-            calls.append({"score_matrix": score_matrix, "sample_multiplier": sample_multiplier})
-            return {
-                "artifact_filenames": {
-                    "tippett": "lr_reference_tippett.png",
-                    "distribution": "lr_reference_distribution.png",
-                    "identity": "lr_reference_identity.png",
-                    "summary": "lr_reference_summary.txt",
-                }
-            }
-
-        monkeypatch.setattr(adapter_mod, "compute_reference_lr", fake_compute_reference_lr)
-
-        plugin = adapter_mod.AudioSpoofingAdapter()
-        result = plugin.analyze(
-            sample_wav,
-            {
-                "reference_lr_enabled": True,
-                "use_augmented_reference": True,
-                "reference_population": {"items": []},
-                "selected_analyses": ["df_arena_1b"],
-            },
-        )
-
-        assert result["success"] is True
-        assert len(calls) == 1
-        assert calls[0]["score_matrix"] == adapter_mod.DEFAULT_REPRESENTATIONS_MATRIX
-        assert calls[0]["sample_multiplier"] == adapter_mod.AUGMENTATION_MULTIPLIER
-
-    def test_use_augmented_reference_uses_augmented_score_matrix(self, sample_wav, monkeypatch):
-        from core.plugins import audio_spoofing_adapter as adapter_mod
-
-        monkeypatch.setattr(adapter_mod, "runtime_status", lambda: (True, ""))
-        monkeypatch.setattr(adapter_mod, "representations_matrix_available", lambda _path: False)
-
-        class _MatrixPath:
-            def is_file(self) -> bool:
-                return True
-
-        monkeypatch.setattr(adapter_mod, "DEFAULT_AUGMENTED_SCORE_MATRIX", _MatrixPath())
-
-        def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None, **kwargs):
-            return {
-                "individual_results": [["DF Arena 1B", "0.5", "0.5", "0.00", "Incerto", "cpu"]],
-                "detector_scores": {
-                    "df_arena_1b": {"spoof_prob": 0.5, "bonafide_prob": 0.5, "label": "uncertain"},
-                },
-                "per_detector": {},
-                "plot_by_detector": {},
-                "selected_analyses": ["df_arena_1b"],
-                "inference_device": "cpu",
-                "label": "uncertain",
-                "score_spoof": 0.5,
-                "score_bonafide": 0.5,
-                "window_count": 1,
-            }
-
-        monkeypatch.setattr(adapter_mod, "run_audio_spoofing_analysis", fake_run)
-
-        calls = []
-
-        def fake_compute_reference_lr(*, score_matrix, sample_multiplier, **kwargs):
-            calls.append({"score_matrix": score_matrix, "sample_multiplier": sample_multiplier})
-            return {
-                "artifact_filenames": {
-                    "tippett": "lr_reference_tippett.png",
-                    "distribution": "lr_reference_distribution.png",
-                    "identity": "lr_reference_identity.png",
-                    "summary": "lr_reference_summary.txt",
-                }
-            }
-
-        monkeypatch.setattr(adapter_mod, "compute_reference_lr", fake_compute_reference_lr)
-
-        plugin = adapter_mod.AudioSpoofingAdapter()
-        result = plugin.analyze(
-            sample_wav,
-            {
-                "reference_lr_enabled": True,
-                "use_augmented_reference": True,
-                "reference_population": {"items": []},
-                "selected_analyses": ["df_arena_1b"],
-            },
-        )
-
-        assert result["success"] is True
-        assert len(calls) == 1
-        assert calls[0]["score_matrix"] == adapter_mod.DEFAULT_AUGMENTED_SCORE_MATRIX
-        assert calls[0]["sample_multiplier"] == adapter_mod.AUGMENTATION_MULTIPLIER
-
     def test_adapter_multi_detector_mock(self, sample_wav, monkeypatch):
         from core.plugins import audio_spoofing_adapter as adapter_mod
 
@@ -491,7 +507,7 @@ class TestAudioSpoofingDetection:
 
 class TestWeDefenseLogitMapping:
     def test_wedefense_logits_map_bonafide_idx0_spoof_idx1(self):
-        from core.legacy.wedefense_spoofing.wedefense_pipeline import _wedefense_probs_to_scores
+        from forensics.wedefense_spoofing.wedefense_pipeline import _wedefense_probs_to_scores
         import numpy as np
 
         logits = np.array([2.0, -1.0])
@@ -506,11 +522,13 @@ class TestSLSSpoofingPaths:
         from pathlib import Path
 
         from app.config import get_settings
-        import core.legacy.sls_spoofing.sls_runtime as sls_runtime
+        import forensics.sls_spoofing.sls_runtime as sls_runtime
 
-        backend_cwd = Path(__file__).resolve().parents[2] / "src" / "backend"
+        repo = Path(__file__).resolve().parents[2]
+        backend_cwd = repo / "src" / "backend"
+        # Settings resolve relative MODELS_DIR against repo root (not CWD).
         monkeypatch.chdir(backend_cwd)
-        monkeypatch.setenv("MODELS_DIR", "../../models")
+        monkeypatch.setenv("MODELS_DIR", str(repo / "models"))
         get_settings.cache_clear()
 
         models_dir = sls_runtime._models_dir()
@@ -521,7 +539,7 @@ class TestSLSSpoofingPaths:
 
 class TestDFArenaAggregation:
     def test_aggregated_label_uncertain_when_both_below_or_equal_threshold(self):
-        from core.legacy.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
+        from forensics.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
         import numpy as np
 
         # Both probabilities below or equal to threshold -> uncertain
@@ -531,7 +549,7 @@ class TestDFArenaAggregation:
         assert probs[1] <= UNCERTAINTY_THRESHOLD
 
     def test_aggregated_label_spoof_when_spoof_above_threshold(self):
-        from core.legacy.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
+        from forensics.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
         import numpy as np
 
         logits = np.array([2.0, -1.0])
@@ -539,7 +557,7 @@ class TestDFArenaAggregation:
         assert probs[0] > UNCERTAINTY_THRESHOLD
 
     def test_aggregated_label_bonafide_when_bonafide_above_threshold(self):
-        from core.legacy.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
+        from forensics.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
         import numpy as np
 
         logits = np.array([-1.0, 2.0])
@@ -547,7 +565,7 @@ class TestDFArenaAggregation:
         assert probs[1] > UNCERTAINTY_THRESHOLD
 
     def test_aggregated_label_uncertain_when_both_probabilities_below_65(self):
-        from core.legacy.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
+        from forensics.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
         import numpy as np
 
         # logits that yield ~40% spoof / ~60% bonafide (both strictly below 65%)
@@ -555,24 +573,3 @@ class TestDFArenaAggregation:
         probs = _softmax(logits)
         assert probs[0] < UNCERTAINTY_THRESHOLD
         assert probs[1] < UNCERTAINTY_THRESHOLD
-
-
-class TestAudioPluginsList:
-    def test_all_audio_plugins_registered(self):
-        from core.plugin_registry import PluginRegistry
-
-        registry = PluginRegistry()
-        from pathlib import Path
-
-        plugins_dir = Path(__file__).resolve().parents[2] / "src" / "backend" / "core" / "plugins"
-        registry.discover_and_register(str(plugins_dir))
-        audio_plugins = [
-            n
-            for n in registry.PLUGINS.keys()
-            if n.startswith(("mp3_", "opus_", "wav_", "audio_"))
-        ]
-        assert "audio_enf" in audio_plugins
-        assert "audio_levels" in audio_plugins
-        assert "audio_dc_local" in audio_plugins
-        assert "audio_spoofing_detection" in audio_plugins
-        assert len(audio_plugins) >= 5

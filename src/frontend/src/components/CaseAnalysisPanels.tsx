@@ -1,15 +1,21 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   IMAGE_ANALYSIS_GROUPS,
   isImageTechniqueVisible,
 } from "@/config/imageAnalysisGroups";
+import {
+  getMediaAnalysisGroups,
+  isMediaTechniqueVisible,
+  type AnalysisMedia,
+} from "@/config/mediaAnalysisGroups";
 import { useAuthStore } from "@/store/authStore";
 import {
   parseAnalysesSearchParams,
   techniqueHasDedicatedPage,
   isTechniqueHiddenInMediaTab,
   navigateToDedicatedAnalysis,
+  buildMediaGroupUrl,
 } from "@/utils/caseAnalysisNav";
 import api from "@/services/api";
 import { resolvePeritusFileForAnalysis, type PeritusFileEntry } from "@/services/peritus";
@@ -38,7 +44,7 @@ const mediaTypeMeta: Record<string, { label: string; icon: string; color: string
 };
 
 const techniqueSubtitles: Record<string, string> = {
-  __audio_hub__: "Espectrograma, ENF, LTAS, DC e Níveis",
+  __audio_hub__: "Espectrograma, ENF, LTAS, níveis e DC local",
   __audio_spectral__: "Espectrograma, ENF e LTAS",
   __audio_levels__: "Níveis e DC local",
   synthetic_image_detection:
@@ -56,17 +62,28 @@ const techniqueSubtitles: Record<string, string> = {
   wavelet_noise_residue: FORENSIC_TECHNIQUE_META.wavelet_noise_residue.cardSubtitle,
   prnu: FORENSIC_TECHNIQUE_META.prnu.cardSubtitle,
   safire: FORENSIC_TECHNIQUE_META.safire.cardSubtitle,
-  noiseprint: FORENSIC_TECHNIQUE_META.noiseprint.cardSubtitle,
 };
 
 interface Props {
   evidences: Evidence[];
   peritusFiles?: PeritusFileEntry[];
+  /** Tipos de mídia presentes em referências globais (imagem/áudio/vídeo/pdf). */
+  globalReferenceTypes?: string[];
+  /** Contagem de arquivos de referência global por tipo (badge da aba). */
+  globalReferenceCounts?: Partial<Record<string, number>>;
+  /** Tipos de mídia presentes em derivados processáveis. */
+  derivativeTypes?: string[];
+  /** Contagem de derivados por tipo (badge da aba). */
+  derivativeCounts?: Partial<Record<string, number>>;
 }
 
 export default function CaseAnalysisPanels({
   evidences,
   peritusFiles = [],
+  globalReferenceTypes = [],
+  globalReferenceCounts = {},
+  derivativeTypes = [],
+  derivativeCounts = {},
 }: Props) {
   const { caseId } = useParams<{ caseId: string }>();
   const navigate = useNavigate();
@@ -82,14 +99,23 @@ export default function CaseAnalysisPanels({
   const [result, setResult] = useState<string>("");
   const userRole = useAuthStore((s) => s.user?.role);
 
-  const peritusAnalyzable = filterPeritusAnalyzable(peritusFiles);
+  const peritusAnalyzable = useMemo(
+    () => filterPeritusAnalyzable(peritusFiles),
+    [peritusFiles],
+  );
 
-  const typesInCase = Array.from(
-    new Set([
-      ...evidences.map((e) => e.file_type),
-      ...peritusAnalyzable.map((f) => f.file_type),
-    ])
-  ).filter((t) => mediaTypeMeta[t]);
+  const typesInCase = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...evidences.map((e) => e.file_type),
+          ...peritusAnalyzable.map((f) => f.file_type),
+          ...globalReferenceTypes,
+          ...derivativeTypes,
+        ]),
+      ).filter((t) => mediaTypeMeta[t]),
+    [evidences, peritusAnalyzable, globalReferenceTypes, derivativeTypes],
+  );
   const [activeType, setActiveType] = useState(typesInCase[0] || "imagem");
 
   useEffect(() => {
@@ -156,26 +182,13 @@ export default function CaseAnalysisPanels({
           const rest = filteredPlugins.filter((p) => !AUDIO_CORE.has(p.name));
           if (core.length === 0) return filteredPlugins;
           const hubReason = core.find((p) => p.unavailable_reason)?.unavailable_reason;
-          const spectralAvail = core.some(
-            (p) =>
-              ["audio_spectrogram", "audio_enf", "audio_ltas"].includes(p.name) && p.available !== false
-          );
-          const levelsAvail = core.some(
-            (p) =>
-              ["audio_levels", "audio_dc_local"].includes(p.name) && p.available !== false
-          );
+          const hubAvail = core.some((p) => p.available !== false);
           return [
             {
-              name: "__audio_spectral__",
+              name: "__audio_hub__",
               supported_types: ["audio"],
-              available: spectralAvail,
-              unavailable_reason: spectralAvail ? null : hubReason,
-            },
-            {
-              name: "__audio_levels__",
-              supported_types: ["audio"],
-              available: levelsAvail,
-              unavailable_reason: levelsAvail ? null : hubReason,
+              available: hubAvail,
+              unavailable_reason: hubAvail ? null : hubReason,
             },
             ...rest,
           ];
@@ -215,7 +228,16 @@ export default function CaseAnalysisPanels({
     navigate(`/cases/${caseId}/analysis/image-group/${groupId}`);
   }
 
-  function renderImageCategoryCards() {
+  function handleMediaGroupClick(media: Exclude<AnalysisMedia, "imagem">, groupId: string) {
+    if (!caseId) return;
+    navigate(buildMediaGroupUrl(caseId, media, groupId));
+  }
+
+  function renderGroupCards(
+    groups: { id: string; title: string; description: string; techniques: { adminOnly?: boolean }[] }[],
+    onClick: (groupId: string) => void,
+    isVisible: (entry: { adminOnly?: boolean }) => boolean,
+  ) {
     return (
       <div
         ref={techniquesRef}
@@ -226,14 +248,14 @@ export default function CaseAnalysisPanels({
           scrollMarginTop: "1rem",
         }}
       >
-        {IMAGE_ANALYSIS_GROUPS.map((group) => {
-          const visible = group.techniques.filter((entry) => isImageTechniqueVisible(entry, userRole));
+        {groups.map((group) => {
+          const visible = group.techniques.filter((entry) => isVisible(entry));
           if (visible.length === 0) return null;
           return (
             <button
               key={group.id}
               type="button"
-              onClick={() => handleImageGroupClick(group.id)}
+              onClick={() => onClick(group.id)}
               style={{
                 textAlign: "left",
                 background: "linear-gradient(180deg, #f8fafc 0%, #ffffff 55%)",
@@ -268,6 +290,28 @@ export default function CaseAnalysisPanels({
       </div>
     );
   }
+
+  function renderImageCategoryCards() {
+    return renderGroupCards(
+      IMAGE_ANALYSIS_GROUPS,
+      handleImageGroupClick,
+      (entry) => isImageTechniqueVisible(entry as Parameters<typeof isImageTechniqueVisible>[0], userRole),
+    );
+  }
+
+  function renderMediaCategoryCards(media: Exclude<AnalysisMedia, "imagem">) {
+    return renderGroupCards(
+      getMediaAnalysisGroups(media),
+      (groupId) => handleMediaGroupClick(media, groupId),
+      (entry) => isMediaTechniqueVisible(entry as Parameters<typeof isMediaTechniqueVisible>[0], userRole),
+    );
+  }
+
+  const usesGroupCards =
+    activeType === "imagem" ||
+    activeType === "audio" ||
+    activeType === "video" ||
+    activeType === "pdf";
 
   function renderTechniqueCard(plugin: PluginInfo) {
     const inactive = plugin.available === false;
@@ -330,14 +374,18 @@ export default function CaseAnalysisPanels({
     }
   }
 
-  const hasAnySource = evidences.length > 0 || peritusAnalyzable.length > 0;
+  const hasAnySource =
+    evidences.length > 0 ||
+    peritusAnalyzable.length > 0 ||
+    globalReferenceTypes.length > 0 ||
+    derivativeTypes.length > 0;
 
   if (!hasAnySource) {
     return (
       <div style={{ textAlign: "center", padding: "3rem", color: "#9ca3af" }}>
         <p>
-          Adicione evidências ForensicAuth ou importe um pacote Peritus Desktop para visualizar as técnicas de
-          análise disponíveis.
+          Adicione evidências, referências globais ou derivados processáveis (ou importe um pacote Peritus) para
+          visualizar as técnicas de análise disponíveis.
         </p>
       </div>
     );
@@ -346,7 +394,7 @@ export default function CaseAnalysisPanels({
   if (typesInCase.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "3rem", color: "#9ca3af" }}>
-        <p>Nenhum tipo de mídia reconhecido nas evidências deste caso.</p>
+        <p>Nenhum tipo de mídia reconhecido nas evidências, referências ou derivados deste caso.</p>
       </div>
     );
   }
@@ -367,7 +415,6 @@ export default function CaseAnalysisPanels({
         </div>
       )}
 
-      {/* Abas de tipo de mídia presentes no caso */}
       <div
         style={{
           display: "flex",
@@ -382,6 +429,8 @@ export default function CaseAnalysisPanels({
           return (
             <button
               key={t}
+              type="button"
+              data-testid={`media-tab-${t}`}
               onClick={() => {
                 setActiveType(t);
                 clearSelection();
@@ -420,21 +469,27 @@ export default function CaseAnalysisPanels({
                 }}
               >
                 {evidences.filter((e) => e.file_type === t).length +
-                  peritusAnalyzable.filter((f) => f.file_type === t).length}
+                  peritusAnalyzable.filter((f) => f.file_type === t).length +
+                  (globalReferenceCounts[t] ?? 0) +
+                  (derivativeCounts[t] ?? 0)}
               </span>
             </button>
           );
         })}
       </div>
 
-      {loading ? (
+      {loading && !usesGroupCards ? (
         <p style={{ color: "#666" }}>Carregando técnicas...</p>
+      ) : usesGroupCards ? (
+        <div style={{ marginBottom: "1.5rem" }}>
+          {activeType === "imagem"
+            ? renderImageCategoryCards()
+            : renderMediaCategoryCards(activeType as Exclude<AnalysisMedia, "imagem">)}
+        </div>
       ) : displayPlugins.length === 0 ? (
         <div style={{ textAlign: "center", padding: "2rem", color: "#9ca3af" }}>
           <p>Nenhuma técnica disponível para {mediaTypeMeta[activeType]?.label}.</p>
         </div>
-      ) : activeType === "imagem" ? (
-        <div style={{ marginBottom: "1.5rem" }}>{renderImageCategoryCards()}</div>
       ) : (
         <div
           ref={techniquesRef}
@@ -450,7 +505,6 @@ export default function CaseAnalysisPanels({
         </div>
       )}
 
-      {/* Seleção de evidência e execução */}
       {selectedTech && (
         <div
           style={{

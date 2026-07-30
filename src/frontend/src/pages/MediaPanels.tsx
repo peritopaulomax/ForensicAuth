@@ -65,7 +65,6 @@ export default function MediaPanels() {
         </div>
       )}
 
-      {/* Abas de tipo de mídia */}
       <div
         style={{
           display: "flex",
@@ -102,7 +101,6 @@ export default function MediaPanels() {
         ))}
       </div>
 
-      {/* Painel de técnicas */}
       {loading ? (
         <p style={{ color: "#666" }}>Carregando técnicas...</p>
       ) : filteredPlugins.length === 0 ? (

@@ -41,7 +41,7 @@ def upgrade() -> None:
         case_share,
         custody_record,
         evidence,
-        report,
+        refresh_token,
         user,
     )
 

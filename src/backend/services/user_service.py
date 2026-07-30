@@ -84,6 +84,8 @@ class UserService:
 
         if "is_active" in data:
             user.is_active = bool(data["is_active"])
+            if not user.is_active:
+                self.auth.revoke_all_user_tokens(user.id)
 
         self.db.commit()
         self.db.refresh(user)
@@ -100,6 +102,7 @@ class UserService:
 
         user.hashed_password = unset_password_hash()
         user.password_set = False
+        self.auth.revoke_all_user_tokens(user.id)
         self.db.commit()
         self.db.refresh(user)
         return user

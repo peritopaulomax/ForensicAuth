@@ -18,7 +18,6 @@ const PatchMatchAnalysis = lazy(() => import("@/pages/PatchMatchAnalysis"));
 const CopyMovePcaAnalysis = lazy(() => import("@/pages/CopyMovePcaAnalysis"));
 const WaveletNoiseResidueAnalysis = lazy(() => import("@/pages/WaveletNoiseResidueAnalysis"));
 const PRNUAnalysis = lazy(() => import("@/pages/PRNUAnalysis"));
-const NoiseprintAnalysis = lazy(() => import("@/pages/NoiseprintAnalysis"));
 const SafireAnalysis = lazy(() => import("@/pages/SafireAnalysis"));
 const SyntheticImageDetectionAnalysis = lazy(() => import("@/pages/SyntheticImageDetectionAnalysis"));
 const PresentationAttackDetectionAnalysis = lazy(
@@ -41,7 +40,6 @@ const PLUGIN_COMPONENTS: Record<string, ComponentType<ImageTechniqueComponentPro
   copy_move_pca: CopyMovePcaAnalysis,
   wavelet_noise_residue: WaveletNoiseResidueAnalysis,
   prnu: PRNUAnalysis,
-  noiseprint: NoiseprintAnalysis,
   safire: SafireAnalysis,
   synthetic_image_detection: SyntheticImageDetectionAnalysis,
   presentation_attack_detection: PresentationAttackDetectionAnalysis,

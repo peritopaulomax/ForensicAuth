@@ -2,7 +2,7 @@
 
 ## Responsabilidade Unica
 
-Garantir a rastreabilidade, integridade e imutabilidade de evidencias **originais**, **derivadas salvas pelo usuario** e laudos, atraves de registros de auditoria encadeados com hash criptografico.
+Garantir a rastreabilidade, integridade e imutabilidade de evidencias **originais** e **derivadas salvas pelo usuario**, atraves de registros de auditoria encadeados com hash criptografico.
 
 **Importante:** execucoes exploratorias de analise (tentativa e erro de parametros) **NAO** entram na cadeia. Apenas acoes forenses deliberadas do usuario.
 
@@ -14,8 +14,10 @@ Garantir a rastreabilidade, integridade e imutabilidade de evidencias **originai
 | Exclusao (soft-delete) de evidencia | **Sim** | `evidence_deleted` |
 | Exclusao de caso inteiro (perito/admin) | **Sim** | `case_deleted` — arquivos apagados; logs preservados |
 | Rodar ELA/DCT/etc. para preview | **Nao** | — |
-| Usuario clica "Adicionar aos derivados" / "Adicionar ao relatorio" | **Sim** | `derivative_saved` |
-| Geracao de laudo PDF | **Sim** | `report_generated` |
+| Usuario clica "Adicionar aos derivados" | **Sim** | `derivative_saved` |
+| Compartilhar / fechar / reabrir / importar caso | **Sim** | `case_shared`, `case_closed`, … |
+
+> **Fora de escopo:** geracao de laudo PDF oficial (`report_generated`) — nao faz parte do produto.
 
 ## Tres cadeias complementares (visao do usuario)
 
@@ -30,7 +32,7 @@ Garantir a rastreabilidade, integridade e imutabilidade de evidencias **originai
 - `GET /api/v1/audit`
   - Entrada: Query params `case_id`, `user_id`, `from`, `to`, `evidence_id`, `job_id`
   - Saida: `List[CustodyRecord]` ordenado por timestamp descendente
-  - Permissao: Admin (tudo), Perito (casos que criou/participa), Analista (casos designados)
+  - Permissao: Admin (tudo); Perito nos casos que criou, e assignee ou compartilhados consigo
 
 - `GET /api/v1/audit/verify/{record_id}`
   - Entrada: `record_id: UUID`
@@ -67,7 +69,7 @@ class CustodyService:
 ## Fluxo: Salvar derivado (exemplo ELA)
 
 1. Perito abre evidencia, roda ELA varias vezes (preview — sem custodia).
-2. Escolhe 2–3 resultados para o laudo.
+2. Escolhe 2–3 resultados relevantes.
 3. Em cada resultado, clica **"Adicionar aos derivados"**.
 4. Sistema:
    - Copia artefato para `{DERIVATIVES_DIR}/{case_id}/`
@@ -117,13 +119,13 @@ Campos adicionais em derivados novos:
 
 - `derivation_group_id` — agrupa artefatos promovidos do mesmo job
 - `derivation_outputs` — metricas (PCE, LR, matriz N×M, etc.)
-- `algorithm.plugin` — adapter real (`ela`, `synthetic_image_detection`, …)
+- `algorithm.plugin` — plugin real (`ela`, `synthetic_image_detection`, …)
 
 5. Derivado aparece na aba **Derivados** do caso (agrupado por tipo: imagem, audio, etc.).
 
 ## UI prevista
 
-- **Aba Cadeia de Custodia** — timeline de eventos registrados (upload, derivados salvos, laudos, exclusoes). Registros `derivative_saved` incluem link ao grafo de derivacao.
+- **Aba Cadeia de Custodia** — timeline de eventos registrados (upload, derivados salvos, shares, fechamentos, exclusoes). Registros `derivative_saved` incluem link ao grafo de derivacao.
 - **Aba Derivados** — arquivos derivados salvos, separados por tipo, com grafo de proveniencia, pacotes do mesmo job e exportacao JSON/XML/PNG.
 - **Paginas de analise** — apos "Salvar derivado", banner com preview/link ao grafo e atalho para aba Derivados.
 
@@ -133,7 +135,7 @@ Campos adicionais em derivados novos:
 - **RN-CUST-02**: Todo upload de evidencia gera `evidence_upload` com SHA-256 do arquivo.
 - **RN-CUST-03**: Execucao de job de analise **nao** gera registro de custodia (preview exploratorio).
 - **RN-CUST-04**: Salvar derivado gera `derivative_saved` com hashes de entrada, saida e parametros.
-- **RN-CUST-05**: Todo laudo gerado gera `report_generated`.
+- **RN-CUST-05**: *(Removido)* — laudo PDF oficial fora de escopo; nao ha `report_generated`.
 - **RN-CUST-06**: Hash do registro anterior incluido no calculo do hash atual (encadeamento).
 - **RN-CUST-07**: Upload futuro deve suportar assinatura do registro (Ed25519/RSA sobre `record_hash`) ou registro externo (ex.: blockchain).
 - **RN-CUST-08**: A verificacao (`verify_chain`) apenas **detecta** adulteracao ou inconsistencia; a aplicacao **nao** reescreve hashes nem reencadeia registros. Novos elos usam `chain_sequence` monotona por caso na criacao (`create_record`).

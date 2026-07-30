@@ -79,21 +79,27 @@ async function mockCommon(page: Page, role: "admin" | "perito") {
   });
 }
 
-test.describe("MIML APSC-Net availability", () => {
-  test("admin sees MIML APSC-Net method", async ({ page }) => {
+test.describe("DL manipulação — visibilidade por perfil", () => {
+  test("admin sees public and restricted methods", async ({ page }) => {
     await mockCommon(page, "admin");
 
     await page.goto("/cases/case-miml/analysis/image-group/dl-manipulacao?tab=miml_apscnet");
 
     await expect(page.getByRole("tab", { name: /MIML APSC-Net/i })).toBeVisible();
     await expect(page.getByRole("tab", { name: /MIML APSC-Net/i })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab", { name: /SAFIRE/i })).toBeVisible();
   });
 
-  test("perito also sees MIML APSC-Net method", async ({ page }) => {
+  test("perito sees only CAT-Net, TruFor and MIML APSC-Net", async ({ page }) => {
     await mockCommon(page, "perito");
 
     await page.goto("/cases/case-miml/analysis/image-group/dl-manipulacao");
 
+    await expect(page.getByRole("tab", { name: /CAT-Net/i })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /TruFor/i })).toBeVisible();
     await expect(page.getByRole("tab", { name: /MIML APSC-Net/i })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /SAFIRE/i })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /Mesorch/i })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /DINOv3/i })).toHaveCount(0);
   });
 });

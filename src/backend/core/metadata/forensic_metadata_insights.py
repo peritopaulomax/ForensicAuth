@@ -237,11 +237,99 @@ def build_forensic_insights(
     families: dict[str, list[dict[str, str]]],
     xmp_structured: dict[str, Any] | None,
     summary: dict[str, Any] | None = None,
+    *,
+    c2pa_structured: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Gera alertas forenses ordenados por severidade (high → medium → info)."""
     alerts: list[dict[str, Any]] = []
     xmp_structured = xmp_structured or {}
     summary = summary or {}
+    c2pa_structured = c2pa_structured or {}
+
+    if c2pa_structured.get("available") and c2pa_structured.get("present"):
+        state = str(c2pa_structured.get("validation_state") or "")
+        is_valid = c2pa_structured.get("is_valid")
+        codes = c2pa_structured.get("validation_codes") or []
+        generator = c2pa_structured.get("claim_generator") or "—"
+        if is_valid is False or state.lower() in {"invalid", "failed"}:
+            alerts.append(
+                _alert(
+                    "high",
+                    "C2PA presente com validação falha",
+                    f"Estado: {state or 'invalid'} · claim_generator: {generator}. "
+                    "O manifesto existe, mas a verificação criptográfica falhou — "
+                    "não trate como autenticidade.",
+                    tags=["C2PA:Valid", "C2PA:ValidationState"],
+                )
+            )
+        else:
+            untrusted = any("untrusted" in str(c).lower() for c in codes)
+            severity = "medium" if untrusted else "info"
+            detail = (
+                f"Estado: {state or ('Valid' if is_valid else '—')} · "
+                f"claim_generator: {generator}."
+            )
+            if untrusted:
+                detail += (
+                    " Certificado de assinatura não está na âncora de confiança "
+                    "(configure C2PA_TRUST_ANCHORS_PATH se necessário)."
+                )
+            alerts.append(
+                _alert(
+                    severity,
+                    "Content Credentials (C2PA) detectadas",
+                    detail,
+                    tags=["C2PA:Present", "C2PA:ClaimGenerator"],
+                )
+            )
+        actions = c2pa_structured.get("actions") or []
+        if actions:
+            labels = ", ".join(
+                a.get("action") or "?" for a in actions if isinstance(a, dict)
+            )
+            agents = {
+                a.get("software_agent")
+                for a in actions
+                if isinstance(a, dict) and a.get("software_agent")
+            }
+            agent_txt = f" · agentes: {', '.join(sorted(agents))}" if agents else ""
+            alerts.append(
+                _alert(
+                    "info",
+                    "Histórico de ações C2PA",
+                    f"{len(actions)} ação(ões): {labels}{agent_txt}.",
+                    tags=["C2PA:Action"],
+                )
+            )
+        sig = c2pa_structured.get("signature_info") or {}
+        if isinstance(sig, dict) and (sig.get("issuer") or sig.get("time")):
+            alerts.append(
+                _alert(
+                    "info",
+                    "Assinatura C2PA",
+                    f"Emissor: {sig.get('issuer') or '—'} · alg: {sig.get('alg') or '—'} · "
+                    f"tempo: {sig.get('time') or '—'}.",
+                    tags=["C2PA:SignatureIssuer"],
+                )
+            )
+    elif c2pa_structured.get("available") is False and c2pa_structured.get("reason"):
+        alerts.append(
+            _alert(
+                "medium",
+                "Motor C2PA indisponível",
+                str(c2pa_structured.get("reason")),
+                tags=["C2PA"],
+            )
+        )
+    elif c2pa_structured.get("error"):
+        alerts.append(
+            _alert(
+                "medium",
+                "Falha ao ler C2PA",
+                str(c2pa_structured.get("error")),
+                tags=["C2PA:Error"],
+            )
+        )
 
     capture_entries = _collect_embedded_date_entries(families, kind="capture")
     modify_entries = _collect_embedded_date_entries(families, kind="modify")

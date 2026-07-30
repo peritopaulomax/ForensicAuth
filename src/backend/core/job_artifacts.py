@@ -9,7 +9,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-ARTIFACT_MAPPINGS: list[tuple[str, str]] = [
+from core.scaffolded_artifact_mappings import SCAFFOLDED_ARTIFACT_MAPPINGS
+
+_BASE_ARTIFACT_MAPPINGS: list[tuple[str, str]] = [
     ("heatmap_path", "heatmap.png"),
     ("heatmap_base_path", "heatmap_base.png"),
     ("score_map_path", "score_map.png"),
@@ -64,6 +66,8 @@ ARTIFACT_MAPPINGS: list[tuple[str, str]] = [
     ("isom_metadata_txt_path", "isom_metadata.txt"),
     ("isom_udta_json_path", "udta_atoms.json"),
     ("isom_meta_atoms_json_path", "meta_atoms.json"),
+    ("container_report_txt_path", "container_parser_report.txt"),
+    ("container_summary_json_path", "container_parser_summary.json"),
     ("matrix_json_path", "jpeg_structure_matrix.json"),
     ("matrix_image_path", "jpeg_structure_matrix.png"),
     ("matrix_report_txt_path", "jpeg_structure_report.txt"),
@@ -72,10 +76,13 @@ ARTIFACT_MAPPINGS: list[tuple[str, str]] = [
     ("grid_report_txt_path", "jpeg_structure_grid.txt"),
     ("metadata_json_path", "metadata_report.json"),
     ("metadata_report_path", "metadata_report.txt"),
+    ("c2pa_manifest_path", "c2pa_manifest.json"),
     ("xmp_packet_path", "xmp_packet.xml"),
     ("xmp_tree_json_path", "xmp_tree.json"),
     ("pdf_extract_metadata_json_path", "metadata.json"),
     ("incremental_report_path", "incremental_report.txt"),
+    ("signatures_json_path", "signatures.json"),
+    ("signatures_report_path", "signatures_report.txt"),
     ("extract_manifest_path", "extract_manifest.json"),
     ("spectrogram_path", "spectrogram_full.npz"),
     ("spectrogram_png_path", "spectrogram.png"),
@@ -112,15 +119,38 @@ ARTIFACT_MAPPINGS: list[tuple[str, str]] = [
     ("lfv_report_json_path", "lfv_report.json"),
     ("lfv_summary_txt_path", "lfv_summary.txt"),
     ("lfv_scores_chart_path", "lfv_scores_chart.png"),
-    ("distildire_report_json_path", "distildire_report.json"),
-    ("distildire_summary_txt_path", "distildire_summary.txt"),
-    ("distildire_eps_heatmap_path", "distildire_eps_heatmap.png"),
+    ("relayformer_report_json_path", "relayformer_report.json"),
+    ("relayformer_summary_txt_path", "relayformer_summary.txt"),
+    ("relayformer_scores_chart_path", "relayformer_scores_chart.png"),
+    ("relayformer_overlay_preview_path", "relayformer_overlay_preview.png"),
+    ("relayformer_mask_preview_path", "relayformer_mask_preview.png"),
+    ("relayformer_heatmap_preview_path", "relayformer_heatmap_preview.png"),
+    ("relayformer_input_preview_path", "relayformer_input_preview.png"),
+    ("truvil_report_json_path", "truvil_report.json"),
+    ("truvil_summary_txt_path", "truvil_summary.txt"),
+    ("truvil_scores_chart_path", "truvil_scores_chart.png"),
+    ("truvil_overlay_preview_path", "truvil_overlay_preview.png"),
+    ("truvil_mask_preview_path", "truvil_mask_preview.png"),
+    ("truvil_heatmap_preview_path", "truvil_heatmap_preview.png"),
+    ("truvil_input_preview_path", "truvil_input_preview.png"),
+    ("vilocal_report_json_path", "vilocal_report.json"),
+    ("vilocal_summary_txt_path", "vilocal_summary.txt"),
+    ("vilocal_scores_chart_path", "vilocal_scores_chart.png"),
+    ("vilocal_overlay_preview_path", "vilocal_overlay_preview.png"),
+    ("vilocal_mask_preview_path", "vilocal_mask_preview.png"),
+    ("vilocal_heatmap_preview_path", "vilocal_heatmap_preview.png"),
+    ("vilocal_input_preview_path", "vilocal_input_preview.png"),
     ("pad_result_json_path", "pad_result.json"),
     ("pad_face_crop_path", "pad_face_crop.png"),
     ("pad_annotated_image_path", "pad_annotated.png"),
     ("plot_filename", "audio_spoofing_plot.json"),
     ("details_filename", "audio_spoofing_details.json"),
     ("detector_scores_txt_path", "detector_scores.txt"),
+]
+
+ARTIFACT_MAPPINGS: list[tuple[str, str]] = [
+    *_BASE_ARTIFACT_MAPPINGS,
+    *SCAFFOLDED_ARTIFACT_MAPPINGS,
 ]
 
 

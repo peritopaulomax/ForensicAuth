@@ -52,11 +52,12 @@ services:
       - FORENSICAUTH_IMAGE_DIGEST=${FORENSICAUTH_IMAGE_DIGEST:-}
       - FORENSICAUTH_WORKER_QUEUE=celery
     volumes:
-      - ./uploads:/app/uploads
-      - ./results:/app/results
-      - ./derivatives:/app/derivatives
-      - ./peritus_cases:/app/peritus_cases
+      - ./data/uploads:/app/uploads
+      - ./data/results:/app/results
+      - ./data/derivatives:/app/derivatives
+      - ./data/peritus_cases:/app/peritus_cases
       - ./models:/app/models
+      - ./reference_data:/app/reference_data
     depends_on:
       db:
         condition: service_healthy
@@ -84,11 +85,12 @@ services:
       - FORENSICAUTH_IMAGE_DIGEST=${FORENSICAUTH_IMAGE_DIGEST:-}
       - FORENSICAUTH_WORKER_QUEUE=celery
     volumes:
-      - ./uploads:/app/uploads
-      - ./results:/app/results
-      - ./derivatives:/app/derivatives
-      - ./peritus_cases:/app/peritus_cases
+      - ./data/uploads:/app/uploads
+      - ./data/results:/app/results
+      - ./data/derivatives:/app/derivatives
+      - ./data/peritus_cases:/app/peritus_cases
       - ./models:/app/models
+      - ./reference_data:/app/reference_data
     depends_on:
       db:
         condition: service_healthy

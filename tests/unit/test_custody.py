@@ -1,7 +1,4 @@
-"""Tests for custody chain module — TDD Red phase.
-
-Expected: ALL tests fail because CustodyService does not exist yet.
-"""
+"""Custody chain, signing (Ed25519), persistência de chave e relatório narrativo.\n\nMERGE mecânico (Fase 3f) — anexados signing/signing_persist/narrative.\nMantido separado: test_custody_integration.py\n"""
 
 import uuid
 
@@ -9,6 +6,18 @@ import pytest
 from sqlalchemy import update, text
 
 from models.custody_record import CustodyRecord
+
+import base64
+import hashlib
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+import services.custody_signing_service as signing_module
+from services.custody_narrative_report import CustodyNarrativeReportService
+from services.custody_service import CustodyService, _allow_custody_record_updates
+from services.custody_signing_service import CustodySigningService, _load_or_create_dev_key, dev_signing_key_path
+from services.forensic_integrity_service import ForensicIntegrityService
 
 
 class TestCustodyService:
@@ -349,3 +358,153 @@ class TestCustodyService:
         result = service.verify_chain(sample_case.id)
         assert result["valid"] is False
         assert "custody_seal_invalid" in result["reason"]
+
+
+# --- signing (ex test_custody_signing) ---
+
+
+class TestCustodySigning:
+    def test_new_record_has_valid_signature(self, db_session, sample_case, test_user):
+        service = CustodyService(db_session)
+        record = service.create_record(
+            record_type="evidence_upload",
+            case_id=sample_case.id,
+            user_id=test_user.id,
+            details={"test": True},
+        )
+        assert record.system_signature
+        assert record.signing_key_id
+        signing = CustodySigningService()
+        assert signing.verify_digest_hex(
+            record.record_hash,
+            record.system_signature,
+            record.signing_key_id,
+        )
+
+    def test_verify_record_includes_signature(self, db_session, sample_case, test_user):
+        service = CustodyService(db_session)
+        record = service.create_record(
+            record_type="evidence_upload",
+            case_id=sample_case.id,
+            user_id=test_user.id,
+            details={},
+        )
+        result = service.verify_record(record.id)
+        assert result["signature_valid"] is True
+
+
+# --- signing persist (ex test_custody_signing_persist) ---
+
+
+class TestDevSigningKeyPersist:
+    def test_dev_key_persisted_and_reloaded(self, monkeypatch, tmp_path):
+        signing_module._DEV_PRIVATE_KEY = None
+        signing_module._DEV_PUBLIC_KEY = None
+        uploads = tmp_path / "uploads"
+        uploads.mkdir()
+        monkeypatch.setenv("UPLOAD_DIR", str(uploads))
+        from app.config import get_settings
+
+        get_settings.cache_clear()
+        settings = get_settings()
+
+        _load_or_create_dev_key(settings)
+        path = dev_signing_key_path(settings)
+        assert path.is_file()
+
+        get_settings.cache_clear()
+        settings2 = get_settings()
+        k1, _ = _load_or_create_dev_key(settings2)
+        raw = path.read_text(encoding="ascii").strip()
+        k2 = Ed25519PrivateKey.from_private_bytes(base64.b64decode(raw + "=" * (-len(raw) % 4)))
+        assert (
+            k1.private_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PrivateFormat.Raw,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+            == k2.private_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PrivateFormat.Raw,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        )
+
+    def test_invalid_signature_fails_forensic_without_auto_fix(
+        self, db_session, sample_case, test_user, monkeypatch, tmp_path
+    ):
+        signing_module._DEV_PRIVATE_KEY = None
+        signing_module._DEV_PUBLIC_KEY = None
+        uploads = tmp_path / "uploads"
+        uploads.mkdir()
+        monkeypatch.setenv("UPLOAD_DIR", str(uploads))
+        from app.config import get_settings
+
+        get_settings.cache_clear()
+        _load_or_create_dev_key(get_settings())
+
+        CustodyService(db_session).create_record(
+            record_type="evidence_upload",
+            case_id=sample_case.id,
+            user_id=test_user.id,
+            details={},
+        )
+        with _allow_custody_record_updates(db_session):
+            record = (
+                db_session.query(CustodyRecord)
+                .filter_by(case_id=sample_case.id)
+                .first()
+            )
+            record.system_signature = base64.b64encode(b"x" * 64).decode("ascii")
+            db_session.commit()
+
+        report = ForensicIntegrityService(db_session).verify_case_forensic_integrity(
+            sample_case.id
+        )
+        assert report["chain"]["valid"] is True
+        assert report["valid"] is False
+        assert len(report["signatures"]["invalid"]) == 1
+
+
+# --- narrative report (ex test_custody_narrative_report) ---
+
+
+class TestCustodyNarrativeReport:
+    def test_build_and_render(
+        self, db_session, sample_case, test_user, sample_evidence, tmp_path
+    ):
+        path = tmp_path / "ev.jpg"
+        path.write_bytes(b"pixel-data")
+
+        sample_evidence.file_path = str(path)
+        sample_evidence.sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+        db_session.commit()
+
+        CustodyService(db_session).create_record(
+            record_type="evidence_upload",
+            case_id=sample_case.id,
+            evidence_id=sample_evidence.id,
+            user_id=test_user.id,
+            sha256_input=sample_evidence.sha256,
+            details={
+                "original_filename": sample_evidence.original_filename,
+                "file_type": "imagem",
+                "file_size": 10,
+                "sha256": sample_evidence.sha256,
+            },
+        )
+
+        svc = CustodyNarrativeReportService(db_session)
+        report = svc.build(sample_case.id)
+        assert report["case"]["protocol_number"] == sample_case.protocol_number
+        assert len(report["events"]) >= 1
+        assert "Evidencia recebida" in report["events"][0]["title"]
+        assert any("registrou o recebimento" in p for p in report["events"][0]["paragraphs"])
+
+        html = svc.render_html(report)
+        assert "Linha do tempo" in html
+        assert sample_case.protocol_number in html
+
+        md = svc.render_markdown(report)
+        assert sample_case.protocol_number in md
+        assert "## Linha do tempo" in md

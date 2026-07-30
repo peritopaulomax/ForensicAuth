@@ -1,0 +1,50 @@
+version: 1
+media: audio
+domain: audio_spoofing
+updated: "2026-07-28"
+
+datasets:
+  - id: ASVspoof2019_LA
+    label: ASVspoof 2019 LA
+    status: published
+  - id: ASVspoof2021_LA_eval
+    label: ASVspoof 2021 LA eval
+    status: published
+  - id: ASVspoof5
+    label: ASVspoof 5
+    status: published
+  - id: CodecFake
+    label: CodecFake
+    status: published
+  - id: ADD2022
+    label: ADD 2022
+    status: published
+  - id: ADD2023
+    label: ADD 2023
+    status: published
+  - id: DFADD
+    label: DFADD
+    status: published
+  - id: SONAR
+    label: SONAR
+    status: published
+  - id: In-The-Wild
+    label: In-The-Wild
+    status: published
+  - id: Fake-or-Real
+    label: Fake-or-Real
+    status: published
+  - id: LibriSeVoc
+    label: LibriSeVoc
+    status: published
+
+features:
+  scores: features/scores/lr_scores_balanced_full.csv
+  representations: features/nxt/nxt.csv
+
+lifecycle:
+  register: "Add entry here with status=draft (optional)"
+  ingest: >
+    scripts/ingest_audio_spoofing_reference.py
+    (protocol CSV → va-reference_build originals/augs → reference_data scores+embeddings)
+  publish: "Set status=published after validating LR sampling on the new base"

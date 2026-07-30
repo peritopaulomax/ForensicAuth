@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -39,6 +40,14 @@ from core.reproducibility import (
     load_job_execution_receipt,
 )
 from services.derivation_lineage import DerivationLineageBuilder
+
+
+def _sanitize_display_stem(value: str) -> str:
+    """Remove separadores de caminho e caracteres problemáticos do stem."""
+    text = (value or "").strip().replace("\\", "/").split("/")[-1]
+    text = re.sub(r"[^\w.\- +()\[\]]+", "_", text, flags=re.UNICODE)
+    text = re.sub(r"_+", "_", text).strip("._ ")
+    return text[:180]
 
 
 class DerivativeSaveError(Exception):
@@ -130,6 +139,10 @@ class DerivativeService:
             return " · ".join(parts)
         if job.technique == "metadata":
             return "Metadados e estrutura JPEG"
+        if job.technique == "audio_metadata":
+            return "Metadados de áudio"
+        if job.technique == "video_metadata":
+            return "Metadados profundos de vídeo"
         if job.technique == "audio_spectrogram":
             params = job.parameters or {}
             parts = ["Espectrograma STFT"]
@@ -172,19 +185,38 @@ class DerivativeService:
         artifact_filename: str,
         label: Optional[str],
     ) -> str:
-        if label:
-            stem = label.strip()
+        """Nome legível do derivado: único por artefato, com stem do PDF/pai.
+
+        Sem label, inclui o stem do artefato (ex.: ``image_00042``) para evitar
+        colisão quando vários arquivos do mesmo job viram derivados.
+        """
+        ext = Path(artifact_filename).suffix or ".png"
+        parent_stem = _sanitize_display_stem(Path(parent.original_filename).stem) or "parent"
+        artifact_stem = _sanitize_display_stem(Path(artifact_filename).stem)
+
+        if label and str(label).strip():
+            stem = _sanitize_display_stem(Path(str(label).strip()).name)
+            if Path(stem).suffix:
+                stem = Path(stem).stem
+            stem = _sanitize_display_stem(stem) or job.technique
         else:
+            parts = [job.technique]
             params = job.parameters or {}
             channel = params.get("channel_mode", "")
-            parts = [job.technique]
             if channel:
                 parts.append(str(channel))
             if job.technique == "ela" and "quality" in params:
                 parts.append(f"q{params['quality']}")
+            if artifact_stem and artifact_stem.lower() not in {
+                job.technique.lower(),
+                "heatmap",
+                "result",
+                "overlay",
+                "mask",
+            }:
+                parts.append(artifact_stem)
             stem = "_".join(parts)
-        ext = Path(artifact_filename).suffix or ".png"
-        parent_stem = Path(parent.original_filename).stem
+
         return f"{stem}_{parent_stem}{ext}"
 
     def _load_evidence(self, evidence_id: uuid.UUID | str | None) -> Evidence | None:
@@ -483,6 +515,36 @@ class DerivativeService:
                 return parent_inputs, "lowres_fake_video_summary_save", "lfv_summary"
             return parent_inputs, "lowres_fake_video_report_save", "lfv_report"
 
+        if job.technique == "truvil":
+            parent_inputs = [parent_ref_from_evidence(questioned, "input")]
+            lower = artifact_filename.lower()
+            if "overlay" in lower and lower.endswith(".png"):
+                return parent_inputs, "truvil_overlay_save", "truvil_overlay"
+            if "heatmap" in lower and lower.endswith(".png"):
+                return parent_inputs, "truvil_heatmap_save", "truvil_heatmap"
+            if "mask" in lower and lower.endswith(".png"):
+                return parent_inputs, "truvil_mask_save", "truvil_mask"
+            if "chart" in lower and lower.endswith(".png"):
+                return parent_inputs, "truvil_chart_save", "truvil_scores_chart"
+            if lower.endswith(".txt"):
+                return parent_inputs, "truvil_summary_save", "truvil_summary"
+            return parent_inputs, "truvil_report_save", "truvil_report"
+
+        if job.technique == "vilocal":
+            parent_inputs = [parent_ref_from_evidence(questioned, "input")]
+            lower = artifact_filename.lower()
+            if "overlay" in lower and lower.endswith(".png"):
+                return parent_inputs, "vilocal_overlay_save", "vilocal_overlay"
+            if "heatmap" in lower and lower.endswith(".png"):
+                return parent_inputs, "vilocal_heatmap_save", "vilocal_heatmap"
+            if "mask" in lower and lower.endswith(".png"):
+                return parent_inputs, "vilocal_mask_save", "vilocal_mask"
+            if "chart" in lower and lower.endswith(".png"):
+                return parent_inputs, "vilocal_chart_save", "vilocal_scores_chart"
+            if lower.endswith(".txt"):
+                return parent_inputs, "vilocal_summary_save", "vilocal_summary"
+            return parent_inputs, "vilocal_report_save", "vilocal_report"
+
         parent_inputs = [parent_ref_from_evidence(questioned, "input")]
         if job.technique == "metadata" or "metadata_report" in artifact_filename.lower():
             return parent_inputs, "metadata_report_save", "metadata_report"
@@ -496,7 +558,7 @@ class DerivativeService:
             if "scores" in lower and lower.endswith(".png"):
                 return parent_inputs, "videofact_chart_save", "videofact_scores_chart"
 
-        if job.technique in ("imdlbenco", "safire", "noiseprint"):
+        if job.technique in ("imdlbenco", "safire"):
             effective = self._effective_derivation_technique(job, job_result)
             artifact_role, step = self._ml_localization_artifact_role(effective, artifact_filename)
             return parent_inputs, step, artifact_role
@@ -719,6 +781,26 @@ class DerivativeService:
                 "max_frame_idx": job_result.get("max_frame_idx"),
                 "inference_device": job_result.get("inference_device"),
             }
+        elif job.technique == "truvil":
+            procedure_summary = (
+                f"TruVIL · mask max {job_result.get('max_mask_ratio', '—')}"
+            )
+            outputs_metrics = {
+                "mean_mask_ratio": job_result.get("mean_mask_ratio"),
+                "max_mask_ratio": job_result.get("max_mask_ratio"),
+                "max_start_frame": job_result.get("max_start_frame"),
+                "inference_device": job_result.get("inference_device"),
+            }
+        elif job.technique == "vilocal":
+            procedure_summary = (
+                f"ViLocal · mask max {job_result.get('max_mask_ratio', '—')}"
+            )
+            outputs_metrics = {
+                "mean_mask_ratio": job_result.get("mean_mask_ratio"),
+                "max_mask_ratio": job_result.get("max_mask_ratio"),
+                "max_start_frame": job_result.get("max_start_frame"),
+                "inference_device": job_result.get("inference_device"),
+            }
         elif job.technique == "prnu" and "localized" in artifact_filename.lower():
             procedure_summary = "PRNU mapas localizados"
             outputs_metrics = {
@@ -733,7 +815,7 @@ class DerivativeService:
                 "mode": params.get("mode") or job_result.get("mode"),
                 "inference_device": job_result.get("inference_device"),
             }
-        elif job.technique in ("imdlbenco", "safire", "noiseprint"):
+        elif job.technique in ("imdlbenco", "safire"):
             stem = Path(artifact_filename).stem.replace("_", " ")
             procedure_summary = f"{provenance_technique.upper()} — {stem}"
             outputs_metrics: dict[str, Any] = {

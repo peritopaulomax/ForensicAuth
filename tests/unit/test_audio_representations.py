@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from core.latent_typicality.representations_utils import (
     ORIGINAL_AUGMENTATION_TAG,
     build_sample_id,
@@ -124,7 +126,11 @@ def test_repair_augmented_representations_renames_embeddings(tmp_path):
     import pandas as pd
 
     repo = Path(__file__).resolve().parents[2]
-    script = repo / "scripts" / "repair_audio_augmented_representations.py"
+    # Calibração: script oficial viveria em ops/. Sem dependência de "Fora do Repo".
+    script = repo / "ops" / "calibration" / "repair_audio_augmented_representations.py"
+    if not script.is_file():
+        pytest.skip("Script de repair de representations nao esta em ops/calibration")
+
     spec = importlib.util.spec_from_file_location("repair_audio_augmented_representations", script)
     mod = importlib.util.module_from_spec(spec)
     sys.modules["repair_audio_augmented_representations"] = mod

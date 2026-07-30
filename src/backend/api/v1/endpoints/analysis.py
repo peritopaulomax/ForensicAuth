@@ -12,6 +12,16 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user
+from core.plugin_contracts import provenance_contract
+from core.result_handlers import (
+    AUDIO_PLOT_SNAPSHOT_FILENAMES,
+    has_display_handler,
+    has_preview_handler,
+    has_snapshot_handler,
+    load_display_data,
+    preview,
+    store_snapshot,
+)
 from models.user import User
 from services.case_access import (
     assert_can_edit_case,
@@ -23,7 +33,19 @@ from services.job_service import JobService, build_job_result_dir
 
 router = APIRouter()
 
-IMDL_ADMIN_ONLY_METHODS = {"nfa_vit"}
+# Perito: CAT-Net, TruFor, MIML APSC-Net. Demais métodos IMDL: só admin.
+IMDL_ADMIN_ONLY_METHODS = {
+    "sparse_vit",
+    "mesorch",
+    "dinov3_iml",
+    "co_transformers",
+    "nfa_vit",
+    "objectformer",
+    "forensic_hub",
+    "opensdi",
+}
+# Plugins de localização fora do hub IMDL restritos a admin.
+ADMIN_ONLY_TECHNIQUES = {"safire"}
 
 
 class SubmitJobRequest(BaseModel):
@@ -119,7 +141,7 @@ def list_imdlbenco_methods(
     current_user: User = Depends(get_current_user),
 ):
     """List IMDL-BenCo hub methods with per-method runtime status."""
-    from core.legacy.imdlbenco.imdlbenco_runtime import list_method_status
+    from forensics.imdlbenco.imdlbenco_runtime import list_method_status
 
     rows = list_method_status()
     if str(current_user.role) != "admin":
@@ -132,8 +154,24 @@ def list_audio_spoofing_detectors(
     current_user: User = Depends(get_current_user),
 ):
     """Catalog of audio spoofing detectors with per-detector runtime status."""
-    from core.legacy.audio_spoofing.runtime import DETECTOR_CATALOG, detector_runtime_status
+    from forensics.audio_spoofing.runtime import DETECTOR_CATALOG, detector_runtime_status
 
+    _ = current_user
+    rows = []
+    for item in DETECTOR_CATALOG:
+        ok, reason = detector_runtime_status(item["id"])
+        rows.append({**item, "available": ok, "unavailable_reason": reason if not ok else None})
+    return rows
+
+
+@router.get("/analysis/synthetic-image-detectors")
+def list_synthetic_image_detectors(
+    current_user: User = Depends(get_current_user),
+):
+    """Catalog of synthetic-image detectors with per-detector runtime status."""
+    from forensics.synthetic_image_detection.runtime import DETECTOR_CATALOG, detector_runtime_status
+
+    _ = current_user
     rows = []
     for item in DETECTOR_CATALOG:
         ok, reason = detector_runtime_status(item["id"])
@@ -163,11 +201,19 @@ def list_synthetic_reference_catalog(
 
     Macro categories (GAN older, diffusion CNN early/modern, diffusion
     transformer, other) group bases and generators so the frontend can render
-    a three-level selector.
+    a three-level selector. Includes the product default population
+    (Transformer + CNN moderna + AIGI Bench Social).
     """
-    from core.synthetic_lr_reference import reference_macro_catalog
+    from core.synthetic_lr_reference import (
+        default_reference_population,
+        reference_macro_catalog,
+    )
 
-    return {"categories": reference_macro_catalog()}
+    _ = current_user
+    return {
+        "categories": reference_macro_catalog(),
+        "default_reference_items": default_reference_population(),
+    }
 
 
 @router.get("/analysis/provenance-contract")
@@ -175,10 +221,14 @@ def list_provenance_contract(
     current_user: User = Depends(get_current_user),
 ):
     """Matriz de contrato de proveniencia por tecnica (insumos, params, artefatos)."""
-    from services.derivation_contract import TECHNIQUE_PROVENANCE_CONTRACT
+    from core.plugin_registry import PluginRegistry
 
     _ = current_user
-    return {"schema_version": "1", "techniques": TECHNIQUE_PROVENANCE_CONTRACT}
+    registry = PluginRegistry()
+    techniques: dict[str, dict[str, Any] | None] = {}
+    for name in registry.PLUGINS:
+        techniques[name] = provenance_contract(name)
+    return {"schema_version": "1", "techniques": techniques}
 
 
 @router.post("/analysis", status_code=status.HTTP_201_CREATED)
@@ -191,15 +241,20 @@ def submit_job(
     evidence = get_accessible_evidence(db, request.evidence_id, current_user)
     assert_can_edit_case(db, evidence.case, current_user)
     assert_case_not_closed(evidence.case)
-    if (
-        request.technique == "imdlbenco"
-        and request.parameters.get("method") in IMDL_ADMIN_ONLY_METHODS
-        and str(current_user.role) != "admin"
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Metodo disponivel apenas para administradores em fase de teste.",
-        )
+    if str(current_user.role) != "admin":
+        if request.technique in ADMIN_ONLY_TECHNIQUES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tecnica disponivel apenas para administradores.",
+            )
+        if (
+            request.technique == "imdlbenco"
+            and request.parameters.get("method") in IMDL_ADMIN_ONLY_METHODS
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Metodo disponivel apenas para administradores.",
+            )
     service = JobService(db)
     job = service.submit_job(
         evidence_id=request.evidence_id,
@@ -362,62 +417,20 @@ def get_spectrogram_display_data(
             status_code=status.HTTP_409_CONFLICT,
             detail="Job ainda nao completado",
         )
-    if job.technique != "audio_spectrogram":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dados de exibicao disponiveis apenas para audio_spectrogram",
-        )
 
     settings = get_settings()
-    npz_path = _job_result_dir(job, settings) / "spectrogram_full.npz"
-    if not npz_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="spectrogram_full.npz nao encontrado",
-        )
-
+    result_dir = _job_result_dir(job, settings)
     results_dir = Path(settings.RESULTS_DIR).resolve()
-    if not npz_path.resolve().is_relative_to(results_dir):
+    if not result_dir.resolve().is_relative_to(results_dir):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
-    return JSONResponse(_load_spectrogram_display_npz(npz_path))
-
-
-def _load_spectrogram_display_npz(npz_path: Path) -> dict:
-    import numpy as np
-
-    with np.load(npz_path, allow_pickle=False) as archive:
-        times = archive["times_display"]
-        freqs = archive["frequencies_display"]
-        mag = archive["magnitude_db_display"]
-        sample_rate = int(archive["sample_rate"]) if "sample_rate" in archive else 0
-        n_fft = int(archive["n_fft"]) if "n_fft" in archive else 0
-        hop_length = int(archive["hop_length"]) if "hop_length" in archive else 0
-        stft_shape = (
-            [int(archive["stft_shape"][0]), int(archive["stft_shape"][1])]
-            if "stft_shape" in archive
-            else [int(mag.shape[0]), int(mag.shape[1])]
+    if not has_display_handler(job.technique):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Dados de exibicao nao disponiveis para tecnica {job.technique}",
         )
-        duration_sec = float(archive["duration_sec"]) if "duration_sec" in archive else 0.0
-        hop_adjusted = bool(archive["hop_adjusted"]) if "hop_adjusted" in archive else False
 
-    return {
-        "times": times.astype(float).tolist(),
-        "frequencies": freqs.astype(float).tolist(),
-        "magnitude_db": mag.astype(float).tolist(),
-        "sample_rate": sample_rate,
-        "n_fft": n_fft,
-        "hop_length": hop_length,
-        "stft_shape": stft_shape,
-        "display_shape": [int(mag.shape[0]), int(mag.shape[1])],
-        "duration_sec": duration_sec,
-        "hop_adjusted": hop_adjusted,
-    }
-
-
-_AUDIO_PLOT_TECHNIQUES = frozenset(
-    {"audio_enf", "audio_levels", "audio_dc_local", "audio_ltas"}
-)
+    return JSONResponse(load_display_data(job.technique, result_dir))
 
 
 @router.get("/analysis/{job_id}/result/audio-plot-data")
@@ -428,8 +441,6 @@ def get_audio_plot_data(
     current_user: User = Depends(get_current_user),
 ):
     """Tracos Plotly serializados para sobreposicao (reter dados para comparacao)."""
-    import json
-
     service = JobService(db)
     job = service.get_job(job_id)
 
@@ -438,11 +449,6 @@ def get_audio_plot_data(
             status_code=status.HTTP_409_CONFLICT,
             detail="Job ainda nao completado",
         )
-    if job.technique not in _AUDIO_PLOT_TECHNIQUES:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Plot data disponivel apenas para ENF, niveis, DC local e LTAS",
-        )
 
     settings = get_settings()
     result_dir = _job_result_dir(job, settings)
@@ -450,26 +456,13 @@ def get_audio_plot_data(
     if not result_dir.resolve().is_relative_to(results_root):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
-    if job.technique == "audio_ltas":
-        json_path = result_dir / "ltas_plot_data.json"
-        if not json_path.exists():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ltas_plot_data.json nao encontrado")
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if panel:
-            if panel not in data:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Painel LTAS '{panel}' invalido (use normal, 6db, sorted, derivative)",
-                )
-            return JSONResponse(data[panel])
-        return JSONResponse(data)
+    if not has_display_handler(job.technique):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Plot data nao disponivel para esta tecnica",
+        )
 
-    json_path = result_dir / "plot_traces.json"
-    if not json_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="plot_traces.json nao encontrado")
-    with open(json_path, "r", encoding="utf-8") as f:
-        return JSONResponse(json.load(f))
+    return JSONResponse(load_display_data(job.technique, result_dir, panel=panel))
 
 
 @router.post("/analysis/{job_id}/spectrogram/snapshot")
@@ -485,11 +478,6 @@ async def upload_spectrogram_snapshot(
 
     if job.status != "completed":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job ainda nao completado")
-    if job.technique != "audio_spectrogram":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Snapshot disponivel apenas para audio_spectrogram",
-        )
 
     settings = get_settings()
     result_dir = _job_result_dir(job, settings)
@@ -498,6 +486,12 @@ async def upload_spectrogram_snapshot(
     if not result_dir.resolve().is_relative_to(results_root):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
+    if not has_snapshot_handler(job.technique):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Snapshot nao disponivel para tecnica {job.technique}",
+        )
+
     content_type = (file.content_type or "").lower()
     if content_type and content_type not in ("image/png", "application/octet-stream"):
         raise HTTPException(
@@ -505,24 +499,8 @@ async def upload_spectrogram_snapshot(
             detail="Arquivo deve ser PNG",
         )
 
-    dest = result_dir / "spectrogram_snapshot.png"
     data = await file.read()
-    if len(data) < 32:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="PNG invalido")
-    dest.write_bytes(data)
-
-    return {"artifact_filename": "spectrogram_snapshot.png", "path": str(dest)}
-
-
-AUDIO_PLOT_SNAPSHOT_FILENAMES: dict[str, str] = {
-    "enf_overlay_snapshot.png": "audio_enf",
-    "levels_overlay_snapshot.png": "audio_levels",
-    "dc_overlay_snapshot.png": "audio_dc_local",
-    "ltas_normal_overlay_snapshot.png": "audio_ltas",
-    "ltas_6db_overlay_snapshot.png": "audio_ltas",
-    "ltas_sorted_overlay_snapshot.png": "audio_ltas",
-    "ltas_derivative_overlay_snapshot.png": "audio_ltas",
-}
+    return store_snapshot(job.technique, result_dir, "spectrogram_snapshot.png", data)
 
 
 @router.post("/analysis/{job_id}/plot-snapshot")
@@ -566,13 +544,8 @@ async def upload_plot_snapshot(
             detail="Arquivo deve ser PNG",
         )
 
-    dest = result_dir / artifact_filename
     data = await file.read()
-    if len(data) < 32:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="PNG invalido")
-    dest.write_bytes(data)
-
-    return {"artifact_filename": artifact_filename, "path": str(dest)}
+    return store_snapshot(job.technique, result_dir, artifact_filename, data)
 
 
 class WaveletNoiseResiduePreviewRequest(BaseModel):
@@ -589,10 +562,6 @@ def preview_wavelet_noise_residue(
     current_user: User = Depends(get_current_user),
 ):
     """Re-apply blocksize/threshold post-processing from cached DWT coefficients (no new DWT)."""
-    import cv2
-
-    from core.legacy.wavelet_noise_residue import reprocess_wavelet_noise_residue_from_npz
-
     service = JobService(db)
     job = service.get_job(job_id)
     evidence = get_accessible_evidence(db, job.evidence_id, current_user)
@@ -607,67 +576,26 @@ def preview_wavelet_noise_residue(
             status_code=status.HTTP_409_CONFLICT,
             detail="Job ainda nao completado",
         )
-    if job.technique != "wavelet_noise_residue":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Preview disponivel apenas para wavelet_noise_residue",
-        )
 
     settings = get_settings()
     result_dir = _job_result_dir(job, settings)
-    npz_path = result_dir / "wnr_dwt_coefficients.npz"
-    if not npz_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Coeficientes DWT nao encontrados — reprocesse a imagem",
-        )
-
     results_root = Path(settings.RESULTS_DIR).resolve()
-    if not npz_path.resolve().is_relative_to(results_root):
+    if not result_dir.resolve().is_relative_to(results_root):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
-    visuals = reprocess_wavelet_noise_residue_from_npz(
-        npz_path,
-        blocksize=body.blocksize,
-        thr=body.thr,
-        post=body.post,
-        aggregate_cache_dir=result_dir,
-    )
+    if not has_preview_handler(job.technique):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Preview nao disponivel para tecnica {job.technique}",
+        )
 
-    cv2.imwrite(str(result_dir / "overlay.png"), visuals["overlay_bgr"])
-    cv2.imwrite(str(result_dir / "colored_overlay.png"), visuals["colored_bgr"])
-    cv2.imwrite(str(result_dir / "heatmap.png"), visuals["heatmap"])
-
-    from core.preview_effective import merge_effective_parameters, persist_effective_parameters
-
-    job_result = {}
-    result_json = result_dir / "result.json"
-    if result_json.is_file():
-        import json
-
-        try:
-            with open(result_json, encoding="utf-8") as f:
-                loaded = json.load(f)
-            if isinstance(loaded, dict):
-                job_result = loaded
-        except (json.JSONDecodeError, OSError):
-            job_result = {}
-
-    effective = merge_effective_parameters(
+    return preview(
+        job.technique,
         job,
-        job_result,
-        override={
+        result_dir,
+        {
             "blocksize": body.blocksize,
             "thr": body.thr,
             "post": body.post,
         },
     )
-    persist_effective_parameters(result_dir, effective)
-
-    return {
-        "success": True,
-        "blocksize": body.blocksize,
-        "thr": body.thr,
-        "post": body.post,
-        "effective_parameters": effective,
-    }

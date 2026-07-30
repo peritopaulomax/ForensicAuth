@@ -1,23 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
-import MediaEvidenceSelector from "@/components/MediaEvidenceSelector";
 import VideoPlayer, { useVideoEvidenceUrl } from "@/components/VideoPlayer";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
-import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
-import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
+import TechniquePageShell from "@/components/TechniquePageShell";
 import { useForensicJob } from "@/hooks/useForensicJob";
-import { saveDerivative } from "@/services/evidence";
-import api from "@/services/api";
-
-const META = FORENSIC_TECHNIQUE_META.stil_video_detection;
+import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 
 type ClipRow = { start_frame: number; score: number; decision: string };
 
 export default function StilVideoAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
-  const [selectedEvidence, setSelectedEvidence] = useState<string | null>(null);
-  const [runtimeOk, setRuntimeOk] = useState<boolean | null>(null);
-  const [runtimeReason, setRuntimeReason] = useState("");
   const [report, setReport] = useState<{
     video_decision: string;
     mean_score: number;
@@ -27,41 +20,35 @@ export default function StilVideoAnalysis() {
   } | null>(null);
   const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
   const [chartUrl, setChartUrl] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-  const videoUrl = useVideoEvidenceUrl(selectedEvidence);
-  const { running, error, progress, currentJobId, runAnalysis, fetchImage, fetchResultJson, reset } =
+  const { running, error, progress, progressLabel, currentJobId, runAnalysis, fetchImage, fetchResultJson, reset } =
     useForensicJob();
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
+  const { status: runtimeStatus } = useTechniqueRuntime("stil_video_detection");
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
 
-  useEffect(() => {
-    api
-      .get<{ name: string; available?: boolean; unavailable_reason?: string | null }[]>("/analysis/techniques")
-      .then((res) => {
-        const t = res.data.find((x) => x.name === "stil_video_detection");
-        setRuntimeOk(t ? t.available !== false : false);
-        setRuntimeReason(t?.unavailable_reason || "STIL nao registrado.");
-      })
-      .catch(() => {
-        setRuntimeOk(false);
-        setRuntimeReason("Falha ao verificar STIL.");
-      });
-  }, []);
-
-  const onSelect = useCallback(
-    (id: string) => {
-      setSelectedEvidence(id);
+  const applyEvidence = useCallback(
+    (_id: string, _source: "original" | "derivative") => {
       reset();
       setReport(null);
       setChartUrl(null);
       setSelectedFrame(null);
-      setSaveMessage(null);
+      clearMessage();
     },
-    [reset]
+    [reset, clearMessage],
   );
 
+  const { embedded, showEvidencePicker, evidenceId, onSelectEvidence } = useGroupAwareEvidence(
+    caseId!,
+    applyEvidence,
+  );
+
+  const videoUrl = useVideoEvidenceUrl(evidenceId);
+
   async function process() {
-    if (!selectedEvidence || !runtimeOk) return;
-    await runAnalysis(selectedEvidence, "stil_video_detection", { sample_every: 4, max_frames: 64 }, {
+    if (!evidenceId || !runtimeOk) return;
+    clearMessage();
+    await runAnalysis(evidenceId, "stil_video_detection", { sample_every: 4, max_frames: 64 }, {
       onArtifactsLoaded: async (jobId) => {
         const parsed = await fetchResultJson<{
           video_decision: string;
@@ -81,50 +68,33 @@ export default function StilVideoAnalysis() {
 
   async function saveDerivativeReport(artifactFilename: string, label: string) {
     if (!currentJobId) return;
-    setSaving(true);
-    setSaveMessage(null);
-    try {
-      await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: artifactFilename,
-        label,
-        effective_parameters: { sample_every: 4, max_frames: 64 },
-      });
-      setSaveMessage({ type: "ok", text: `${label} salvo no caso.` });
-    } catch (e) {
-      setSaveMessage({ type: "err", text: e instanceof Error ? e.message : "Falha ao salvar derivado." });
-    } finally {
-      setSaving(false);
-    }
+    await save(currentJobId, artifactFilename, label, { sample_every: 4, max_frames: 64 });
   }
 
-  return (
-    <AnalysisPageShell caseId={caseId!} title={META.title} subtitle={META.cardSubtitle}>
-      <TechniqueReferenceIntro meta={META} />
-      {runtimeOk === false && (
-        <MessageBox type="err" text={runtimeReason} />
-      )}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: "1rem" }}>
-        <AnalysisPanel title="Evidencia">
-          <MediaEvidenceSelector caseId={caseId!} fileType="video" selectedId={selectedEvidence} onSelect={onSelect} />
-          <div style={{ marginTop: "1rem" }}>
-            <ProcessButton
-            onClick={process}
-            running={running}
-            disabled={!selectedEvidence || runtimeOk === false}
-            label="Analisar com STIL"
-          />
-          </div>
-          {running && <p style={{ fontSize: "0.8rem", color: "#6b7280" }}>Progresso: {Math.round(progress)}%</p>}
-          {error && <MessageBox type="err" text={error} />}
-        </AnalysisPanel>
-        <AnalysisPanel title="Video">
-          <VideoPlayer src={videoUrl} seekFrame={selectedFrame} />
-        </AnalysisPanel>
+  if (!caseId) return null;
+
+  const parametersPanel = (
+    <>
+      <div style={{ marginTop: "1rem" }}>
+        <button
+          type="button"
+          onClick={process}
+          disabled={!evidenceId || runtimeOk !== true || running}
+          style={btnPrimary}
+        >
+          {running ? "Processando…" : "Analisar com STIL"}
+        </button>
       </div>
+      {running && <p style={{ fontSize: "0.8rem", color: "#6b7280" }}>Progresso: {Math.round(progress)}%</p>}
+    </>
+  );
+
+  const resultPanel = (
+    <>
+      <VideoPlayer src={videoUrl} seekFrame={selectedFrame} />
+
       {report && (
         <div style={{ marginTop: "1rem" }}>
-        <AnalysisPanel title="Resultados STIL">
           <p>
             <strong>Decisao:</strong> {report.video_decision} · <strong>Score max:</strong>{" "}
             {report.max_score.toFixed(4)} (frame {report.max_start_frame})
@@ -136,14 +106,7 @@ export default function StilVideoAnalysis() {
                 type="button"
                 onClick={() => void saveDerivativeReport("stil_report.json", "STIL — relatorio")}
                 disabled={saving}
-                style={{
-                  padding: "0.45rem 0.75rem",
-                  borderRadius: 6,
-                  border: "1px solid #1a1a2e",
-                  background: "#fff",
-                  cursor: saving ? "wait" : "pointer",
-                  fontSize: "0.8rem",
-                }}
+                style={btnSecondary}
               >
                 {saving ? "Salvando…" : "Salvar relatorio JSON"}
               </button>
@@ -151,29 +114,11 @@ export default function StilVideoAnalysis() {
                 type="button"
                 onClick={() => void saveDerivativeReport("stil_scores_chart.png", "STIL — grafico")}
                 disabled={saving}
-                style={{
-                  padding: "0.45rem 0.75rem",
-                  borderRadius: 6,
-                  border: "1px solid #1a1a2e",
-                  background: "#fff",
-                  cursor: saving ? "wait" : "pointer",
-                  fontSize: "0.8rem",
-                }}
+                style={btnSecondary}
               >
                 Salvar grafico PNG
               </button>
             </div>
-          )}
-          {saveMessage && (
-            <p
-              style={{
-                margin: "0.5rem 0 0",
-                fontSize: "0.78rem",
-                color: saveMessage.type === "ok" ? "#166534" : "#991b1b",
-              }}
-            >
-              {saveMessage.text}
-            </p>
           )}
           <div style={{ maxHeight: 240, overflow: "auto", marginTop: "0.5rem" }}>
             <table style={{ width: "100%", fontSize: "0.78rem" }}>
@@ -199,9 +144,48 @@ export default function StilVideoAnalysis() {
               </tbody>
             </table>
           </div>
-        </AnalysisPanel>
         </div>
       )}
-    </AnalysisPageShell>
+    </>
+  );
+
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="stil_video_detection"
+      mediaType="video"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      onSelectEvidence={onSelectEvidence as never}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      parametersPanel={parametersPanel}
+      resultPanel={resultPanel}
+    />
   );
 }
+
+const btnPrimary: React.CSSProperties = {
+  padding: "0.5rem 1rem",
+  background: "#0369a1",
+  color: "#fff",
+  border: "none",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: "0.85rem",
+};
+
+const btnSecondary: React.CSSProperties = {
+  padding: "0.45rem 0.75rem",
+  borderRadius: 6,
+  border: "1px solid #1a1a2e",
+  background: "#fff",
+  cursor: "pointer",
+  fontSize: "0.8rem",
+};

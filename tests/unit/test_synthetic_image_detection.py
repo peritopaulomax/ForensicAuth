@@ -7,14 +7,46 @@ import pytest
 
 
 class TestSyntheticImageDetectionRuntime:
+    def test_detector_catalog_has_bibliography_and_repo(self):
+        from forensics.synthetic_image_detection.runtime import (
+            DETECTOR_CATALOG,
+            SYNTHETIC_ANALYSIS_AI_IMAGE_DETECTOR,
+            SYNTHETIC_ANALYSIS_BFREE,
+            SYNTHETIC_ANALYSIS_CORVI2023,
+            SYNTHETIC_ANALYSIS_SAFE,
+            SYNTHETIC_ANALYSIS_SDXL_FLUX,
+        )
+
+        by_id = {row["id"]: row for row in DETECTOR_CATALOG}
+        expected = {
+            SYNTHETIC_ANALYSIS_AI_IMAGE_DETECTOR,
+            SYNTHETIC_ANALYSIS_SDXL_FLUX,
+            SYNTHETIC_ANALYSIS_BFREE,
+            SYNTHETIC_ANALYSIS_CORVI2023,
+            SYNTHETIC_ANALYSIS_SAFE,
+        }
+        assert set(by_id) == expected
+        for row in DETECTOR_CATALOG:
+            assert row["label"]
+            assert row["description"]
+            assert row["paper_title"]
+            assert row["paper_url"].startswith("http")
+            assert row["repo_url"].startswith("http")
+        assert "arxiv.org" in by_id[SYNTHETIC_ANALYSIS_BFREE]["paper_url"]
+        assert "github.com/grip-unina/B-Free" in by_id[SYNTHETIC_ANALYSIS_BFREE]["repo_url"]
+        assert "arxiv.org" in by_id[SYNTHETIC_ANALYSIS_CORVI2023]["paper_url"]
+        assert "DMimageDetection" in by_id[SYNTHETIC_ANALYSIS_CORVI2023]["repo_url"]
+        assert "arxiv.org" in by_id[SYNTHETIC_ANALYSIS_SAFE]["paper_url"]
+        assert "Ouxiang-Li/SAFE" in by_id[SYNTHETIC_ANALYSIS_SAFE]["repo_url"]
+
+    @pytest.mark.weights
     def test_resolve_models_dir(self):
-        from core.legacy.synthetic_image_detection.runtime import resolve_models_dir
+        from forensics.synthetic_image_detection.runtime import resolve_models_dir
 
         root = Path(__file__).resolve().parents[2]
         candidates = [
             root / "models" / "synthetic_image_detection",
             root / "models" / "sepael",
-            root / "Legados" / "imagens" / "Gradio-Deep-Sepael",
         ]
         expected = next(
             (
@@ -29,7 +61,7 @@ class TestSyntheticImageDetectionRuntime:
         assert resolve_models_dir() == expected
 
     def test_runtime_status_reports_missing_deps_or_ok(self):
-        from core.legacy.synthetic_image_detection.runtime import runtime_status
+        from forensics.synthetic_image_detection.runtime import runtime_status
 
         ok, reason = runtime_status()
         if ok:
@@ -39,7 +71,7 @@ class TestSyntheticImageDetectionRuntime:
 
     def test_huggingface_cache_ignores_incomplete_env_cache(self, monkeypatch, tmp_path):
         from app.config import get_settings
-        from core.legacy.synthetic_image_detection.runtime import (
+        from forensics.synthetic_image_detection.runtime import (
             HF_MODEL_IDS,
             _hf_cache_folder,
             huggingface_cache_dir,
@@ -216,7 +248,9 @@ class TestSyntheticImageDetectionRuntime:
 
         assert result["success"] is True
         assert len(calls) == 1
-        assert calls[0]["score_matrix"] == adapter_module._AUGMENTED_SCORE_MATRIX
+        from core.reference_data.paths import synthetic_augmented_score_matrix
+
+        assert Path(calls[0]["score_matrix"]).resolve() == synthetic_augmented_score_matrix().resolve()
         assert calls[0]["sample_multiplier"] == 5
 
     def test_use_latent_typicality_with_augmented_uses_representations_and_multiplier(self, monkeypatch):
@@ -295,9 +329,11 @@ class TestSyntheticImageDetectionRuntime:
                 },
             )
 
+        from core.reference_data.paths import synthetic_representations_matrix
+
         assert result["success"] is True
         assert len(calls) == 1
-        assert calls[0]["score_matrix"] == adapter_module.DEFAULT_REPRESENTATIONS_MATRIX
+        assert Path(calls[0]["score_matrix"]).resolve() == synthetic_representations_matrix().resolve()
         assert calls[0]["sample_multiplier"] == adapter_module.AUGMENTATION_MULTIPLIER
         assert calls[0]["use_latent_typicality"] is True
 
@@ -414,19 +450,20 @@ class TestSyntheticImageDetectionModel4:
     def test_as_rgb_converts_rgba(self):
         from PIL import Image
 
-        from core.legacy.synthetic_image_detection.pipeline import _as_rgb
+        from forensics.synthetic_image_detection.pipeline import _as_rgb
 
         rgba = Image.new("RGBA", (64, 64), (10, 20, 30, 200))
         rgb = _as_rgb(rgba)
         assert rgb.mode == "RGB"
         assert rgb.size == (64, 64)
 
+    @pytest.mark.weights
     def test_predict_includes_sdxl_for_rgba_image(self, monkeypatch):
         from PIL import Image
 
         from app.config import get_settings
-        from core.legacy.synthetic_image_detection import pipeline as sp
-        from core.legacy.synthetic_image_detection.runtime import runtime_status
+        from forensics.synthetic_image_detection import pipeline as sp
+        from forensics.synthetic_image_detection.runtime import runtime_status
 
         root = Path(__file__).resolve().parents[2]
         models_dir = root / "models"
@@ -480,14 +517,14 @@ class TestSyntheticImageDetectionModel4:
     def test_predict_ensemble_respects_selected_bfree_analysis(self, monkeypatch):
         from PIL import Image
 
-        from core.legacy.synthetic_image_detection import pipeline as sp
+        from forensics.synthetic_image_detection import pipeline as sp
 
         def fail_if_base_models_load(*args, **kwargs):
             raise AssertionError("base models should not load when only B-Free is selected")
 
         monkeypatch.setattr(sp, "_ensure_models_loaded", fail_if_base_models_load)
         monkeypatch.setattr(
-            "core.legacy.bfree.bfree_pipeline.predict_bfree_row",
+            "forensics.bfree.bfree_pipeline.predict_bfree_row",
             lambda image, on_progress=None: [
                 "B-Free (Bias-free synthetic image detector)",
                 "0.9000",
@@ -515,14 +552,14 @@ class TestSyntheticImageDetectionModel4:
     def test_predict_ensemble_runs_selected_bfree_and_corvi_without_base_models(self, monkeypatch):
         from PIL import Image
 
-        from core.legacy.synthetic_image_detection import pipeline as sp
+        from forensics.synthetic_image_detection import pipeline as sp
 
         def fail_if_base_models_load(*args, **kwargs):
             raise AssertionError("base models should not load when only B-Free/Corvi are selected")
 
         monkeypatch.setattr(sp, "_ensure_models_loaded", fail_if_base_models_load)
         monkeypatch.setattr(
-            "core.legacy.bfree.bfree_pipeline.predict_bfree_row",
+            "forensics.bfree.bfree_pipeline.predict_bfree_row",
             lambda image, on_progress=None: [
                 "B-Free (Bias-free synthetic image detector)",
                 "0.8000",
@@ -533,7 +570,7 @@ class TestSyntheticImageDetectionModel4:
             ],
         )
         monkeypatch.setattr(
-            "core.legacy.truebees_clip_d.clipd_pipeline.predict_corvi2023_row",
+            "forensics.truebees_clip_d.clipd_pipeline.predict_corvi2023_row",
             lambda image, on_progress=None: [
                 "On the detection of synthetic images generated by diffusion models. (Corvi2023)",
                 "0.2000",

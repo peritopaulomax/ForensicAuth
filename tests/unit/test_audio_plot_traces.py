@@ -6,7 +6,7 @@ import struct
 import numpy as np
 import plotly.graph_objects as go
 
-from core.legacy.audio.audio_plotly_util import (
+from forensics.audio.audio_plotly_util import (
     decode_plotly_binary_array,
     serialize_figure_for_overlay,
     write_plot_traces_json,

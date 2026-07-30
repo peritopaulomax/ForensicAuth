@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense, type ComponentType } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
 import DlManipulationBatchTab from "@/components/DlManipulationBatchTab";
@@ -13,7 +13,7 @@ import {
   techniqueEntryKey,
   type ImageTechniqueEntry,
 } from "@/config/imageAnalysisGroups";
-import { resolveImageTechniqueComponent, techniqueComponentProps } from "@/config/imageTechniqueRegistry";
+import { getTechniqueConfig } from "@/config/techniqueRegistry";
 import { ImageGroupSessionProvider } from "@/context/ImageGroupSessionContext";
 import { buildCaseAnalysesUrl } from "@/utils/caseAnalysisNav";
 import { getCase } from "@/services/cases";
@@ -121,12 +121,21 @@ export default function ImageAnalysisGroupPage() {
     !isBatchTab && activeTab
       ? visibleTechniques.find((e) => techniqueEntryKey(e) === activeTab) ?? null
       : null;
-  const TechniqueComponent = activeEntry ? resolveImageTechniqueComponent(activeEntry) : null;
-  const techniqueProps = activeEntry ? techniqueComponentProps(activeEntry) : {};
+
+  const activeTechniqueId = activeEntry ? techniqueEntryKey(activeEntry) : null;
+  const techniqueConfig = activeTechniqueId ? getTechniqueConfig(activeTechniqueId) : null;
+  const TechniqueComponent = (techniqueConfig?.component ?? null) as ComponentType<{
+    embedMethodId?: string;
+    techniqueId?: string;
+  }> | null;
+  const techniqueProps: { embedMethodId?: string; techniqueId?: string } = {
+    ...(activeEntry?.kind === "imdl" ? { embedMethodId: activeEntry.id } : {}),
+    ...(activeTechniqueId ? { techniqueId: activeTechniqueId } : {}),
+  };
 
   const sessionValue = useMemo(
     () => ({ groupId: group.id, evidenceId, selectionSource }),
-    [group.id, evidenceId, selectionSource],
+    [group.id, evidenceId, selectionSource]
   );
 
   return (
@@ -219,7 +228,7 @@ export default function ImageAnalysisGroupPage() {
               type="button"
               role="tab"
               aria-selected={selected}
-              title={inactive ? "Em breve nesta versão" : undefined}
+              title={inactive ? "Indisponível nesta versão" : undefined}
               onClick={() => setActiveTab(tabId)}
               style={{
                 padding: "0.45rem 0.85rem",

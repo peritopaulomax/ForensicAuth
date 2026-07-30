@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Generator, TypeVar
 
 from core.job_staging import job_artifact_dir_unique
-from core.legacy.audio.audio_prepare import prepare_wav_for_analysis, safe_unlink
+from forensics.audio.audio_prepare import prepare_wav_for_analysis, safe_unlink
 
 T = TypeVar("T")
 

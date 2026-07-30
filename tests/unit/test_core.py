@@ -94,7 +94,8 @@ class TestSettings:
         settings = Settings()
         assert settings.DATABASE_URL == "postgresql://test@localhost/db"
         assert settings.SECRET_KEY == "test123"
-        assert settings.ACCESS_TOKEN_EXPIRE_MINUTES == 30
+        assert settings.ACCESS_TOKEN_EXPIRE_MINUTES == 15
+        assert settings.REFRESH_TOKEN_EXPIRE_DAYS == 14
 
     def test_settings_missing_required_fails(self, monkeypatch):
         """TU-CORE-006: Missing required env var raises ValidationError."""

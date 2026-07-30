@@ -6,10 +6,18 @@ export type MetadataTabId =
   | "icc"
   | "makernotes"
   | "adobe"
+  | "c2pa"
   | "jpeg"
   | "other";
 
-export type MetadataTabGroupId = "overview" | "capture" | "edition" | "color" | "technical" | "other";
+export type MetadataTabGroupId =
+  | "overview"
+  | "capture"
+  | "edition"
+  | "provenance"
+  | "color"
+  | "technical"
+  | "other";
 
 export interface MetadataTabDef {
   id: MetadataTabId;
@@ -23,6 +31,7 @@ export const METADATA_TAB_GROUPS: { id: MetadataTabGroupId; label: string }[] = 
   { id: "overview", label: "Painel" },
   { id: "capture", label: "Captura" },
   { id: "edition", label: "Edição" },
+  { id: "provenance", label: "Proveniência" },
   { id: "color", label: "Cor" },
   { id: "technical", label: "Técnico" },
   { id: "other", label: "Outros" },
@@ -35,6 +44,7 @@ export const METADATA_TABS: MetadataTabDef[] = [
   { id: "xmp", label: "XMP", icon: "⎇", group: "edition", accentColor: "#7c3aed" },
   { id: "adobe", label: "Adobe", icon: "◧", group: "edition", accentColor: "#7c3aed" },
   { id: "iptc", label: "IPTC", icon: "✎", group: "edition", accentColor: "#7c3aed" },
+  { id: "c2pa", label: "C2PA", icon: "🔏", group: "provenance", accentColor: "#be123c" },
   { id: "icc", label: "ICC", icon: "◐", group: "color", accentColor: "#b45309" },
   { id: "jpeg", label: "Estrutura JPEG", icon: "#", group: "technical", accentColor: "#1e40af" },
   { id: "other", label: "Outros", icon: "…", group: "other", accentColor: "#6b7280" },

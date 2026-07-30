@@ -39,8 +39,15 @@ export async function verifyCaseChain(caseId: string): Promise<VerifyChainResult
   return data;
 }
 
-export async function verifyRecord(recordId: string): Promise<{ valid: boolean }> {
-  const { data } = await api.get<{ valid: boolean }>(`/audit/verify/${recordId}`);
+export interface VerifyRecordResult {
+  valid: boolean;
+  record: CustodyRecord;
+  computed_hash: string;
+  signature_valid: boolean | null;
+}
+
+export async function verifyRecord(recordId: string): Promise<VerifyRecordResult> {
+  const { data } = await api.get<VerifyRecordResult>(`/audit/verify/${recordId}`);
   return data;
 }
 

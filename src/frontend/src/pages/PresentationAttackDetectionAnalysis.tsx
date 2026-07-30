@@ -1,21 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
-import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
-import AnalysisPageShell, {
-  AnalysisPanel,
-  MessageBox,
-  ProcessButton,
-  formatInferenceDevice,
-  parseDeviceFromProgress,
-} from "@/components/AnalysisPageShell";
-import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
-import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
+import { formatInferenceDevice, parseDeviceFromProgress } from "@/components/AnalysisPageShell";
+import TechniquePageShell from "@/components/TechniquePageShell";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
-import { saveDerivative } from "@/services/evidence";
-import api from "@/services/api";
-
-const META = FORENSIC_TECHNIQUE_META.presentation_attack_detection;
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 
 type PadReport = {
   label: string;
@@ -34,13 +24,10 @@ function decisionColor(label: string) {
 export default function PresentationAttackDetectionAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
   const [threshold, setThreshold] = useState(0.5);
-  const [runtimeOk, setRuntimeOk] = useState<boolean | null>(null);
-  const [runtimeReason, setRuntimeReason] = useState("");
   const [report, setReport] = useState<PadReport | null>(null);
   const [inputUrl, setInputUrl] = useState<string | null>(null);
   const [annotatedUrl, setAnnotatedUrl] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
 
   const {
     running,
@@ -54,21 +41,11 @@ export default function PresentationAttackDetectionAnalysis() {
     reset,
   } = useForensicJob();
 
-  const inferenceDevice = parseDeviceFromProgress(progressLabel);
+  const { status: runtimeStatus } = useTechniqueRuntime("presentation_attack_detection");
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
 
-  useEffect(() => {
-    api
-      .get<{ name: string; available?: boolean; unavailable_reason?: string | null }[]>("/analysis/techniques")
-      .then((res) => {
-        const t = res.data.find((x) => x.name === "presentation_attack_detection");
-        setRuntimeOk(t ? t.available !== false : false);
-        setRuntimeReason(t?.unavailable_reason || "PAD nao registrado.");
-      })
-      .catch(() => {
-        setRuntimeOk(false);
-        setRuntimeReason("Falha ao verificar PAD.");
-      });
-  }, []);
+  const inferenceDevice = parseDeviceFromProgress(progressLabel);
 
   const applyEvidence = useCallback(
     (id: string, _source: "original" | "derivative") => {
@@ -76,9 +53,9 @@ export default function PresentationAttackDetectionAnalysis() {
       setReport(null);
       setInputUrl(`/api/v1/evidences/${id}/file`);
       setAnnotatedUrl(null);
-      setSaveMessage(null);
+      clearMessage();
     },
-    [reset],
+    [reset, clearMessage],
   );
 
   const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
@@ -86,7 +63,7 @@ export default function PresentationAttackDetectionAnalysis() {
 
   async function process() {
     if (!evidenceId || !runtimeOk) return;
-    setSaveMessage(null);
+    clearMessage();
     try {
       await runAnalysis(
         evidenceId,
@@ -118,138 +95,107 @@ export default function PresentationAttackDetectionAnalysis() {
         },
       );
     } catch {
-      /* hook sets error */
     }
   }
 
   async function handleSave() {
     if (!currentJobId) return;
-    setSaving(true);
-    setSaveMessage(null);
-    try {
-      const res = await saveDerivative({ job_id: currentJobId, artifact_filename: "pad_result.json" });
-      setSaveMessage({
-        type: "ok",
-        text: `Relatorio salvo. SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Erro ao salvar";
-      setSaveMessage({ type: "err", text: String(msg) });
-    } finally {
-      setSaving(false);
-    }
+    await save(currentJobId, "pad_result.json", "Relatorio PAD");
   }
 
   const pctScore = report ? Math.round(report.score * 100) : 0;
 
-  return (
-    <AnalysisPageShell
-      caseId={caseId!}
-      title={META.title}
-      intro={<TechniqueReferenceIntro meta={META} techniqueId="presentation_attack_detection" />}
-      embedded={embedded}
-    >
-      {runtimeOk === false && (
-        <MessageBox type="err" text={runtimeReason || "PAD indisponivel neste servidor."} />
+  if (!caseId) return null;
+
+  const parametersPanel = (
+    <>
+      <div style={{ display: "grid", gap: "0.65rem" }}>
+        <label style={{ fontSize: "0.82rem", color: "#374151" }}>
+          Limiar de decisao ({threshold.toFixed(2)})
+          <input
+            type="range"
+            min={0.1}
+            max={0.9}
+            step={0.05}
+            value={threshold}
+            onChange={(e) => setThreshold(Number(e.target.value))}
+            style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
+          />
+        </label>
+      </div>
+
+      <div style={{ marginTop: "1rem" }}>
+        <button
+          type="button"
+          onClick={process}
+          disabled={!evidenceId || runtimeOk !== true || running}
+          style={btnPrimary}
+        >
+          {running ? "Processando…" : "Analisar imagem"}
+        </button>
+      </div>
+
+      {running && (
+        <p style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#6b7280" }}>
+          Progresso: {Math.round(progress)}%
+          {inferenceDevice && (
+            <>
+              {" "}
+              — {formatInferenceDevice(inferenceDevice)}
+            </>
+          )}
+          {progressLabel ? ` — ${progressLabel}` : ""}
+        </p>
       )}
+    </>
+  );
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) minmax(320px, 1.2fr)", gap: "1rem" }}>
-        <AnalysisPanel title="Evidencia e parametros">
-          {showEvidencePicker && (
-            <ImageEvidenceSelector
-              caseId={caseId!}
-              selectedId={evidenceId}
-              selectionSource={selectionSource}
-              onSelect={onSelectEvidence}
+  const resultPanel = (
+    <>
+      <div style={{ display: "grid", gap: "1rem" }}>
+        {annotatedUrl ? (
+          <figure style={{ margin: 0 }}>
+            <img
+              src={annotatedUrl}
+              alt="Face detectada e classificada"
+              style={{ maxWidth: "100%", height: "auto", borderRadius: 6, border: "1px solid #e5e7eb" }}
             />
-          )}
-
-          <div style={{ marginTop: "1rem", display: "grid", gap: "0.65rem" }}>
-            <label style={{ fontSize: "0.82rem", color: "#374151" }}>
-              Limiar de decisao ({threshold.toFixed(2)})
-              <input
-                type="range"
-                min={0.1}
-                max={0.9}
-                step={0.05}
-                value={threshold}
-                onChange={(e) => setThreshold(Number(e.target.value))}
-                style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
-              />
-            </label>
-          </div>
-
-          <div style={{ marginTop: "1rem" }}>
-            <ProcessButton
-              onClick={process}
-              running={running}
-              disabled={!evidenceId || runtimeOk === false}
-              label="Analisar imagem"
+            <figcaption style={{ marginTop: "0.35rem", fontSize: "0.78rem", color: "#6b7280" }}>
+              Face detectada e classificada
+            </figcaption>
+          </figure>
+        ) : inputUrl ? (
+          <figure style={{ margin: 0 }}>
+            <img
+              src={inputUrl}
+              alt="Preview da evidencia"
+              style={{ maxWidth: "100%", height: "auto", borderRadius: 6, border: "1px solid #e5e7eb" }}
             />
+            <figcaption style={{ marginTop: "0.35rem", fontSize: "0.78rem", color: "#6b7280" }}>
+              Preview da evidencia
+            </figcaption>
+          </figure>
+        ) : (
+          <div
+            style={{
+              minHeight: 200,
+              background: "#f9fafb",
+              borderRadius: 6,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#9ca3af",
+              fontSize: "0.85rem",
+            }}
+          >
+            —
           </div>
-
-          {running && (
-            <p style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#6b7280" }}>
-              Progresso: {Math.round(progress)}%
-              {inferenceDevice && (
-                <>
-                  {" "}
-                  — {formatInferenceDevice(inferenceDevice)}
-                </>
-              )}
-              {progressLabel ? ` — ${progressLabel}` : ""}
-            </p>
-          )}
-          {error && <MessageBox type="err" text={error} />}
-        </AnalysisPanel>
-
-        <AnalysisPanel title="Visualizacao">
-          <div style={{ display: "grid", gap: "1rem" }}>
-            {annotatedUrl ? (
-              <figure style={{ margin: 0 }}>
-                <img
-                  src={annotatedUrl}
-                  alt="Face detectada e classificada"
-                  style={{ maxWidth: "100%", height: "auto", borderRadius: 6, border: "1px solid #e5e7eb" }}
-                />
-                <figcaption style={{ marginTop: "0.35rem", fontSize: "0.78rem", color: "#6b7280" }}>
-                  Face detectada e classificada
-                </figcaption>
-              </figure>
-            ) : inputUrl ? (
-              <figure style={{ margin: 0 }}>
-                <img
-                  src={inputUrl}
-                  alt="Preview da evidencia"
-                  style={{ maxWidth: "100%", height: "auto", borderRadius: 6, border: "1px solid #e5e7eb" }}
-                />
-                <figcaption style={{ marginTop: "0.35rem", fontSize: "0.78rem", color: "#6b7280" }}>
-                  Preview da evidencia
-                </figcaption>
-              </figure>
-            ) : (
-              <div
-                style={{
-                  minHeight: 200,
-                  background: "#f9fafb",
-                  borderRadius: 6,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#9ca3af",
-                  fontSize: "0.85rem",
-                }}
-              >
-                —
-              </div>
-            )}
-          </div>
-        </AnalysisPanel>
+        )}
       </div>
 
       {report && (
-        <AnalysisPanel title="Resultado PAD">
+        <div style={{ marginTop: "1.5rem" }}>
+          <h4 style={{ fontSize: "0.95rem", margin: "0 0 0.75rem" }}>Resultado PAD</h4>
           <div
             style={{
               display: "grid",
@@ -324,11 +270,42 @@ export default function PresentationAttackDetectionAnalysis() {
               >
                 {saving ? "Salvando…" : "Salvar relatorio no caso"}
               </button>
-              {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
             </div>
           )}
-        </AnalysisPanel>
+        </div>
       )}
-    </AnalysisPageShell>
+    </>
+  );
+
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="presentation_attack_detection"
+      mediaType="imagem"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      parametersPanel={parametersPanel}
+      resultPanel={resultPanel}
+    />
   );
 }
+
+const btnPrimary: React.CSSProperties = {
+  padding: "0.5rem 1rem",
+  background: "#0369a1",
+  color: "#fff",
+  border: "none",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: "0.85rem",
+};

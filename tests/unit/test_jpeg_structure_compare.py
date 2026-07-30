@@ -1,5 +1,6 @@
-"""Testes de dump e comparação de estruturas JPEG."""
+"""JPEG structure: dump, compare, markers, grid/matrix export.\n\nMERGE mecânico (Fase 3d) — anexados markers/grid/matrix export.\nMantido separado: test_jpeg_structure_compare_integration.py\n"""
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -7,9 +8,11 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from core.metadata.jpeg_markers import _collapse_rst_markers, scan_jpeg_marker_sequence
+from core.metadata.jpeg_structure import read_jpeg_structure
 from core.metadata.jpeg_structure_compare import (
-    _slim_structure_for_client,
     build_comparison_report,
+    build_positional_grid_report,
     build_similarity_matrix,
     compare_jpeg_structures,
 )
@@ -18,6 +21,13 @@ from core.metadata.jpeg_structure_dump import (
     is_jpeg_file,
     parse_dht_payload,
     parse_dqt_payload,
+)
+from core.metadata.jpeg_structure_grid_export import enrich_grid_payload, render_grid_txt
+from core.metadata.jpeg_structure_matrix_export import (
+    COMPARISON_CRITERIA_VERSION,
+    enrich_matrix_payload,
+    render_matrix_png,
+    render_matrix_txt,
 )
 
 
@@ -129,8 +139,10 @@ class TestJpegStructureCompare:
 
 EXEMPLO3_7JPG = (
     Path(__file__).resolve().parents[2]
-    / "uploads-dev"
-    / "7cd98cb4-4068-4afe-a421-c7e5ccb1d52c.jpg"
+    / "tests"
+    / "fixtures"
+    / "images"
+    / "exemplo3_7.jpg"
 )
 
 
@@ -212,3 +224,147 @@ class TestExemplo3Regression:
             ["7cd98cb4"],
         )
         assert report["success"] is True
+
+
+# --- markers (ex test_jpeg_markers) ---
+
+
+class TestJpegMarkers:
+    def test_scan_starts_with_soi(self, sample_jpg):
+        result = scan_jpeg_marker_sequence(sample_jpg)
+        assert result["available"] is True
+        markers = result["markers"]
+        assert markers[0]["name"] == "SOI"
+        assert markers[0]["code_hex"] == "FFD8"
+
+    def test_scan_contains_dqt_sof_sos_eoi(self, sample_jpg):
+        result = scan_jpeg_marker_sequence(sample_jpg)
+        names = [m["name"] for m in result["markers"]]
+        assert "DQT" in names
+        assert any(n.startswith("SOF") for n in names)
+        assert "SOS" in names
+        assert "EOI" in names
+        assert names[-1] == "EOI"
+
+    def test_scan_has_summary_string(self, sample_jpg):
+        result = scan_jpeg_marker_sequence(sample_jpg)
+        assert "SOI" in result["summary"]
+        assert "EOI" in result["summary"]
+
+    def test_read_jpeg_structure_includes_marker_sequence(self, sample_jpg):
+        struct = read_jpeg_structure(sample_jpg)
+        assert struct["marker_scan_available"] is True
+        assert struct["marker_count"] >= 5
+        assert struct["marker_sequence"]
+        assert "SOI" in struct["marker_summary"]
+
+    def test_collapse_rst_markers_into_single_entry(self):
+        raw = [
+            {"index": 0, "offset": 0, "code_hex": "FFD8", "name": "SOI", "segment_length": 2},
+            {"index": 1, "offset": 100, "code_hex": "FFD0", "name": "RST0", "segment_length": None},
+            {"index": 2, "offset": 200, "code_hex": "FFD1", "name": "RST1", "segment_length": None},
+            {"index": 3, "offset": 300, "code_hex": "FFD2", "name": "RST2", "segment_length": None},
+            {"index": 4, "offset": 400, "code_hex": "FFD9", "name": "EOI", "segment_length": 2},
+        ]
+        collapsed = _collapse_rst_markers(raw)
+        names = [m["name"] for m in collapsed]
+        assert names == ["SOI", "RST(3)", "EOI"]
+        rst = collapsed[1]
+        assert rst["rst_count"] == 3
+        assert rst["offset"] == 100
+
+
+# --- grid export (ex test_jpeg_structure_grid_export) ---
+
+
+@pytest.fixture
+def grid_payload(sample_jpg, sample_jpg_alt):
+    matrix = build_similarity_matrix(
+        mode="with_reference",
+        reference_paths=[sample_jpg],
+        reference_labels=["ref.jpg"],
+        reference_ids=["ref-id"],
+        questioned_paths=[sample_jpg, sample_jpg_alt],
+        questioned_labels=["q1.jpg", "q2.jpg"],
+        questioned_ids=["q1", "q2"],
+    )
+    assert matrix["success"]
+    grid = build_positional_grid_report(
+        mode="with_reference",
+        reference_structures=matrix["reference_structures"],
+        questioned_structures=matrix["questioned_structures"],
+    )
+    assert grid["success"]
+    return enrich_grid_payload(
+        grid,
+        reference_evidence_ids=["ref-id"],
+        questioned_evidence_ids=["q1", "q2"],
+    )
+
+
+class TestJpegStructureGridExport:
+    def test_grid_payload_has_comparisons(self, grid_payload):
+        assert grid_payload["artifact_kind"] == "positional_grid"
+        assert len(grid_payload["comparisons"]) >= 2
+        assert grid_payload["reference_label"] == "ref.jpg"
+
+    def test_render_grid_txt(self, grid_payload, tmp_path):
+        txt = tmp_path / "grid.txt"
+        render_grid_txt(grid_payload, txt)
+        body = txt.read_text(encoding="utf-8")
+        assert "grade posicional" in body.lower()
+        assert "ref.jpg" in body
+
+    def test_grid_json_roundtrip(self, grid_payload, tmp_path):
+        path = tmp_path / "grid.json"
+        path.write_text(json.dumps(grid_payload, ensure_ascii=False), encoding="utf-8")
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+        assert loaded["reference_evidence_id"] == "ref-id"
+
+
+# --- matrix export (ex test_jpeg_structure_matrix_export) ---
+
+
+@pytest.fixture
+def matrix_payload(sample_jpg, sample_jpg_alt, tmp_path):
+    report = build_similarity_matrix(
+        mode="with_reference",
+        reference_paths=[sample_jpg],
+        reference_labels=["ref.jpg"],
+        reference_ids=["ref-id"],
+        questioned_paths=[sample_jpg, sample_jpg_alt],
+        questioned_labels=["q1.jpg", "q2.jpg"],
+        questioned_ids=["q1", "q2"],
+    )
+    assert report["success"]
+    return enrich_matrix_payload(
+        report,
+        reference_evidence_ids=["ref-id"],
+        questioned_evidence_ids=["q1", "q2"],
+    )
+
+
+class TestJpegStructureMatrixExport:
+    def test_enriched_json_has_audit_fields(self, matrix_payload):
+        assert matrix_payload["technique"] == "jpeg_structure_compare"
+        assert matrix_payload["criteria_version"] == COMPARISON_CRITERIA_VERSION
+        assert matrix_payload["comparison_rules"]["dht"] == "position_only"
+        assert matrix_payload["reference_evidence_ids"] == ["ref-id"]
+        assert "R1" in matrix_payload["legend"]
+        assert "Q1" in matrix_payload["legend"]
+
+    def test_render_png_and_txt(self, matrix_payload, tmp_path):
+        png = tmp_path / "matrix.png"
+        txt = tmp_path / "report.txt"
+        render_matrix_png(matrix_payload, png)
+        render_matrix_txt(matrix_payload, txt)
+        assert png.exists() and png.stat().st_size > 100
+        body = txt.read_text(encoding="utf-8")
+        assert "Comparação de estruturas JPEG" in body
+        assert "R1 × Q1" in body or "Coincidências" in body
+
+    def test_json_roundtrip(self, matrix_payload, tmp_path):
+        path = tmp_path / "out.json"
+        path.write_text(json.dumps(matrix_payload, ensure_ascii=False), encoding="utf-8")
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+        assert loaded["legend"]["R1"] == "ref.jpg"

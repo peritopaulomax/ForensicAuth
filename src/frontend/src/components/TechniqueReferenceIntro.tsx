@@ -10,7 +10,11 @@ interface Props {
 
 /** Bloco bibliográfico abaixo do título (citação ABNT, detalhamento, licença). */
 export default function TechniqueReferenceIntro({ meta, techniqueId }: Props) {
-  const citations = meta.citation.split(/\n\n+/).filter(Boolean);
+  if (!meta) {
+    return null;
+  }
+
+  const citations = (meta.citation || "").split(/\n\n+/).filter(Boolean);
 
   return (
     <section

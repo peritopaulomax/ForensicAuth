@@ -6,7 +6,7 @@ from pathlib import Path
 import fitz
 import pytest
 
-from core.legacy.pdf.pdf_forensic_extract import (
+from forensics.pdf.pdf_forensic_extract import (
     _is_valid_jpeg2000_stream,
     analyze_incremental_versions,
     find_eof_end_positions,
@@ -79,7 +79,11 @@ def test_run_extract_pipeline(sample_pdf, tmp_path):
     out = run_pdf_forensic_extract(sample_pdf, tmp_path / "out")
     assert (tmp_path / "out" / "metadata_report.txt").exists()
     assert (tmp_path / "out" / "extract_manifest.json").exists()
+    assert (tmp_path / "out" / "signatures.json").exists()
+    assert (tmp_path / "out" / "signatures_report.txt").exists()
     assert "image_count" in out
+    assert out.get("pdf_signed") is False
+    assert out.get("signature_count") == 0
 
 
 def test_is_valid_jpeg2000_stream_detects_encapsulated_formats():

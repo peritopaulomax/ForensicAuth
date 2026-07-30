@@ -11,7 +11,7 @@ export interface ForensicJobState {
 }
 
 export interface RunAnalysisOptions {
-  /** Chamado apos o job completar (ex.: carregar PNGs/HTML) — progresso vai a 100% so depois. */
+  /** Chamado após o job completar (ex.: carregar PNGs/HTML); progresso atinge 100% após o callback. */
   onArtifactsLoaded?: (jobId: string, result: Record<string, unknown>) => Promise<void>;
   /** Tempo maximo de espera pelo job (ms). Padrao 4 min; audio usa 45 min. */
   maxWaitMs?: number;
@@ -32,13 +32,13 @@ const AUDIO_TECHNIQUES = new Set([
 
 const ML_TECHNIQUES = new Set([
   "synthetic_image_detection",
-  "deepfake_similarity",
   "safire",
-  "noiseprint",
   "imdlbenco",
   "videofact",
   "stil_video_detection",
   "lowres_fake_video",
+  "truvil",
+  "vilocal",
   "presentation_attack_detection",
   "moe_ffd",
   "audio_spoofing_detection",

@@ -1,9 +1,22 @@
 # =============================================================================
 # VA Suite / ForensicAuth — .gitignore
 # GitHub limits: 100 MB/file (normal Git), 2 GB/file (LFS).
-# Pesos de modelo: baixar via scripts/download_*.py ou HuggingFace, não commitar.
+# Pesos de modelo: baixar via scripts/download_*.py ou HuggingFace.
 # =============================================================================
 
+# Quarentena de faxina estrutural (nao versionar)
+LIXEIRA/
+
+# Memória local do agente (Repository Intelligence) — só máquina local
+brains/
+knowledge/
+summaries/
+
+# Regras locais do agente — não publicar no GitHub (espelho humano: docs/ + docs/developer/)
+AGENTS.md
+
+# Docs internas de lab / WIP (nao versionar no GitHub publico)
+DOCS_DEV_NOGIT/
 # Python
 __pycache__/
 *.py[cod]
@@ -18,6 +31,9 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Nativos do backend (libzero) — nao engolir com o lib/ generico acima
+!src/backend/lib/
+!src/backend/lib/**
 parts/
 sdist/
 var/
@@ -71,6 +87,8 @@ src/backend/vasuite_dev.db
 
 # Dev runtime / case data / uploads (never push)
 data/
+!.data/README.md
+!data/README.md
 .data/
 uploads/
 uploads-dev/
@@ -82,6 +100,8 @@ models/
 models-dev/
 peritus_cases/
 peritus_cases-dev/
+attic/archive/
+attic/notebooks/
 src/backend/uploads/
 src/backend/results/
 src/backend/derivatives/
@@ -90,8 +110,24 @@ src/frontend/test-results/
 .dev-pids/
 tools/node-v*/
 
-# Experiment outputs (LR calibration, plots, score matrices, caches)
+# Experiment outputs (legacy name; prefer reference_data/)
 outputs/
+
+# Reference populations for LR / typicality (scores, embeddings, samples, cache)
+reference_data/cache/
+reference_data/cache_warm/
+reference_data/audio_spoofing/features/
+reference_data/audio_spoofing/working/
+reference_data/audio_spoofing/experiments/
+reference_data/synthetic_image/features/
+reference_data/synthetic_image/working/
+reference_data/synthetic_image/experiments/
+# Keep catalog/populations YAMLs trackable (do not ignore those dirs wholesale)
+!reference_data/README.md
+!reference_data/**/catalog/
+!reference_data/**/catalog/**
+!reference_data/**/populations/
+!reference_data/**/populations/**
 
 # OS
 .DS_Store

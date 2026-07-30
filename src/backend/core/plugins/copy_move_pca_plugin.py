@@ -13,7 +13,7 @@ import numpy as np
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.copy_move_pca import CopyMovePcaParams, estimate_memory_bytes, run_copy_move_pca
+from forensics.copy_move_pca import CopyMovePcaParams, estimate_memory_bytes, run_copy_move_pca
 from core.progress import pop_progress_callback, ProgressCallback, report_progress
 
 T = TypeVar("T")
@@ -74,11 +74,58 @@ def _compose_alpha_overlay(original_bgr: np.ndarray, bgra: np.ndarray) -> np.nda
     """Blend BGRA detection layer over original (Peritus alpha mask mode)."""
     if bgra.shape[2] != 4:
         return original_bgr
+    if bgra.shape[:2] != original_bgr.shape[:2]:
+        raise ValueError(
+            f"Overlay BGRA {bgra.shape[:2]} incompatível com original {original_bgr.shape[:2]}"
+        )
     alpha = bgra[:, :, 3:4].astype(np.float32) / 255.0
     fg = bgra[:, :, :3].astype(np.float32)
     bg = original_bgr.astype(np.float32)
     out = fg * alpha + bg * (1.0 - alpha)
     return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def _resize_to(img: np.ndarray, width: int, height: int) -> np.ndarray:
+    """Resize detection maps with nearest-neighbor (preserve hard edges)."""
+    if img.shape[0] == height and img.shape[1] == width:
+        return img
+    return cv2.resize(img, (width, height), interpolation=cv2.INTER_NEAREST)
+
+
+def _paste_onto_full(
+    full_h: int,
+    full_w: int,
+    img: np.ndarray,
+    region: tuple[int, int, int, int] | None,
+    prep_meta: dict,
+) -> np.ndarray:
+    """Expand ROI/downscaled results to full-frame before blending with the original."""
+    work = img
+    target_region = region
+
+    if target_region is not None:
+        x, y, rw, rh = (int(v) for v in target_region)
+        x = max(0, min(x, full_w - 1))
+        y = max(0, min(y, full_h - 1))
+        rw = max(1, min(rw, full_w - x))
+        rh = max(1, min(rh, full_h - y))
+        work = _resize_to(work, rw, rh)
+        if work.ndim == 2:
+            canvas = np.zeros((full_h, full_w), dtype=work.dtype)
+            canvas[y : y + rh, x : x + rw] = work
+            return canvas
+        canvas = np.zeros((full_h, full_w, work.shape[2]), dtype=work.dtype)
+        canvas[y : y + rh, x : x + rw] = work
+        return canvas
+
+    # Full-frame path may still be downscaled during analysis.
+    if prep_meta.get("downscaled") and prep_meta.get("original_work_size"):
+        oh, ow = prep_meta["original_work_size"]
+        work = _resize_to(work, int(ow), int(oh))
+
+    if work.shape[0] != full_h or work.shape[1] != full_w:
+        work = _resize_to(work, full_w, full_h)
+    return work
 
 
 class CopyMovePcaPlugin(ForensicPlugin):
@@ -174,19 +221,30 @@ class CopyMovePcaPlugin(ForensicPlugin):
                 "overlay": result_dir / f"overlay_{stamp}.png",
             }
 
-            cv2.imwrite(str(paths["original"]), im_bgr)
-            cv2.imwrite(str(paths["mask"]), result["mask"])
+            prep_meta = result.get("prep_meta") or {}
+            region = prep_meta.get("region")
+            if region is None and params.region is not None:
+                region = tuple(int(v) for v in params.region)
 
-            colored = result["colored_bgr"]
+            mask = _paste_onto_full(h, w, result["mask"], region, prep_meta)
+            colored = _paste_onto_full(h, w, result["colored_bgr"], region, prep_meta)
+
+            cv2.imwrite(str(paths["original"]), im_bgr)
+            cv2.imwrite(str(paths["mask"]), mask)
             cv2.imwrite(str(paths["colored"]), colored)
 
             if params.alpha_mask and result.get("bgra_overlay") is not None:
-                overlay = _compose_alpha_overlay(im_bgr, result["bgra_overlay"])
+                bgra = _paste_onto_full(h, w, result["bgra_overlay"], region, prep_meta)
+                if bgra.ndim == 3 and bgra.shape[2] == 4:
+                    overlay = _compose_alpha_overlay(im_bgr, bgra)
+                else:
+                    # Pipeline atual devolve BGR mesmo com alpha_mask=True.
+                    overlay = cv2.addWeighted(im_bgr, 0.55, colored, 0.45, 0)
             else:
                 overlay = cv2.addWeighted(im_bgr, 0.55, colored, 0.45, 0)
             cv2.imwrite(str(paths["overlay"]), overlay)
 
-            mask_area = int(np.count_nonzero(result["mask"]))
+            mask_area = int(np.count_nonzero(mask))
             mask_ratio = float(mask_area / (h * w)) if h * w else 0.0
 
             report_progress(on_progress, 100, "Copy-Move PCA concluido")

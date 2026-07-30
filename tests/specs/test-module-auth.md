@@ -6,11 +6,13 @@
 - **Funcao**: `AuthService.authenticate(username, password)`
 - **Entrada**: username="perito01", password="Senha1234"
 - **Setup**: Usuario existente no banco com bcrypt hash de "Senha1234"
-- **Saida esperada**: Objeto User (sem password) + token JWT valido
+- **Saida esperada**: Objeto User (sem password) + access JWT valido + refresh opaco + expires_in
 - **Verificacoes**:
-  - Token contem claim `sub` = user_id
-  - Token contem claim `role` = "perito"
-  - Token nao expirado
+  - Access contem claim `sub` = user_id
+  - Access contem claim `role` = "perito"
+  - Access contem claim `type` = "access"
+  - Access nao expirado
+  - Refresh nao vazio; hash persistido em `refresh_tokens`
 
 ### TU-AUTH-002: Login com senha incorreta
 - **Funcao**: `AuthService.authenticate(username, password)`
@@ -56,6 +58,22 @@
 - **Saida esperada**: Lanca excecao `PermissionDenied`
 - **Verificacoes**: HTTP 403
 
+### TU-AUTH-011: Refresh com token valido
+- **Funcao**: `AuthService.refresh(refresh_token)`
+- **Setup**: Login previo gerou refresh
+- **Saida esperada**: Novo access + novo refresh; antigo refresh revogado
+- **Verificacoes**: Antigo refresh falha em segundo refresh; novo access tem `type=access`
+
+### TU-AUTH-012: Refresh revogado / logout
+- **Funcao**: `AuthService.logout` + `AuthService.refresh`
+- **Setup**: Login + logout com o refresh
+- **Saida esperada**: Refresh apos logout lanca AuthenticationError
+
+### TU-AUTH-013: Usuario inativo nao renova
+- **Funcao**: `AuthService.refresh`
+- **Setup**: Login, depois `is_active=false`
+- **Saida esperada**: AuthenticationError
+
 ## Testes de Integracao
 
 ### TI-AUTH-001: Endpoint de login completo
@@ -63,8 +81,8 @@
 - **Setup**: Usuario no banco
 - **Fluxo**:
   1. Envia JSON com username e password corretos
-  2. Recebe 200 + token + dados do usuario
-  3. Usa token no header Authorization
+  2. Recebe 200 + access_token + refresh_token + expires_in + dados do usuario
+  3. Usa access_token no header Authorization
   4. GET /api/v1/auth/me retorna dados do usuario
 
 ### TI-AUTH-002: Endpoint de login com erro
@@ -74,6 +92,15 @@
   2. Recebe 401
   3. Envia token expirado no /auth/me
   4. Recebe 401
+
+### TI-AUTH-003: Refresh e logout via HTTP
+- **Endpoints**: POST /api/v1/auth/refresh, POST /api/v1/auth/logout
+- **Fluxo**:
+  1. Login → refresh_token
+  2. POST /auth/refresh → 200 com novo par
+  3. POST /auth/logout com o refresh atual → 200
+  4. POST /auth/refresh com o mesmo → 401
+  5. Bearer com refresh_token (opaco) em /auth/me → 401
 
 ## Mocks/Stubs
 

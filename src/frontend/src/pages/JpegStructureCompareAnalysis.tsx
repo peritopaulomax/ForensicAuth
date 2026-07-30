@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
-import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
-import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
+import TechniquePageShell from "@/components/TechniquePageShell";
+import { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
 import EvidenceFileGrid from "@/components/EvidenceFileGrid";
 import FileListViewHeader from "@/components/FileListViewHeader";
 import DqtMatrixTooltipLayer from "@/components/jpeg/DqtMatrixTooltipLayer";
@@ -14,7 +13,9 @@ import { useFileListViewMode } from "@/lib/fileListViewMode";
 import { useDqtTooltip } from "@/hooks/useDqtTooltip";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
-import { listCaseEvidences, saveDerivative } from "@/services/evidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
+import { listCaseEvidences } from "@/services/evidence";
 import { filterForensicAuthEvidences } from "@/lib/forensicAuthEvidence";
 import type { Evidence } from "@/types/api";
 import { imageSelectorListMaxHeight } from "@/styles/listHeights";
@@ -43,11 +44,14 @@ export default function JpegStructureCompareAnalysis() {
   const [gridEpoch, setGridEpoch] = useState(0);
   const [matrixPngUrl, setMatrixPngUrl] = useState<string | null>(null);
   const [savingDerivative, setSavingDerivative] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  const { saveMessage, save, clearMessage } = useDerivativeSave();
   const dqtTooltip = useDqtTooltip();
   const { running, currentJobId, error, progress, progressLabel, runAnalysis, fetchImage, reset } =
     useForensicJob();
+
+  const { status: runtimeStatus } = useTechniqueRuntime("jpeg_structure_compare");
+  const runtimeOk = runtimeStatus?.available ?? null;
 
   const applyEvidence = useCallback(() => {}, []);
   const { embedded } = useGroupAwareEvidence(caseId!, applyEvidence);
@@ -103,14 +107,14 @@ export default function JpegStructureCompareAnalysis() {
     setActiveRefId(null);
     setExpandedThumbs(new Set());
     setParseError(null);
-    setSaveMessage(null);
+    clearMessage();
     setMatrixPngUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
     dqtTooltip.dismiss();
     setGridEpoch((n) => n + 1);
-  }, [reset, dqtTooltip.dismiss]);
+  }, [reset, dqtTooltip.dismiss, clearMessage]);
 
   function handleTabChange(tab: MatrixTab) {
     setMatrixTab(tab);
@@ -118,7 +122,7 @@ export default function JpegStructureCompareAnalysis() {
   }
 
   async function calculate() {
-    if (!caseId) return;
+    if (!caseId || runtimeOk === false) return;
     const questIds = selectedOrdered.map((e) => e.id);
     if (questIds.length === 0) return;
 
@@ -200,7 +204,6 @@ export default function JpegStructureCompareAnalysis() {
         setGridEpoch((n) => n + 1);
       }
     } catch {
-      /* hook */
     }
   }
 
@@ -244,23 +247,8 @@ export default function JpegStructureCompareAnalysis() {
   async function handleSaveDerivative(artifactFilename: string, label: string) {
     if (!currentJobId) return;
     setSavingDerivative(artifactFilename);
-    setSaveMessage(null);
     try {
-      const res = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: artifactFilename,
-        label,
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${res.message} «${res.evidence.original_filename}». SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined;
-      setSaveMessage({ type: "err", text: detail || "Erro ao salvar derivado" });
+      await save(currentJobId, artifactFilename, label);
     } finally {
       setSavingDerivative(null);
     }
@@ -355,170 +343,176 @@ export default function JpegStructureCompareAnalysis() {
 
   if (!caseId) return null;
 
-  return (
-    <AnalysisPageShell
-      caseId={caseId}
-      title={FORENSIC_TECHNIQUE_META.jpeg_structure_compare.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.jpeg_structure_compare} techniqueId="jpeg_structure_compare" />}
-      embedded={embedded}
-    >
-      <div data-testid="jpeg-structure-compare-page">
-        <DqtMatrixTooltipLayer
-          state={dqtTooltip.state}
-          onMouseEnter={dqtTooltip.onTooltipEnter}
-          onMouseLeave={dqtTooltip.onTooltipLeave}
+  const children = (
+    <div data-testid="jpeg-structure-compare-page">
+      <DqtMatrixTooltipLayer
+        state={dqtTooltip.state}
+        onMouseEnter={dqtTooltip.onTooltipEnter}
+        onMouseLeave={dqtTooltip.onTooltipLeave}
+      />
+
+      <AnalysisPanel title="Seleção de imagens JPEG (questionados)">
+        <p style={{ fontSize: "0.85rem", color: "#6b7280", margin: "0 0 0.75rem" }}>
+          Selecione as evidências <strong>questionadas</strong> (.jpg, .jpeg, .jfif). No modo sem referência,
+          a primeira linha da grade serve de referência posicional (duplo clique para trocar).
+        </p>
+
+        <FileListViewHeader viewMode={viewMode} onViewModeChange={setViewMode}>
+          <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+            {images.length} JPEG · {selectedIds.size} selecionada(s)
+            {" · "}
+            <button
+              type="button"
+              style={{ background: "none", border: "none", color: "#0369a1", cursor: "pointer", padding: 0 }}
+              onClick={selectAll}
+              disabled={images.length === 0}
+            >
+              todas
+            </button>
+            {" / "}
+            <button
+              type="button"
+              style={{ background: "none", border: "none", color: "#0369a1", cursor: "pointer", padding: 0 }}
+              onClick={clearSelection}
+              disabled={selectedIds.size === 0}
+            >
+              limpar
+            </button>
+          </span>
+        </FileListViewHeader>
+
+        {images.length === 0 ? (
+          <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>Nenhuma imagem JPEG encontrada neste caso.</p>
+        ) : viewMode === "grid" ? (
+          <EvidenceFileGrid
+            items={images}
+            selected={(item) => selectedIds.has(item.id)}
+            onSelect={(item) => toggleSelect(item.id)}
+            maxHeight={imageSelectorListMaxHeight}
+          />
+        ) : (
+          <div className="jpeg-compare-select-list" style={{ maxHeight: imageSelectorListMaxHeight }}>
+            {images.map((img) => (
+              <label key={img.id} className="jpeg-compare-select-item">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(img.id)}
+                  onChange={() => toggleSelect(img.id)}
+                />
+                <span className="jpeg-compare-select-item__name">{img.original_filename}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </AnalysisPanel>
+
+      <JpegStructureMatrixSection
+        caseId={caseId}
+        questionedEvidences={selectedOrdered}
+        tab={matrixTab}
+        onTabChange={handleTabChange}
+        selectedRefIds={selectedRefIds}
+        onSelectedRefIdsChange={setSelectedRefIds}
+      />
+
+      <div style={{ margin: "0 0 1.25rem" }}>
+        <ProcessButton
+          onClick={calculate}
+          running={running}
+          progress={progress}
+          progressLabel={progressLabel}
+          disabled={!canCalculate || runtimeOk === false}
+          label={calculateLabel}
         />
+      </div>
+      {error && <MessageBox type="err" text={error} />}
+      {parseError && <MessageBox type="err" text={parseError} />}
 
-        <AnalysisPanel title="Seleção de imagens JPEG (questionados)">
-          <p style={{ fontSize: "0.85rem", color: "#6b7280", margin: "0 0 0.75rem" }}>
-            Selecione as evidências <strong>questionadas</strong> (.jpg, .jpeg, .jfif). No modo sem referência,
-            a primeira linha da grade serve de referência posicional (duplo clique para trocar).
+      {matrixData && (
+        <AnalysisPanel title="Matriz de similaridade estrutural">
+          <p style={{ margin: "0 0 0.5rem", fontSize: "0.88rem" }}>
+            Modo: {matrixData.mode === "with_reference" ? "padrões × questionados" : "questionados × questionados"} ·
+            Referências: {matrixData.reference_count} · Questionados: {matrixData.questioned_count}
           </p>
-
-          <FileListViewHeader viewMode={viewMode} onViewModeChange={setViewMode}>
-            <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
-              {images.length} JPEG · {selectedIds.size} selecionada(s)
-              {" · "}
-              <button
-                type="button"
-                style={{ background: "none", border: "none", color: "#0369a1", cursor: "pointer", padding: 0 }}
-                onClick={selectAll}
-                disabled={images.length === 0}
-              >
-                todas
-              </button>
-              {" / "}
-              <button
-                type="button"
-                style={{ background: "none", border: "none", color: "#0369a1", cursor: "pointer", padding: 0 }}
-                onClick={clearSelection}
-                disabled={selectedIds.size === 0}
-              >
-                limpar
-              </button>
-            </span>
-          </FileListViewHeader>
-
-          {images.length === 0 ? (
-            <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>Nenhuma imagem JPEG encontrada neste caso.</p>
-          ) : viewMode === "grid" ? (
-            <EvidenceFileGrid
-              items={images}
-              selected={(item) => selectedIds.has(item.id)}
-              onSelect={(item) => toggleSelect(item.id)}
-              maxHeight={imageSelectorListMaxHeight}
-            />
-          ) : (
-            <div className="jpeg-compare-select-list" style={{ maxHeight: imageSelectorListMaxHeight }}>
-              {images.map((img) => (
-                <label key={img.id} className="jpeg-compare-select-item">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(img.id)}
-                    onChange={() => toggleSelect(img.id)}
-                  />
-                  <span className="jpeg-compare-select-item__name">{img.original_filename}</span>
-                </label>
-              ))}
+          {matrixData.errors && matrixData.errors.length > 0 && (
+            <MessageBox type="err" text={matrixData.errors.join(" · ")} />
+          )}
+          <JpegStructureMatchMatrix data={matrixData} />
+          {matrixPngUrl && (
+            <div style={{ marginTop: "1rem" }}>
+              <p style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#6b7280" }}>
+                Prévia exportável da matriz
+              </p>
+              <img
+                src={matrixPngUrl}
+                alt="Matriz de similaridade JPEG"
+                style={{ width: "100%", maxWidth: 480, border: "1px solid #e5e7eb", borderRadius: 8 }}
+              />
             </div>
           )}
+          {renderMatrixDerivativeActions()}
         </AnalysisPanel>
+      )}
 
-        <JpegStructureMatrixSection
-          caseId={caseId}
-          questionedEvidences={selectedOrdered}
-          tab={matrixTab}
-          onTabChange={handleTabChange}
-          selectedRefIds={selectedRefIds}
-          onSelectedRefIdsChange={setSelectedRefIds}
-        />
+      {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
 
-        <div style={{ margin: "0 0 1.25rem" }}>
-          <ProcessButton
-            onClick={calculate}
-            running={running}
-            progress={progress}
-            progressLabel={progressLabel}
-            disabled={!canCalculate}
-            label={calculateLabel}
-          />
-        </div>
-        {error && <MessageBox type="err" text={error} />}
-        {parseError && <MessageBox type="err" text={parseError} />}
-
-        {matrixData && (
-          <AnalysisPanel title="Matriz de similaridade estrutural">
-            <p style={{ margin: "0 0 0.5rem", fontSize: "0.88rem" }}>
-              Modo: {matrixData.mode === "with_reference" ? "padrões × questionados" : "questionados × questionados"} ·
-              Referências: {matrixData.reference_count} · Questionados: {matrixData.questioned_count}
-            </p>
-            {matrixData.errors && matrixData.errors.length > 0 && (
-              <MessageBox type="err" text={matrixData.errors.join(" · ")} />
+      {compareData && (
+        <AnalysisPanel title="Estruturas JPEG — grade posicional">
+          <div className="jpeg-compare-legend">
+            <span className="jpeg-compare-legend__item jpeg-compare-legend__item--match">Convergente</span>
+            <span className="jpeg-compare-legend__item jpeg-compare-legend__item--diverge">Divergente</span>
+            {matrixTab === "with_reference" && (
+              <span className="jpeg-compare-legend__hint">
+                Clique em um padrão (PAD) para ativá-lo · APP+ expande thumbnail · passe o mouse em DQT = matrizes
+              </span>
             )}
-            <JpegStructureMatchMatrix data={matrixData} />
-            {matrixPngUrl && (
-              <div style={{ marginTop: "1rem" }}>
-                <p style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#6b7280" }}>
-                  Prévia exportável da matriz
-                </p>
-                <img
-                  src={matrixPngUrl}
-                  alt="Matriz de similaridade JPEG"
-                  style={{ width: "100%", maxWidth: 480, border: "1px solid #e5e7eb", borderRadius: 8 }}
-                />
-              </div>
+            {matrixTab === "all_pairs" && (
+              <span className="jpeg-compare-legend__hint">
+                Duplo clique na linha = referência · APP+ expande thumbnail · passe o mouse em DQT = matrizes
+              </span>
             )}
-            {renderMatrixDerivativeActions()}
-          </AnalysisPanel>
-        )}
+          </div>
 
-        {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
+          {compareData.all_match && (
+            <MessageBox
+              type="ok"
+              text={`Todas as estruturas coincidem com a referência (${compareData.reference_label ?? "referência"}).`}
+            />
+          )}
 
-        {compareData && (
-          <AnalysisPanel title="Estruturas JPEG — grade posicional">
-            <div className="jpeg-compare-legend">
-              <span className="jpeg-compare-legend__item jpeg-compare-legend__item--match">Convergente</span>
-              <span className="jpeg-compare-legend__item jpeg-compare-legend__item--diverge">Divergente</span>
-              {matrixTab === "with_reference" && (
-                <span className="jpeg-compare-legend__hint">
-                  Clique em um padrão (PAD) para ativá-lo · APP+ expande thumbnail · passe o mouse em DQT = matrizes
-                </span>
-              )}
-              {matrixTab === "all_pairs" && (
-                <span className="jpeg-compare-legend__hint">
-                  Duplo clique na linha = referência · APP+ expande thumbnail · passe o mouse em DQT = matrizes
-                </span>
-              )}
-            </div>
+          {compareData.errors && compareData.errors.length > 0 && (
+            <MessageBox type="err" text={compareData.errors.join(" · ")} />
+          )}
 
-            {compareData.all_match && (
-              <MessageBox
-                type="ok"
-                text={`Todas as estruturas coincidem com a referência (${compareData.reference_label ?? "referência"}).`}
-              />
-            )}
+          <JpegCompareErrorBoundary key={gridEpoch}>
+            <JpegCompareGrid
+              data={compareData}
+              expandedThumbs={expandedThumbs}
+              onPromoteReference={promoteToReference}
+              onToggleThumb={toggleThumbExpand}
+              onSelectReferencePattern={
+                matrixTab === "with_reference" ? selectReferencePattern : undefined
+              }
+              dqtHover={dqtTooltip.handlers}
+            />
+          </JpegCompareErrorBoundary>
+          {renderGridDerivativeActions()}
+        </AnalysisPanel>
+      )}
+    </div>
+  );
 
-            {compareData.errors && compareData.errors.length > 0 && (
-              <MessageBox type="err" text={compareData.errors.join(" · ")} />
-            )}
-
-            <JpegCompareErrorBoundary key={gridEpoch}>
-              <JpegCompareGrid
-                data={compareData}
-                expandedThumbs={expandedThumbs}
-                onPromoteReference={promoteToReference}
-                onToggleThumb={toggleThumbExpand}
-                onSelectReferencePattern={
-                  matrixTab === "with_reference" ? selectReferencePattern : undefined
-                }
-                dqtHover={dqtTooltip.handlers}
-              />
-            </JpegCompareErrorBoundary>
-            {renderGridDerivativeActions()}
-          </AnalysisPanel>
-        )}
-      </div>
-    </AnalysisPageShell>
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="jpeg_structure_compare"
+      mediaType="imagem"
+      embedded={embedded}
+      showEvidencePicker={false}
+      runtimeOk={runtimeOk}
+    >
+      {children}
+    </TechniquePageShell>
   );
 }
 

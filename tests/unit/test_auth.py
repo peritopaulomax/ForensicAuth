@@ -20,13 +20,24 @@ class TestAuthService:
         assert result.user is not None
         assert result.user.username == "perito01"
         assert result.user.role == "perito"
-        assert result.token is not None
+        assert result.access_token is not None
+        assert result.refresh_token is not None
+        assert result.expires_in > 0
         # Verify token contains sub claim
         from jose import jwt
         from app.config import get_settings
-        payload = jwt.decode(result.token, get_settings().SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(result.access_token, get_settings().SECRET_KEY, algorithms=["HS256"])
         assert payload["sub"] == str(test_user.id)
         assert payload["role"] == "perito"
+        assert payload["type"] == "access"
+
+        from models.refresh_token import RefreshToken
+        import hashlib
+        token_hash = hashlib.sha256(result.refresh_token.encode()).hexdigest()
+        stored = db_session.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
+        assert stored is not None
+        assert stored.user_id == test_user.id
+        assert stored.revoked_at is None
 
     def test_login_invalid_password(self, db_session, test_user):
         """TU-AUTH-002: Login with wrong password raises AuthenticationError."""
@@ -132,6 +143,51 @@ class TestAuthService:
             auth_service.first_access("novo.perito", "NovaSenha1", "OutraSenha1")
         assert "coincidem" in str(exc_info.value).lower()
 
+    def test_refresh_rotates_token(self, db_session, test_user):
+        """TU-AUTH-011: Valid refresh issues new pair and revokes old."""
+        from services.auth_service import AuthService, AuthenticationError
+        from jose import jwt
+        from app.config import get_settings
+
+        auth_service = AuthService(db_session)
+        login = auth_service.authenticate("perito01", "Senha1234")
+        old_refresh = login.refresh_token
+
+        pair = auth_service.refresh(old_refresh)
+        assert pair.access_token
+        assert pair.refresh_token
+        assert pair.refresh_token != old_refresh
+
+        payload = jwt.decode(pair.access_token, get_settings().SECRET_KEY, algorithms=["HS256"])
+        assert payload["type"] == "access"
+        assert payload["sub"] == str(test_user.id)
+
+        with pytest.raises(AuthenticationError):
+            auth_service.refresh(old_refresh)
+
+    def test_logout_invalidates_refresh(self, db_session, test_user):
+        """TU-AUTH-012: Logout revokes refresh."""
+        from services.auth_service import AuthService, AuthenticationError
+
+        auth_service = AuthService(db_session)
+        login = auth_service.authenticate("perito01", "Senha1234")
+        auth_service.logout(login.refresh_token)
+
+        with pytest.raises(AuthenticationError):
+            auth_service.refresh(login.refresh_token)
+
+    def test_inactive_user_cannot_refresh(self, db_session, test_user):
+        """TU-AUTH-013: Inactive user cannot renew session."""
+        from services.auth_service import AuthService, AuthenticationError
+
+        auth_service = AuthService(db_session)
+        login = auth_service.authenticate("perito01", "Senha1234")
+        test_user.is_active = False
+        db_session.commit()
+
+        with pytest.raises(AuthenticationError):
+            auth_service.refresh(login.refresh_token)
+
 
 class TestUserService:
     """Admin user provisioning and reset."""
@@ -194,6 +250,64 @@ class TestAuthIntegration:
             json={"username": "novo.perito", "password": "NovaSenha1"},
         )
         assert login.status_code == 200
+        body = login.json()
+        assert body.get("access_token")
+        assert body.get("refresh_token")
+        assert body.get("expires_in", 0) > 0
+
+    def test_login_me_refresh_logout(self, client, test_user):
+        """TI-AUTH-001/003: login → me → refresh → logout."""
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"username": "perito01", "password": "Senha1234"},
+        )
+        assert login.status_code == 200
+        data = login.json()
+        access = data["access_token"]
+        refresh = data["refresh_token"]
+        assert data["expires_in"] > 0
+
+        me = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {access}"},
+        )
+        assert me.status_code == 200
+        assert me.json()["username"] == "perito01"
+
+        renewed = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": refresh},
+        )
+        assert renewed.status_code == 200
+        new_refresh = renewed.json()["refresh_token"]
+        assert new_refresh != refresh
+
+        # Old refresh must fail after rotation
+        reuse = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": refresh},
+        )
+        assert reuse.status_code == 401
+
+        logout = client.post(
+            "/api/v1/auth/logout",
+            json={"refresh_token": new_refresh},
+        )
+        assert logout.status_code == 200
+        assert logout.json()["ok"] is True
+
+        after_logout = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": new_refresh},
+        )
+        assert after_logout.status_code == 401
+
+        # Opaque refresh as Bearer must not authenticate
+        bad_me = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {new_refresh}"},
+        )
+        assert bad_me.status_code == 401
 
     def test_admin_list_and_provision_users(self, client, admin_auth_headers):
         create = client.post(

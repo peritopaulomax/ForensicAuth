@@ -8,7 +8,7 @@ import numpy as np
 import soundfile as sf
 from scipy.io import wavfile
 
-from core.legacy.audio.audio_prepare import prepare_wav_for_analysis, safe_unlink
+from forensics.audio.audio_prepare import prepare_wav_for_analysis, safe_unlink
 
 
 def test_mkstemp_temp_can_be_removed_after_librosa_style_read():

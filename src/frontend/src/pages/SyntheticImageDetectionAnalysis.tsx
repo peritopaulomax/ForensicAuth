@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
-import AnalysisPageShell, {
-  AnalysisPanel,
+import TechniquePageShell from "@/components/TechniquePageShell";
+import {
   MessageBox,
   ProcessButton,
   formatInferenceDevice,
@@ -10,15 +9,16 @@ import AnalysisPageShell, {
 } from "@/components/AnalysisPageShell";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
-import { saveDerivative } from "@/services/evidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 import api from "@/services/api";
 import {
-  flattenCatalog,
   ForensicImage,
   MacroCategory,
   MetaClassifierSelect,
   capStyle,
   placeholderStyle,
+  ReferenceLrFeatureWeightsPanel,
   ReferenceLrPanel,
   ReferenceLrResult,
   ReferencePopulationEntry,
@@ -29,7 +29,32 @@ import {
   SaveButton,
   smallButtonStyle,
 } from "@/components/LrReferencePanels";
-import { getForensicTechniqueMeta } from "@/config/forensicTechniqueMeta";
+
+/** Product default: Difusão Transformer + CNN moderna + AIGI Bench Social (role both). */
+const DEFAULT_SYNTHETIC_REFERENCE: ReferencePopulationEntry[] = itemsToEntries(
+  [
+    { base_group: "GenImage", subgroup: "Midjourney" },
+    { base_group: "Defactify", subgroup: "DALL-E_3" },
+    { base_group: "Defactify", subgroup: "Midjourney_v6" },
+    { base_group: "Defactify", subgroup: "SD3" },
+    { base_group: "Defactify", subgroup: "SDXL" },
+    { base_group: "AIGCDetectBenchmark", subgroup: "Midjourney" },
+    { base_group: "AIGCDetectBenchmark", subgroup: "SDXL" },
+    { base_group: "OpenSDI", subgroup: "flux" },
+    { base_group: "OpenSDI", subgroup: "sd3" },
+    { base_group: "AIGIBench_no_SocialRF", subgroup: "DALLE-3" },
+    { base_group: "AIGIBench_no_SocialRF", subgroup: "FLUX1-dev" },
+    { base_group: "AIGIBench_no_SocialRF", subgroup: "SD3" },
+    { base_group: "AIGIBench_SocialRF", subgroup: "SocialRF" },
+    { base_group: "Synthbuster", subgroup: "Adobe_Firefly" },
+    { base_group: "Synthbuster", subgroup: "DALL-E_2" },
+    { base_group: "Synthbuster", subgroup: "DALL-E_3" },
+    { base_group: "Synthbuster", subgroup: "Midjourney_v5" },
+    { base_group: "Synthbuster", subgroup: "Stable_Diffusion_XL" },
+    { base_group: "BFree_extended_synthbuster", subgroup: "FLUX" },
+  ],
+  "both"
+);
 
 type ResultRow = [string, string, string, string, string, string];
 
@@ -44,9 +69,21 @@ const SYNTHETIC_ANALYSIS_OPTIONS: { id: SyntheticAnalysisId; label: string }[] =
   { id: "ai_image_detector_deploy", label: "ai-image-detector-deploy" },
   { id: "sdxl_flux_detector_v1_1", label: "sdxl-flux-detector v1.1" },
   { id: "bfree", label: "B-Free / Bias-free" },
-  { id: "corvi2023", label: "DMImageDetection" },
-  { id: "safe", label: "SAFE" },
+  { id: "corvi2023", label: "DMImageDetection (Corvi2023)" },
+  { id: "safe", label: "SAFE (KDD 2025)" },
 ];
+
+interface DetectorCatalogRow {
+  id: SyntheticAnalysisId;
+  label: string;
+  description?: string;
+  paper?: string;
+  paper_title?: string;
+  paper_url?: string;
+  repo_url?: string;
+  available?: boolean;
+  unavailable_reason?: string | null;
+}
 
 const DEFAULT_SYNTHETIC_ANALYSES: SyntheticAnalysisId[] = SYNTHETIC_ANALYSIS_OPTIONS.map(
   (option) => option.id
@@ -122,21 +159,30 @@ function DetectionProgressChecklist({
           gap: "0.3rem",
         }}
       >
-      {visibleStages.map((stage, idx) => {
-        const nextMin = visibleStages[idx + 1]?.min ?? 101;
-        const done = pct >= nextMin;
-        const active = pct >= stage.min && pct < nextMin;
-        const icon = done ? "✓" : active ? "●" : "○";
-        const color = done ? "#166534" : active ? "#1a1a2e" : "#9ca3af";
-        const weight = active ? 600 : 400;
+        {visibleStages.map((stage, idx) => {
+          const nextMin = visibleStages[idx + 1]?.min ?? 101;
+          const done = pct >= nextMin;
+          const active = pct >= stage.min && pct < nextMin;
+          const icon = done ? "✓" : active ? "●" : "○";
+          const color = done ? "#166534" : active ? "#1a1a2e" : "#9ca3af";
+          const weight = active ? 600 : 400;
 
-        return (
-          <li key={stage.min} style={{ display: "flex", alignItems: "center", gap: "0.45rem", color, fontWeight: weight }}>
-            <span style={{ width: "1rem", textAlign: "center", flexShrink: 0 }}>{icon}</span>
-            <span>{stage.label}</span>
-          </li>
-        );
-      })}
+          return (
+            <li
+              key={stage.min}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                color,
+                fontWeight: weight,
+              }}
+            >
+              <span style={{ width: "1rem", textAlign: "center", flexShrink: 0 }}>{icon}</span>
+              <span>{stage.label}</span>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -170,44 +216,47 @@ function ResultsTable({ rows }: { rows: ResultRow[] }) {
           </thead>
           <tbody>
             {rows.map((row, i) => {
-              const cells = [...row, ...Array(Math.max(0, INDIVIDUAL_HEADERS.length - row.length)).fill("—")];
+              const cells = [
+                ...row,
+                ...Array(Math.max(0, INDIVIDUAL_HEADERS.length - row.length)).fill("—"),
+              ];
               return (
-              <tr key={i}>
-                {cells.map((cell, j) => (
-                  <td
-                    key={j}
-                    style={{
-                      padding: "0.4rem 0.6rem",
-                      borderBottom: "1px solid #f3f4f6",
-                      color:
-                        j === 4
-                          ? classificationColor(cell)
-                          : j === 5
-                            ? deviceBadgeColor(cell)
-                            : "#1f2937",
-                      fontWeight: j === 4 || j === 5 ? 600 : 400,
-                    }}
-                  >
-                    {j === 5 ? (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "0.1rem 0.45rem",
-                          borderRadius: 4,
-                          fontSize: "0.72rem",
-                          background: cell === "GPU" ? "#dbeafe" : "#f3f4f6",
-                          color: deviceBadgeColor(cell),
-                        }}
-                      >
-                        {cell}
-                      </span>
-                    ) : (
-                      cell
-                    )}
-                  </td>
-                ))}
-              </tr>
-            );
+                <tr key={i}>
+                  {cells.map((cell, j) => (
+                    <td
+                      key={j}
+                      style={{
+                        padding: "0.4rem 0.6rem",
+                        borderBottom: "1px solid #f3f4f6",
+                        color:
+                          j === 4
+                            ? classificationColor(cell)
+                            : j === 5
+                              ? deviceBadgeColor(cell)
+                              : "#1f2937",
+                        fontWeight: j === 4 || j === 5 ? 600 : 400,
+                      }}
+                    >
+                      {j === 5 ? (
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "0.1rem 0.45rem",
+                            borderRadius: 4,
+                            fontSize: "0.72rem",
+                            background: cell === "GPU" ? "#dbeafe" : "#f3f4f6",
+                            color: deviceBadgeColor(cell),
+                          }}
+                        >
+                          {cell}
+                        </span>
+                      ) : (
+                        cell
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              );
             })}
           </tbody>
         </table>
@@ -250,15 +299,24 @@ const forensicThumbCapStyle: React.CSSProperties = {
   lineHeight: 1.25,
 };
 
-function DetectorOptionInfo({ option }: { option: { id: SyntheticAnalysisId; label: string } }) {
-  const meta = getForensicTechniqueMeta(option.id);
+function DetectorOptionInfo({ detector }: { detector: DetectorCatalogRow }) {
+  const paperUrl = detector.paper_url || (detector.paper?.startsWith("http") ? detector.paper : undefined);
+  const paperTitle = detector.paper_title || detector.paper;
 
   return (
     <span>
-      <strong style={{ display: "block", color: "#1f2937" }}>{option.label}</strong>
-      {meta?.cardSubtitle && (
-        <span style={{ display: "block", marginTop: "0.1rem", color: "#6b7280", fontSize: "0.75rem" }}>
-          {meta.cardSubtitle}
+      <strong style={{ display: "block", color: "#1f2937" }}>{detector.label}</strong>
+      {detector.description && (
+        <span
+          style={{
+            display: "block",
+            marginTop: "0.25rem",
+            fontSize: "0.74rem",
+            color: "#4b5563",
+            lineHeight: 1.35,
+          }}
+        >
+          {detector.description}
         </span>
       )}
       <span
@@ -270,44 +328,32 @@ function DetectorOptionInfo({ option }: { option: { id: SyntheticAnalysisId; lab
           fontSize: "0.72rem",
         }}
       >
-        {meta?.repoUrl && (
+        {paperUrl && (
           <a
-            href={meta.repoUrl}
+            href={paperUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#1d4ed8", textDecoration: "none" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            📄 {paperTitle || "Paper"}
+          </a>
+        )}
+        {detector.repo_url && (
+          <a
+            href={detector.repo_url}
             target="_blank"
             rel="noopener noreferrer"
             style={{ color: "#0369a1", textDecoration: "none" }}
             onClick={(e) => e.stopPropagation()}
           >
-            🔗 {meta.repoUrl.includes("huggingface.co") ? "HuggingFace" : "Repositório"}
+            🔗 {detector.repo_url.includes("huggingface.co") ? "HuggingFace" : "Repositório"}
           </a>
         )}
       </span>
-      {meta?.detail && (
-        <span
-          style={{
-            display: "block",
-            marginTop: "0.35rem",
-            fontSize: "0.74rem",
-            color: "#4b5563",
-            lineHeight: 1.35,
-          }}
-        >
-          {meta.detail}
-        </span>
-      )}
-      {meta?.citation && (
-        <span
-          style={{
-            display: "block",
-            marginTop: "0.25rem",
-            fontSize: "0.68rem",
-            color: "#9ca3af",
-            fontStyle: "italic",
-            lineHeight: 1.3,
-            whiteSpace: "pre-line",
-          }}
-        >
-          {meta.citation}
+      {detector.available === false && detector.unavailable_reason && (
+        <span style={{ display: "block", color: "#b45309", fontSize: "0.75rem", marginTop: "0.25rem" }}>
+          {detector.unavailable_reason}
         </span>
       )}
     </span>
@@ -320,8 +366,7 @@ export default function SyntheticImageDetectionAnalysis() {
   const [selectedAnalyses, setSelectedAnalyses] = useState<SyntheticAnalysisId[]>([
     ...DEFAULT_SYNTHETIC_ANALYSES,
   ]);
-  const [runtimeOk, setRuntimeOk] = useState<boolean | null>(null);
-  const [runtimeReason, setRuntimeReason] = useState("");
+  const [detectorCatalog, setDetectorCatalog] = useState<DetectorCatalogRow[]>([]);
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [inputFftUrl, setInputFftUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -336,18 +381,23 @@ export default function SyntheticImageDetectionAnalysis() {
   const [referenceCatalog, setReferenceCatalog] = useState<MacroCategory[]>([]);
   const [referenceCatalogLoading, setReferenceCatalogLoading] = useState(true);
   const [referenceCatalogError, setReferenceCatalogError] = useState<string | null>(null);
-  const [referenceEntries, setReferenceEntries] = useState<ReferencePopulationEntry[]>([]);
+  const [referenceEntries, setReferenceEntries] =
+    useState<ReferencePopulationEntry[]>(DEFAULT_SYNTHETIC_REFERENCE);
   const [metaClassifier, setMetaClassifier] = useState<string>("logistic");
   const [useAugmentedReference, setUseAugmentedReference] = useState(false);
   const [useLatentTypicality, setUseLatentTypicality] = useState(false);
 
-  const [saving, setSaving] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [savingFile, setSavingFile] = useState<string | null>(null);
+  const { saveMessage, save, clearMessage } = useDerivativeSave();
 
   const [liveInferenceDevice, setLiveInferenceDevice] = useState<string | null>(null);
 
   const { running, currentJobId, result, error, progress, progressLabel, runAnalysis, fetchImage, reset } =
     useForensicJob();
+
+  const { status: runtimeStatus } = useTechniqueRuntime("synthetic_image_detection");
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
 
   useEffect(() => {
     if (!running) {
@@ -400,38 +450,31 @@ export default function SyntheticImageDetectionAnalysis() {
 
   useEffect(() => {
     api
-      .get<{ categories: MacroCategory[] }>("/analysis/synthetic-reference-catalog")
+      .get<DetectorCatalogRow[]>("/analysis/synthetic-image-detectors")
       .then((res) => {
-        const categories = res.data.categories;
-        setReferenceCatalog(categories);
-        setReferenceEntries(itemsToEntries(flattenCatalog(categories), "both"));
+        setDetectorCatalog(res.data);
+      })
+      .catch(() => {
+        setDetectorCatalog(SYNTHETIC_ANALYSIS_OPTIONS.map((o) => ({ ...o, available: true })));
+      });
+
+    api
+      .get<{
+        categories: MacroCategory[];
+        default_reference_items?: { base_group: string; subgroup: string }[];
+      }>("/analysis/synthetic-reference-catalog")
+      .then((res) => {
+        setReferenceCatalog(res.data.categories);
+        if (res.data.default_reference_items?.length) {
+          setReferenceEntries(itemsToEntries(res.data.default_reference_items, "both"));
+        }
         setReferenceCatalogLoading(false);
       })
       .catch((err: unknown) => {
         const message =
-          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-          String(err);
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
         setReferenceCatalogError(message);
         setReferenceCatalogLoading(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    api
-      .get<{ name: string; available?: boolean; unavailable_reason?: string | null }[]>("/analysis/techniques")
-      .then((res) => {
-        const item = res.data.find((t) => t.name === "synthetic_image_detection");
-        if (item) {
-          setRuntimeOk(item.available !== false);
-          setRuntimeReason(item.unavailable_reason || "");
-        } else {
-          setRuntimeOk(false);
-          setRuntimeReason("Detecção de imagens sintéticas não registrada no servidor.");
-        }
-      })
-      .catch(() => {
-        setRuntimeOk(false);
-        setRuntimeReason("Nao foi possivel verificar disponibilidade do Detecção de imagens sintéticas.");
       });
   }, []);
 
@@ -456,10 +499,10 @@ export default function SyntheticImageDetectionAnalysis() {
     (id: string, _source: "original" | "derivative") => {
       reset();
       clearArtifactBlobs();
-      setSaveMessage(null);
+      clearMessage();
       void loadEvidencePreview(id);
     },
-    [reset, revokeBlobs, loadEvidencePreview],
+    [reset, revokeBlobs, loadEvidencePreview, clearMessage]
   );
 
   const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
@@ -474,39 +517,26 @@ export default function SyntheticImageDetectionAnalysis() {
     });
   }, []);
 
-  const referenceCounts = referenceSelectionCounts(referenceEntries, false);
-  const referencePayload = referencePopulationPayload(referenceEntries, false);
-  const referenceSelectionCount = referenceCounts.total;
+  const referenceCounts = referenceSelectionCounts(referenceEntries, true);
+  const referencePayload = referencePopulationPayload(referenceEntries, true);
+  const referenceSelectionValid = referenceCounts.fit > 0 && referenceCounts.test > 0;
 
   async function handleSave(filename: string, label: string) {
     if (!currentJobId) return;
-    setSaving(filename);
-    setSaveMessage(null);
+    setSavingFile(filename);
     try {
-      const res = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: filename,
-        label,
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${label} salvo na cadeia de custodia. SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Erro ao salvar";
-      setSaveMessage({ type: "err", text: String(msg) });
+      await save(currentJobId, filename, label);
     } finally {
-      setSaving(null);
+      setSavingFile(null);
     }
   }
 
   async function process() {
-    if (!evidenceId || !runtimeOk || selectedAnalyses.length === 0 || referenceSelectionCount === 0) {
+    if (!evidenceId || !runtimeOk || selectedAnalyses.length === 0 || !referenceSelectionValid) {
       return;
     }
     clearVisuals();
-    setSaveMessage(null);
+    clearMessage();
     try {
       await runAnalysis(
         evidenceId,
@@ -561,7 +591,6 @@ export default function SyntheticImageDetectionAnalysis() {
         }
       );
     } catch {
-      /* hook */
     }
   }
 
@@ -569,449 +598,445 @@ export default function SyntheticImageDetectionAnalysis() {
 
   const individualRows = (result?.individual_results as ResultRow[]) || [];
   const referenceLr = (result?.reference_lr as ReferenceLrResult | undefined) || null;
+  const detectorRows: DetectorCatalogRow[] = detectorCatalog.length
+    ? detectorCatalog
+    : SYNTHETIC_ANALYSIS_OPTIONS.map((o) => ({ ...o, available: true }));
 
-  if (runtimeOk === false) {
-    return (
-      <AnalysisPageShell
-        caseId={caseId}
-        title="Detecção de Imagens Sintéticas"
-        subtitle="Detecção de imagens sintéticas indisponivel neste servidor."
-        embedded={embedded}
-      >
-        <AnalysisPanel title="Indisponivel">
-          <MessageBox type="err" text={runtimeReason || "Detecção de imagens sintéticas indisponivel neste servidor."} />
-        </AnalysisPanel>
-      </AnalysisPageShell>
-    );
-  }
-
-  return (
-    <AnalysisPageShell
-      caseId={caseId}
-      title="Detecção de Imagens Sintéticas"
-      subtitle=""
-      embedded={embedded}
-    >
-      {showEvidencePicker && (
-        <AnalysisPanel title="Evidencia">
-          <ImageEvidenceSelector
-            caseId={caseId}
-            selectedId={evidenceId}
-            selectionSource={selectionSource}
-            onSelect={onSelectEvidence}
-          />
-        </AnalysisPanel>
-      )}
-
-      <AnalysisPanel title="Parametros">
-        <div style={{ marginBottom: "1rem" }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "0.75rem",
-              marginBottom: "0.6rem",
-            }}
-          >
-            <div>
-              <h4 style={{ margin: 0, fontSize: "0.9rem", color: "#374151" }}>
-                Análises a executar
-              </h4>
-              <p style={{ margin: "0.2rem 0 0", fontSize: "0.78rem", color: "#6b7280" }}>
-                Marque apenas os modelos que deseja rodar nesta evidencia.
-              </p>
-            </div>
-            <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
-              <button
-                type="button"
-                onClick={() => setSelectedAnalyses([...DEFAULT_SYNTHETIC_ANALYSES])}
-                disabled={running}
-                style={smallButtonStyle}
-              >
-                Marcar todas
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedAnalyses([])}
-                disabled={running}
-                style={smallButtonStyle}
-              >
-                Limpar
-              </button>
-            </div>
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "0.45rem",
-            }}
-          >
-            {SYNTHETIC_ANALYSIS_OPTIONS.map((option) => (
-              <label
-                key={option.id}
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: "0.5rem",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 6,
-                  padding: "0.55rem 0.65rem",
-                  background: selectedAnalyses.includes(option.id) ? "#f8fafc" : "#fff",
-                  fontSize: "0.83rem",
-                  color: "#374151",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedAnalyses.includes(option.id)}
-                  disabled={running}
-                  onChange={(e) => toggleAnalysis(option.id, e.target.checked)}
-                  style={{ marginTop: "0.15rem" }}
-                />
-                <DetectorOptionInfo option={option} />
-              </label>
-            ))}
-          </div>
-          {selectedAnalyses.length === 0 && (
-            <p style={{ margin: "0.55rem 0 0", fontSize: "0.78rem", color: "#b91c1c" }}>
-              Selecione pelo menos uma analise para executar.
+  const parametersPanel = (
+    <>
+      <div style={{ marginBottom: "1rem" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "0.75rem",
+            marginBottom: "0.6rem",
+          }}
+        >
+          <div>
+            <h4 style={{ margin: 0, fontSize: "0.9rem", color: "#374151" }}>Análises a executar</h4>
+            <p style={{ margin: "0.2rem 0 0", fontSize: "0.78rem", color: "#6b7280" }}>
+              Marque apenas os modelos que deseja rodar nesta evidencia.
             </p>
-          )}
+          </div>
+          <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setSelectedAnalyses([...DEFAULT_SYNTHETIC_ANALYSES])}
+              disabled={running}
+              style={smallButtonStyle}
+            >
+              Marcar todas
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedAnalyses([])}
+              disabled={running}
+              style={smallButtonStyle}
+            >
+              Limpar
+            </button>
+          </div>
         </div>
-        <ReferencePopulationSelector
-          catalog={referenceCatalog}
-          loading={referenceCatalogLoading}
-          error={referenceCatalogError}
-          entries={referenceEntries}
-          onChange={setReferenceEntries}
-          disabled={running}
-          enableSplitRoles={false}
-        />
-        {referenceSelectionCount === 0 && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+            gap: "0.45rem",
+          }}
+        >
+          {detectorRows.map((detector) => (
+            <label
+              key={detector.id}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "0.5rem",
+                border: "1px solid #e5e7eb",
+                borderRadius: 6,
+                padding: "0.55rem 0.65rem",
+                background: selectedAnalyses.includes(detector.id) ? "#f8fafc" : "#fff",
+                fontSize: "0.83rem",
+                color: "#374151",
+                opacity: detector.available === false ? 0.72 : 1,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={selectedAnalyses.includes(detector.id)}
+                disabled={running || detector.available === false}
+                onChange={(e) => toggleAnalysis(detector.id, e.target.checked)}
+                style={{ marginTop: "0.15rem" }}
+              />
+              <DetectorOptionInfo detector={detector} />
+            </label>
+          ))}
+        </div>
+        {selectedAnalyses.length === 0 && (
           <p style={{ margin: "0.55rem 0 0", fontSize: "0.78rem", color: "#b91c1c" }}>
-            Selecione pelo menos um gerador/subgrupo para a população de referência.
+            Selecione pelo menos uma analise para executar.
           </p>
         )}
-        <div style={{ marginTop: "0.75rem" }}>
-          <MetaClassifierSelect value={metaClassifier} disabled={running} onChange={setMetaClassifier} />
-          <label
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "0.5rem",
-              marginTop: "0.55rem",
-              fontSize: "0.85rem",
-              color: "#374151",
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={useAugmentedReference}
-              disabled={running}
-              onChange={(e) => setUseAugmentedReference(e.target.checked)}
-              style={{ marginTop: "0.15rem" }}
-            />
-            <span>
-              Usar população de referência aumentada
-              <span style={{ display: "block", fontSize: "0.74rem", color: "#6b7280", marginTop: "0.15rem" }}>
-                Inclui variações JPEG 85, WebP 80, crop+upscale e resize 50% na calibração LR.
-                Aplica-se às bases com score matrix aumentado (GenImage, Defactify, AIGCDetect,
-                OpenSDI, AIGIBench, Synthbuster e BFree extended).
-              </span>
-            </span>
-          </label>
-          <label
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "0.5rem",
-              marginTop: "0.55rem",
-              fontSize: "0.85rem",
-              color: "#374151",
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={useLatentTypicality}
-              disabled={running}
-              onChange={(e) => setUseLatentTypicality(e.target.checked)}
-              style={{ marginTop: "0.15rem" }}
-              aria-label="Tipicidade latente (k-NN)"
-            />
-            <span>
-              Usar tipicidade latente (k-NN sobre embeddings)
-              <span style={{ display: "block", fontSize: "0.74rem", color: "#6b7280", marginTop: "0.15rem" }}>
-                Estende o vetor de features do meta-classificador com medidas de tipicidade
-                extraídas das embeddings de última camada dos detectores.
-                Requer matriz de representações (scores + embeddings) gerada offline.
-              </span>
-            </span>
-          </label>
-        </div>
+      </div>
+      <ReferencePopulationSelector
+        catalog={referenceCatalog}
+        loading={referenceCatalogLoading}
+        error={referenceCatalogError}
+        entries={referenceEntries}
+        onChange={setReferenceEntries}
+        disabled={running}
+        enableSplitRoles
+        defaultPresetItems={DEFAULT_SYNTHETIC_REFERENCE.map(({ base_group, subgroup }) => ({
+          base_group,
+          subgroup,
+        }))}
+        subgroupUnitLabel="subgrupos"
+        hypothesisHint="Defina subgrupos para treino/calibração (splits 1–2) e para avaliação (split 3). LR positiva favorece H1 = real/autêntica."
+      />
+      {!referenceSelectionValid && (
+        <p style={{ margin: "0.55rem 0 0", fontSize: "0.78rem", color: "#b91c1c" }}>
+          Selecione pelo menos um subgrupo em treino/calibração e um em teste.
+        </p>
+      )}
+      <div style={{ marginTop: "0.75rem" }}>
+        <MetaClassifierSelect value={metaClassifier} disabled={running} onChange={setMetaClassifier} />
         <label
           style={{
             display: "flex",
-            alignItems: "center",
+            alignItems: "flex-start",
             gap: "0.5rem",
-            marginTop: "0.75rem",
-            fontSize: "0.88rem",
+            marginTop: "0.55rem",
+            fontSize: "0.85rem",
+            color: "#374151",
           }}
         >
           <input
             type="checkbox"
-            checked={generateVisuals}
-            onChange={(e) => setGenerateVisuals(e.target.checked)}
+            checked={useAugmentedReference}
+            disabled={running}
+            onChange={(e) => setUseAugmentedReference(e.target.checked)}
+            style={{ marginTop: "0.15rem" }}
           />
-          Gerar Visualizacoes Forenses (residuos NLM e mediana)
+          <span>
+            Usar população de referência aumentada
+            <span style={{ display: "block", fontSize: "0.74rem", color: "#6b7280", marginTop: "0.15rem" }}>
+              Inclui variações JPEG 85, WebP 80, crop+upscale e resize 50% na calibração LR.
+              Aplica-se às bases com score matrix aumentado (GenImage, Defactify, AIGCDetect,
+              OpenSDI, AIGIBench, Synthbuster e BFree extended).
+            </span>
+          </span>
         </label>
-        <div style={{ marginTop: "1rem" }}>
-          <ProcessButton
-            onClick={process}
-            disabled={
-              !evidenceId ||
-              runtimeOk !== true ||
-              selectedAnalyses.length === 0 ||
-              referenceSelectionCount === 0
-            }
-            running={running}
-            progress={progress}
-            progressLabel={progressLabel}
-            inferenceDevice={activeInferenceDevice}
-            label="Analisar Imagem"
+        <label
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "0.5rem",
+            marginTop: "0.55rem",
+            fontSize: "0.85rem",
+            color: "#374151",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={useLatentTypicality}
+            disabled={running}
+            onChange={(e) => setUseLatentTypicality(e.target.checked)}
+            style={{ marginTop: "0.15rem" }}
+            aria-label="Tipicidade latente (k-NN)"
           />
-          <DetectionProgressChecklist
-            progress={progress}
-            running={running}
-            inferenceDevice={activeInferenceDevice}
-            selectedAnalyses={selectedAnalyses}
-            generateVisuals={generateVisuals}
-          />
-        </div>
-        {error && <MessageBox type="err" text={error} />}
-      </AnalysisPanel>
+          <span>
+            Usar tipicidade latente (k-NN sobre embeddings)
+            <span style={{ display: "block", fontSize: "0.74rem", color: "#6b7280", marginTop: "0.15rem" }}>
+              Estende o vetor de features do meta-classificador com medidas de tipicidade
+              extraídas das embeddings de última camada dos detectores.
+              Requer matriz de representações (scores + embeddings) gerada offline.
+            </span>
+          </span>
+        </label>
+      </div>
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+          marginTop: "0.75rem",
+          fontSize: "0.88rem",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={generateVisuals}
+          onChange={(e) => setGenerateVisuals(e.target.checked)}
+        />
+        Gerar Visualizacoes Forenses (residuos NLM e mediana)
+      </label>
+      <div style={{ marginTop: "1rem" }}>
+        <ProcessButton
+          onClick={process}
+          disabled={
+            !evidenceId || runtimeOk !== true || selectedAnalyses.length === 0 || !referenceSelectionValid
+          }
+          running={running}
+          progress={progress}
+          progressLabel={progressLabel}
+          inferenceDevice={activeInferenceDevice}
+          label="Analisar Imagem"
+        />
+        <DetectionProgressChecklist
+          progress={progress}
+          running={running}
+          inferenceDevice={activeInferenceDevice}
+          selectedAnalyses={selectedAnalyses}
+          generateVisuals={generateVisuals}
+        />
+      </div>
+      {error && <MessageBox type="err" text={error} />}
+    </>
+  );
 
-      {(evidenceId || result) && (
-        <AnalysisPanel title="Resultado">
+  const resultPanel = (evidenceId || result) && (
+    <>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(450px, 1.5fr) minmax(280px, 2fr)",
+          gap: "1rem",
+          alignItems: "start",
+        }}
+      >
+        <div>
+          <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#6b7280" }}>
+            Imagem de Entrada e FFT
+          </h4>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "minmax(450px, 1.5fr) minmax(280px, 2fr)",
-              gap: "1rem",
-              alignItems: "start",
+              gridTemplateColumns: "repeat(2, minmax(225px, 1fr))",
+              gap: "0.75rem",
             }}
           >
-            <div>
-              <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#6b7280" }}>
-                Imagem de Entrada e FFT
-              </h4>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(2, minmax(225px, 1fr))",
-                  gap: "0.75rem",
-                }}
-              >
-                {originalUrl ? (
-                  <ForensicImage src={originalUrl} label="Imagem de Entrada" imageStyle={inputPreviewImgStyle} />
-                ) : (
-                  <figure style={{ margin: 0 }}>
-                    <div style={{ ...placeholderStyle, ...inputPreviewPlaceholderStyle }}>
-                      {previewLoading ? "Carregando imagem…" : "Aguardando imagem de entrada"}
-                    </div>
-                    <figcaption style={capStyle}>Imagem de Entrada</figcaption>
-                  </figure>
-                )}
-                <ForensicImage
-                  src={inputFftUrl}
-                  label="FFT(log) da imagem de entrada"
-                  imageStyle={inputPreviewImgStyle}
-                  placeholderStyle={inputPreviewPlaceholderStyle}
+            {originalUrl ? (
+              <ForensicImage src={originalUrl} label="Imagem de Entrada" imageStyle={inputPreviewImgStyle} />
+            ) : (
+              <figure style={{ margin: 0 }}>
+                <div style={{ ...placeholderStyle, ...inputPreviewPlaceholderStyle }}>
+                  {previewLoading ? "Carregando imagem…" : "Aguardando imagem de entrada"}
+                </div>
+                <figcaption style={capStyle}>Imagem de Entrada</figcaption>
+              </figure>
+            )}
+            <ForensicImage
+              src={inputFftUrl}
+              label="FFT(log) da imagem de entrada"
+              imageStyle={inputPreviewImgStyle}
+              placeholderStyle={inputPreviewPlaceholderStyle}
+            />
+          </div>
+        </div>
+        <ResultsTable rows={individualRows} />
+      </div>
+
+      <ReferenceLrPanel
+        lr={referenceLr}
+        tippettUrl={referenceLrTippettUrl}
+        distributionUrl={referenceLrDistributionUrl}
+        identityUrl={referenceLrIdentityUrl}
+      />
+
+      <details open style={{ marginTop: "1.5rem" }}>
+        <summary
+          style={{
+            cursor: "pointer",
+            fontWeight: 600,
+            fontSize: "0.95rem",
+            color: "#1a1a2e",
+            marginBottom: "1rem",
+          }}
+        >
+          Residuos de Denoising
+        </summary>
+
+        <h4 style={{ fontSize: "0.9rem", margin: "0 0 0.75rem", color: "#374151" }}>
+          Residuos de ruido e FFT
+        </h4>
+        <div style={{ width: "100%" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+              gap: "0.5rem",
+              width: "100%",
+            }}
+          >
+            <ForensicImage
+              src={nlmResidueUrl}
+              label="Residuo NLM"
+              imageStyle={forensicThumbImgStyle}
+              placeholderStyle={forensicThumbPlaceholderStyle}
+              captionStyle={forensicThumbCapStyle}
+            />
+            <ForensicImage
+              src={nlmFftUrl}
+              label="FFT(log) NLM"
+              imageStyle={forensicThumbImgStyle}
+              placeholderStyle={forensicThumbPlaceholderStyle}
+              captionStyle={forensicThumbCapStyle}
+            />
+            <ForensicImage
+              src={medianResidueUrl}
+              label="Residuo Mediana"
+              imageStyle={forensicThumbImgStyle}
+              placeholderStyle={forensicThumbPlaceholderStyle}
+              captionStyle={forensicThumbCapStyle}
+            />
+            <ForensicImage
+              src={medianFftUrl}
+              label="FFT(log) Mediana"
+              imageStyle={forensicThumbImgStyle}
+              placeholderStyle={forensicThumbPlaceholderStyle}
+              captionStyle={forensicThumbCapStyle}
+            />
+          </div>
+        </div>
+      </details>
+
+      {!generateVisuals && result && (
+        <p style={{ marginTop: "1rem", fontSize: "0.82rem", color: "#6b7280" }}>
+          Visualizacoes forenses nao foram geradas. Marque a opcao acima e execute novamente.
+        </p>
+      )}
+
+      {currentJobId && result && (
+        <div style={{ marginTop: "1.5rem", borderTop: "1px solid #e5e7eb", paddingTop: "1rem" }}>
+          <h4 style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", color: "#374151" }}>
+            Salvar em derivados
+          </h4>
+          <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#6b7280" }}>
+            O relatorio de escores (TXT) e o artefato principal para reproducibilidade e cadeia de custodia.
+            Imagens sao opcionais.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+            <SaveButton
+              label="Escores dos modelos (TXT)"
+              filename="model_scores.txt"
+              saving={savingFile}
+              onSave={handleSave}
+              primary
+            />
+            <SaveButton
+              label="Imagem de entrada"
+              filename="input_image.png"
+              saving={savingFile}
+              onSave={handleSave}
+            />
+            <SaveButton
+              label="FFT entrada"
+              filename="input_fft.png"
+              saving={savingFile}
+              onSave={handleSave}
+            />
+            {generateVisuals && (
+              <>
+                <SaveButton
+                  label="Residuo NLM"
+                  filename="nlm_residue.png"
+                  saving={savingFile}
+                  onSave={handleSave}
                 />
-              </div>
-            </div>
-            <ResultsTable rows={individualRows} />
+                <SaveButton
+                  label="FFT NLM"
+                  filename="nlm_fft.png"
+                  saving={savingFile}
+                  onSave={handleSave}
+                />
+                <SaveButton
+                  label="Residuo mediana"
+                  filename="median_residue.png"
+                  saving={savingFile}
+                  onSave={handleSave}
+                />
+                <SaveButton
+                  label="FFT mediana"
+                  filename="median_fft.png"
+                  saving={savingFile}
+                  onSave={handleSave}
+                />
+              </>
+            )}
           </div>
 
-          <ReferenceLrPanel
-            lr={referenceLr}
-            tippettUrl={referenceLrTippettUrl}
-            distributionUrl={referenceLrDistributionUrl}
-            identityUrl={referenceLrIdentityUrl}
-          />
-
-          <details open style={{ marginTop: "1.5rem" }}>
-            <summary
-              style={{
-                cursor: "pointer",
-                fontWeight: 600,
-                fontSize: "0.95rem",
-                color: "#1a1a2e",
-                marginBottom: "1rem",
-              }}
-            >
-              Residuos de Denoising
-            </summary>
-
-            <h4 style={{ fontSize: "0.9rem", margin: "0 0 0.75rem", color: "#374151" }}>
-              Residuos de ruido e FFT
-            </h4>
-            <div style={{ width: "100%" }}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                  gap: "0.5rem",
-                  width: "100%",
-                }}
-              >
-                <ForensicImage
-                  src={nlmResidueUrl}
-                  label="Residuo NLM"
-                  imageStyle={forensicThumbImgStyle}
-                  placeholderStyle={forensicThumbPlaceholderStyle}
-                  captionStyle={forensicThumbCapStyle}
-                />
-                <ForensicImage
-                  src={nlmFftUrl}
-                  label="FFT(log) NLM"
-                  imageStyle={forensicThumbImgStyle}
-                  placeholderStyle={forensicThumbPlaceholderStyle}
-                  captionStyle={forensicThumbCapStyle}
-                />
-                <ForensicImage
-                  src={medianResidueUrl}
-                  label="Residuo Mediana"
-                  imageStyle={forensicThumbImgStyle}
-                  placeholderStyle={forensicThumbPlaceholderStyle}
-                  captionStyle={forensicThumbCapStyle}
-                />
-                <ForensicImage
-                  src={medianFftUrl}
-                  label="FFT(log) Mediana"
-                  imageStyle={forensicThumbImgStyle}
-                  placeholderStyle={forensicThumbPlaceholderStyle}
-                  captionStyle={forensicThumbCapStyle}
-                />
-              </div>
-            </div>
-          </details>
-
-          {!generateVisuals && result && (
-            <p style={{ marginTop: "1rem", fontSize: "0.82rem", color: "#6b7280" }}>
-              Visualizacoes forenses nao foram geradas. Marque a opcao acima e execute novamente.
-            </p>
-          )}
-
-          {currentJobId && result && (
-            <div style={{ marginTop: "1.5rem", borderTop: "1px solid #e5e7eb", paddingTop: "1rem" }}>
-              <h4 style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", color: "#374151" }}>
-                Salvar em derivados
-              </h4>
-              <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#6b7280" }}>
-                O relatorio de escores (TXT) e o artefato principal para reproducibilidade e cadeia de custodia.
-                Imagens sao opcionais.
+          {referenceLr && referenceLr.success !== false && (
+            <div style={{ marginTop: "1rem" }}>
+              <p style={{ margin: "0 0 0.5rem", fontSize: "0.8rem", color: "#6b7280" }}>
+                Artefatos da calibracao LR (populacao de referencia, CLLR, EER, graficos):
               </p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
                 <SaveButton
-                  label="Escores dos modelos (TXT)"
-                  filename="model_scores.txt"
-                  saving={saving}
-                  onSave={handleSave}
-                  primary
-                />
-                <SaveButton
-                  label="Imagem de entrada"
-                  filename="input_image.png"
-                  saving={saving}
+                  label="Resumo LR (TXT)"
+                  filename="lr_reference_summary.txt"
+                  saving={savingFile}
                   onSave={handleSave}
                 />
                 <SaveButton
-                  label="FFT entrada"
-                  filename="input_fft.png"
-                  saving={saving}
+                  label="Relatorio LR (JSON)"
+                  filename="lr_reference_report.json"
+                  saving={savingFile}
                   onSave={handleSave}
                 />
-                {generateVisuals && (
-                  <>
-                    <SaveButton
-                      label="Residuo NLM"
-                      filename="nlm_residue.png"
-                      saving={saving}
-                      onSave={handleSave}
-                    />
-                    <SaveButton
-                      label="FFT NLM"
-                      filename="nlm_fft.png"
-                      saving={saving}
-                      onSave={handleSave}
-                    />
-                    <SaveButton
-                      label="Residuo mediana"
-                      filename="median_residue.png"
-                      saving={saving}
-                      onSave={handleSave}
-                    />
-                    <SaveButton
-                      label="FFT mediana"
-                      filename="median_fft.png"
-                      saving={saving}
-                      onSave={handleSave}
-                    />
-                  </>
-                )}
+                <SaveButton
+                  label="Tippett plot"
+                  filename="lr_reference_tippett.png"
+                  saving={savingFile}
+                  onSave={handleSave}
+                />
+                <SaveButton
+                  label="Distribuicao LR"
+                  filename="lr_reference_distribution.png"
+                  saving={savingFile}
+                  onSave={handleSave}
+                />
+                <SaveButton
+                  label="Funcao identidade"
+                  filename="lr_reference_identity.png"
+                  saving={savingFile}
+                  onSave={handleSave}
+                />
               </div>
-
-              {referenceLr && referenceLr.success !== false && (
-                <div style={{ marginTop: "1rem" }}>
-                  <p style={{ margin: "0 0 0.5rem", fontSize: "0.8rem", color: "#6b7280" }}>
-                    Artefatos da calibracao LR (populacao de referencia, CLLR, EER, graficos):
-                  </p>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-                    <SaveButton
-                      label="Resumo LR (TXT)"
-                      filename="lr_reference_summary.txt"
-                      saving={saving}
-                      onSave={handleSave}
-                    />
-                    <SaveButton
-                      label="Relatorio LR (JSON)"
-                      filename="lr_reference_report.json"
-                      saving={saving}
-                      onSave={handleSave}
-                    />
-                    <SaveButton
-                      label="Tippett plot"
-                      filename="lr_reference_tippett.png"
-                      saving={saving}
-                      onSave={handleSave}
-                    />
-                    <SaveButton
-                      label="Distribuicao LR"
-                      filename="lr_reference_distribution.png"
-                      saving={saving}
-                      onSave={handleSave}
-                    />
-                    <SaveButton
-                      label="Funcao identidade"
-                      filename="lr_reference_identity.png"
-                      saving={saving}
-                      onSave={handleSave}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {saveMessage && (
-                <div style={{ marginTop: "0.75rem" }}>
-                  <MessageBox type={saveMessage.type} text={saveMessage.text} />
-                </div>
-              )}
             </div>
           )}
-        </AnalysisPanel>
+
+          {saveMessage && (
+            <div style={{ marginTop: "0.75rem" }}>
+              <MessageBox type={saveMessage.type} text={saveMessage.text} />
+            </div>
+          )}
+        </div>
       )}
-    </AnalysisPageShell>
+
+      <ReferenceLrFeatureWeightsPanel lr={referenceLr} />
+    </>
+  );
+
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="synthetic_image_detection"
+      mediaType="imagem"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      parametersPanel={parametersPanel}
+      resultPanel={resultPanel || undefined}
+    />
   );
 }

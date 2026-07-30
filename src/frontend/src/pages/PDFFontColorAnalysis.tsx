@@ -1,25 +1,28 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
-import MediaEvidenceSelector from "@/components/MediaEvidenceSelector";
+import { useCallback, useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import TechniquePageShell from "@/components/TechniquePageShell";
+import { MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
 import { useForensicJob } from "@/hooks/useForensicJob";
-import { saveDerivative } from "@/services/evidence";
+import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 import api from "@/services/api";
 import { PDF_VIEWER_HEIGHT } from "@/styles/pdfViewer";
 
 export default function PDFFontColorAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
-  const navigate = useNavigate();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [opacity, setOpacity] = useState(0.42);
   const [bySubset, setBySubset] = useState(false);
   const [mode, setMode] = useState<"font" | "size">("font");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [legend, setLegend] = useState("");
-  const [savingDerivative, setSavingDerivative] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [, setLegend] = useState("");
   const { running, currentJobId, result, error, progress, progressLabel, runAnalysis, reset } =
     useForensicJob();
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
+  const { status: runtimeStatus } = useTechniqueRuntime("pdf_font_color_overlay");
+
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
 
   useEffect(() => () => {
     if (pdfUrl) URL.revokeObjectURL(pdfUrl);
@@ -28,21 +31,31 @@ export default function PDFFontColorAnalysis() {
   function clearResults() {
     reset();
     setLegend("");
-    setSaveMessage(null);
+    clearMessage();
     if (pdfUrl) URL.revokeObjectURL(pdfUrl);
     setPdfUrl(null);
   }
 
+  const applyEvidence = useCallback(
+    (_id: string) => {
+      clearResults();
+    },
+    []
+  );
+
+  const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
+    useGroupAwareEvidence(caseId!, applyEvidence);
+
   async function process() {
-    if (!selectedId) return;
-    setSaveMessage(null);
+    if (!evidenceId || !runtimeOk) return;
+    clearMessage();
     setLegend("");
     if (pdfUrl) {
       URL.revokeObjectURL(pdfUrl);
       setPdfUrl(null);
     }
     try {
-      await runAnalysis(selectedId, "pdf_font_color_overlay", { opacity, by_subset: bySubset, mode }, {
+      await runAnalysis(evidenceId, "pdf_font_color_overlay", { opacity, by_subset: bySubset, mode }, {
         onArtifactsLoaded: async (jobId, jobResult) => {
           const res = await api.get(`/analysis/${jobId}/result/file?filename=font_overlay.pdf`, {
             responseType: "blob",
@@ -53,191 +66,152 @@ export default function PDFFontColorAnalysis() {
         },
       });
     } catch {
-      /* hook */
-    }
-  }
-
-  async function handleSaveDerivative(artifactFilename: string, label: string) {
-    if (!currentJobId) return;
-    setSavingDerivative(artifactFilename);
-    setSaveMessage(null);
-    try {
-      const res = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: artifactFilename,
-        label,
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${res.message} «${res.evidence.original_filename}». SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined;
-      setSaveMessage({ type: "err", text: detail || "Erro ao salvar derivado" });
-    } finally {
-      setSavingDerivative(null);
     }
   }
 
   if (!caseId) return null;
 
-  return (
-    <AnalysisPageShell
-      caseId={caseId}
-      title="PDF — Overlay por fonte / tamanho"
-      subtitle="Cores por recurso de fonte ou heatmap por tamanho. Visualize o PDF com overlay na propria ferramenta."
-    >
-      <AnalysisPanel title="Evidencia PDF">
-        <MediaEvidenceSelector
-          caseId={caseId}
-          fileType="pdf"
-          selectedId={selectedId}
-          onSelect={(id) => {
-            setSelectedId(id);
-            clearResults();
-          }}
-          radioName="pdf-font-overlay"
+  const parametersPanel = (
+    <>
+      <label style={{ display: "block", marginTop: "0.75rem", fontSize: "0.82rem" }}>
+        Opacidade do overlay: {opacity}
+        <input
+          type="range"
+          min={0.1}
+          max={1}
+          step={0.05}
+          value={opacity}
+          onChange={(e) => setOpacity(Number(e.target.value))}
+          style={{ width: "100%", maxWidth: 320 }}
         />
-        <label style={{ display: "block", marginTop: "0.75rem", fontSize: "0.82rem" }}>
-          Opacidade do overlay: {opacity}
-          <input
-            type="range"
-            min={0.1}
-            max={1}
-            step={0.05}
-            value={opacity}
-            onChange={(e) => setOpacity(Number(e.target.value))}
-            style={{ width: "100%", maxWidth: 320 }}
-          />
-        </label>
-        <label
+      </label>
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.45rem",
+          marginTop: "0.75rem",
+          fontSize: "0.82rem",
+          cursor: "pointer",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={bySubset}
+          onChange={(e) => setBySubset(e.target.checked)}
+        />
+        Por subset (/BaseFont distinto por tag de subconjunto)
+      </label>
+      <p style={{ fontSize: "0.78rem", color: "#6b7280", margin: "0.35rem 0 0" }}>
+        Desmarcado (padrão): uma cor por família de fonte. Marcado: analisa o content stream e
+        distingue subsets (ex.: ABCDEF+Arial vs GHIJKL+Arial).
+      </p>
+
+      <label style={{ display: "block", marginTop: "0.75rem", fontSize: "0.82rem" }}>
+        Modo de overlay
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value as "font" | "size")}
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.45rem",
-            marginTop: "0.75rem",
-            fontSize: "0.82rem",
-            cursor: "pointer",
+            display: "block",
+            width: "100%",
+            maxWidth: 320,
+            marginTop: "0.25rem",
+            padding: "0.35rem 0.5rem",
+            borderRadius: 6,
+            border: "1px solid #d1d5db",
+            background: "#fff",
           }}
         >
-          <input
-            type="checkbox"
-            checked={bySubset}
-            onChange={(e) => setBySubset(e.target.checked)}
-          />
-          Por subset (/BaseFont distinto por tag de subconjunto)
-        </label>
-        <p style={{ fontSize: "0.78rem", color: "#6b7280", margin: "0.35rem 0 0" }}>
-          Desmarcado (padrão): uma cor por família de fonte. Marcado: analisa o content stream e
-          distingue subsets (ex.: ABCDEF+Arial vs GHIJKL+Arial).
-        </p>
+          <option value="font">Por fonte (cor por recurso de fonte)</option>
+          <option value="size">Por tamanho (heatmap azul → vermelho)</option>
+        </select>
+      </label>
+      <p style={{ fontSize: "0.78rem", color: "#6b7280", margin: "0.35rem 0 0" }}>
+        {mode === "font"
+          ? "Cada fonte recebe uma cor distinta no PDF."
+          : "Cada tamanho de fonte recebe uma cor: azul (pequeno) → verde → amarelo → vermelho (grande)."}
+      </p>
+      <div style={{ marginTop: "1rem" }}>
+        <ProcessButton
+          onClick={process}
+          disabled={!evidenceId || runtimeOk === false}
+          running={running}
+          progress={progress}
+          progressLabel={progressLabel}
+          label="Gerar overlay"
+        />
+      </div>
+    </>
+  );
 
-        <label style={{ display: "block", marginTop: "0.75rem", fontSize: "0.82rem" }}>
-          Modo de overlay
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as "font" | "size")}
-            style={{
-              display: "block",
-              width: "100%",
-              maxWidth: 320,
-              marginTop: "0.25rem",
-              padding: "0.35rem 0.5rem",
-              borderRadius: 6,
-              border: "1px solid #d1d5db",
-              background: "#fff",
-            }}
-          >
-            <option value="font">Por fonte (cor por recurso de fonte)</option>
-            <option value="size">Por tamanho (heatmap azul → vermelho)</option>
-          </select>
-        </label>
-        <p style={{ fontSize: "0.78rem", color: "#6b7280", margin: "0.35rem 0 0" }}>
-          {mode === "font"
-            ? "Cada fonte recebe uma cor distinta no PDF."
-            : "Cada tamanho de fonte recebe uma cor: azul (pequeno) → verde → amarelo → vermelho (grande)."}
-        </p>
-        <div style={{ marginTop: "1rem" }}>
-          <ProcessButton
-            onClick={process}
-            disabled={!selectedId}
-            running={running}
-            progress={progress}
-            progressLabel={progressLabel}
-            label="Gerar overlay"
-          />
-        </div>
-        {error && <MessageBox type="err" text={error} />}
-      </AnalysisPanel>
-
+  const resultPanel = (
+    <>
       {pdfUrl && (
-        <AnalysisPanel title="PDF com overlay">
-          <iframe
-            title="PDF font overlay"
-            src={pdfUrl}
-            style={{
-              width: "100%",
-              height: PDF_VIEWER_HEIGHT,
-              border: "1px solid #e5e7eb",
-              borderRadius: 8,
-            }}
-          />
-          {result && (
-            <p style={{ fontSize: "0.82rem", color: "#374151", marginTop: 8 }}>
-              {mode === "size"
-                ? `${Number(result.sizes_count)} tamanhos · ${Number(result.rectangles)} realces`
-                : `${Number(result.fonts_count)} fontes · ${Number(result.rectangles)} realces`}
-            </p>
-          )}
-          {currentJobId && (
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-              <button
-                type="button"
-                onClick={() => handleSaveDerivative("font_overlay.pdf", "pdf_overlay")}
-                disabled={!!savingDerivative}
-                style={btnPrimary}
-              >
-                {savingDerivative === "font_overlay.pdf" ? "Salvando…" : "Salvar PDF overlay nos derivados"}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSaveDerivative("font_legend.txt", "font_legend")}
-                disabled={!!savingDerivative}
-                style={btnPrimary}
-              >
-                {savingDerivative === "font_legend.txt" ? "Salvando…" : "Salvar legenda TXT nos derivados"}
-              </button>
-              <button type="button" onClick={() => navigate(`/cases/${caseId}?tab=derivados`)} style={btnSecondary}>
-                Abrir derivados
-              </button>
-            </div>
-          )}
-          {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
-        </AnalysisPanel>
+        <iframe
+          title="PDF font overlay"
+          src={pdfUrl}
+          style={{
+            width: "100%",
+            height: PDF_VIEWER_HEIGHT,
+            border: "1px solid #e5e7eb",
+            borderRadius: 8,
+          }}
+        />
       )}
+      {result && (
+        <p style={{ fontSize: "0.82rem", color: "#374151", marginTop: 8 }}>
+          {mode === "size"
+            ? `${Number(result.sizes_count)} tamanhos · ${Number(result.rectangles)} realces`
+            : `${Number(result.fonts_count)} fontes · ${Number(result.rectangles)} realces`}
+        </p>
+      )}
+      {currentJobId && (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+          <button
+            type="button"
+            onClick={() => save(currentJobId, "font_overlay.pdf", "pdf_overlay")}
+            disabled={!!saving}
+            style={btnPrimary}
+          >
+            {saving ? "Salvando…" : "Salvar PDF overlay nos derivados"}
+          </button>
+          <button
+            type="button"
+            onClick={() => save(currentJobId, "font_legend.txt", "font_legend")}
+            disabled={!!saving}
+            style={btnPrimary}
+          >
+            {saving ? "Salvando…" : "Salvar legenda TXT nos derivados"}
+          </button>
+        </div>
+      )}
+      {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
+    </>
+  );
 
-      {legend && (
-        <AnalysisPanel title={mode === "size" ? "Legenda de tamanhos" : "Legenda de fontes"}>
-          <pre style={{ fontSize: "0.78rem", whiteSpace: "pre-wrap", background: "#f9fafb", padding: 12 }}>
-            {legend}
-          </pre>
-        </AnalysisPanel>
-      )}
-    </AnalysisPageShell>
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="pdf_font_color_overlay"
+      mediaType="pdf"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      parametersPanel={parametersPanel}
+      resultPanel={resultPanel || undefined}
+    />
   );
 }
-
-const btnSecondary = {
-  padding: "0.45rem 0.9rem",
-  background: "#f3f4f6",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: "0.85rem",
-} as const;
 
 const btnPrimary = {
   padding: "0.45rem 0.9rem",

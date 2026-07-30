@@ -46,12 +46,15 @@ services:
       - RESULTS_DIR=/app/results
       - DERIVATIVES_DIR=/app/derivatives
       - PERITUS_CASES_DIR=/app/peritus_cases
+      - REFERENCE_DATA_DIR=/app/reference_data
+      - FORENSICAUTH_REFERENCE_DATA_DIR=/app/reference_data
     volumes:
-      - ./uploads:/app/uploads
-      - ./results:/app/results
-      - ./derivatives:/app/derivatives
-      - ./peritus_cases:/app/peritus_cases
+      - ./data/uploads:/app/uploads
+      - ./data/results:/app/results
+      - ./data/derivatives:/app/derivatives
+      - ./data/peritus_cases:/app/peritus_cases
       - ./models:/app/models
+      - ./reference_data:/app/reference_data
     depends_on:
       db:
         condition: service_healthy
@@ -75,12 +78,15 @@ services:
       - RESULTS_DIR=/app/results
       - DERIVATIVES_DIR=/app/derivatives
       - PERITUS_CASES_DIR=/app/peritus_cases
+      - REFERENCE_DATA_DIR=/app/reference_data
+      - FORENSICAUTH_REFERENCE_DATA_DIR=/app/reference_data
     volumes:
-      - ./uploads:/app/uploads
-      - ./results:/app/results
-      - ./derivatives:/app/derivatives
-      - ./peritus_cases:/app/peritus_cases
+      - ./data/uploads:/app/uploads
+      - ./data/results:/app/results
+      - ./data/derivatives:/app/derivatives
+      - ./data/peritus_cases:/app/peritus_cases
       - ./models:/app/models
+      - ./reference_data:/app/reference_data
     depends_on:
       db:
         condition: service_healthy

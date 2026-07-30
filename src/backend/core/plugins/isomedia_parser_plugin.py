@@ -8,7 +8,7 @@ from typing import Any, Dict, Tuple
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.video.isom_parser import run_isomedia_parser
+from forensics.video.isom_parser import run_isomedia_parser
 
 
 class ISOMediaParserPlugin(ForensicPlugin):

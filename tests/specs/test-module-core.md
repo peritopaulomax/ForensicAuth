@@ -35,7 +35,8 @@
 - **Saida esperada**:
   - `settings.DATABASE_URL` = "postgresql://..."
   - `settings.SECRET_KEY` = "test123"
-  - `settings.ACCESS_TOKEN_EXPIRE_MINUTES` = 30 (default)
+  - `settings.ACCESS_TOKEN_EXPIRE_MINUTES` = 15 (default)
+  - `settings.REFRESH_TOKEN_EXPIRE_DAYS` = 14 (default)
 
 ### TU-CORE-006: Falta variavel obrigatoria
 - **Setup**: DATABASE_URL ausente no ambiente
@@ -54,5 +55,5 @@
 
 ## Mocks/Stubs
 
-- Mock adapters em `tests/mocks/adapters/`
+- Mock adapters em `LIXEIRA/tests/mocks/adapters/`
 - Cada mock herda `ForensicPlugin` e retorna dados fixos

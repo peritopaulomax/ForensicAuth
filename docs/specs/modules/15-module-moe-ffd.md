@@ -22,18 +22,19 @@ Pesos oficiais: [Hugging Face luobo91/MoE-FFD](https://huggingface.co/luobo91/Mo
 - Retorno: `label` (`real`|`fake`), `fake_prob`, `real_prob`, `score` (=fake_prob), `threshold`, `inference_device`, metadados de crop.
 - Artefatos: `moe_ffd_result.json`, `moe_ffd_summary.txt`, `moe_ffd_face_crop.png` / preview.
 - Card de grupo renomeado + id `dl-facial-spoofing` (redirect legado de `biometria-facial`).
-- Jobs GPU com fallback CPU; perfil `gpu_ml`; custódia via fluxo padrão.
+- Jobs GPU com fallback CPU; perfil `gpu_ml`; rastreabilidade via hashes no `AnalysisJob`; custódia oficial só em upload / derivado / lifecycle (não por job).
 
 ### Fora do escopo (v0)
 
 - Agregação multi-frame / vídeo (o paper avalia por vídeo; v0 é single-image).
 - Alinhamento por landmarks 5-point / warp afim (crop quadrado com margem; RetinaFace bbox).
-- Fine-tuning; laudo PDF dedicado; calibração LR desta técnica.
+- Fine-tuning; calibração LR desta técnica (fora do escopo v0).
+- Laudo PDF dedicado (produto nao possui modulo de laudo unificado).
 
 ## 3. Atores
 
 - **Perito / Admin**: seleciona evidência, abre o hub facial, aba MoE-FFD, executa análise.
-- **Sistema**: valida runtime, enfileira job GPU, executa adapter, grava artefatos + custódia.
+- **Sistema**: valida runtime, enfileira job GPU, executa adapter, grava artefatos e hashes no job.
 
 ## 4. Requisitos Funcionais
 
@@ -48,7 +49,7 @@ Pesos oficiais: [Hugging Face luobo91/MoE-FFD](https://huggingface.co/luobo91/Mo
 | MOE-RF-07 | GPU preferencial com fallback CPU; device reportado no resultado. |
 | MOE-RF-08 | Frontend: grupo "Deep Learning: Manipulação e Spoofing Facial" com abas PAD e MoE-FFD. |
 | MOE-RF-09 | Página MoE-FFD exibe label, scores e permite salvar derivado. |
-| MOE-RF-10 | Job rastreável na cadeia de custódia (hashes entrada/saída no fluxo padrão). |
+| MOE-RF-10 | Job rastreável por hashes de entrada/saída no `AnalysisJob` (+ filesystem). Elo de custódia apenas na promoção a derivado ou em eventos de lifecycle — não ao completar o job. |
 
 ## 5. Requisitos Não-Funcionais
 
@@ -68,8 +69,8 @@ vendor/MoE-FFD/                                 # clone oficial
 models/moe_ffd/MoE-FFD.tar                      # pesos HF
 scripts/download_moe_ffd_weights.py
 src/backend/core/technique_ids.py               # MOE_FFD
-src/backend/core/legacy/moe_ffd/runtime.py
-src/backend/core/legacy/moe_ffd/moe_ffd_pipeline.py
+src/backend/forensics/moe_ffd/runtime.py
+src/backend/forensics/moe_ffd/moe_ffd_pipeline.py
 src/backend/core/plugins/moe_ffd_adapter.py
 src/frontend/src/config/imageAnalysisGroups.ts
 src/frontend/src/pages/MoeFfdAnalysis.tsx
@@ -87,7 +88,7 @@ src/frontend/e2e/moe-ffd-navigation.spec.ts
 | ADR-MOE-003 | Single-image softmax class 1 = fake | Agregar frames | Simples, alinhado a eval | Moderada |
 | ADR-MOE-004 | Renomear grupo UI; id `dl-facial-spoofing` | Manter `biometria-facial` | Clareza semântica | Moderada |
 | ADR-MOE-005 | Crop RetinaFace (PAD) antes do MoE-FFD | Entrada já cropped; insightface | Reuso operacional; domínio FF++ | Fácil |
-| ADR-MOE-006 | Fail-closed se `w_gate`≈0 / training_tar | Aceitar HF tar cego | Evita laudos "sempre real" | Fácil |
+| ADR-MOE-006 | Fail-closed se `w_gate`≈0 / training_tar | Aceitar HF tar cego | Evita scores "sempre real" enganosos | Fácil |
 
 ## 8. Fluxo de Dados
 

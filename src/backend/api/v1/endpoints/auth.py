@@ -30,6 +30,14 @@ class RegisterRequest(BaseModel):
     role: str
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str
+
+
 class UserResponse(BaseModel):
     id: str
     username: str
@@ -44,8 +52,21 @@ class UserResponse(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str
+    expires_in: int
     user: UserResponse
+
+
+class RefreshResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str
+    expires_in: int
+
+
+class LogoutResponse(BaseModel):
+    ok: bool = True
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -60,8 +81,10 @@ def login(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 
     return TokenResponse(
-        access_token=result.token,
+        access_token=result.access_token,
+        refresh_token=result.refresh_token,
         token_type="bearer",
+        expires_in=result.expires_in,
         user=UserResponse(
             id=str(result.user.id),
             username=result.user.username,
@@ -71,6 +94,35 @@ def login(
             password_set=result.user.password_set,
         ),
     )
+
+
+@router.post("/refresh", response_model=RefreshResponse)
+def refresh(
+    request: RefreshRequest,
+    db: Session = Depends(get_db),
+):
+    service = AuthService(db)
+    try:
+        pair = service.refresh(request.refresh_token)
+    except AuthenticationError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+
+    return RefreshResponse(
+        access_token=pair.access_token,
+        refresh_token=pair.refresh_token,
+        token_type="bearer",
+        expires_in=pair.expires_in,
+    )
+
+
+@router.post("/logout", response_model=LogoutResponse)
+def logout(
+    request: LogoutRequest,
+    db: Session = Depends(get_db),
+):
+    service = AuthService(db)
+    service.logout(request.refresh_token)
+    return LogoutResponse(ok=True)
 
 
 @router.post("/first-access", response_model=UserResponse)

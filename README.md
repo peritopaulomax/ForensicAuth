@@ -1,77 +1,51 @@
 # ForensicAuth
 
-Plataforma forense digital para analise de imagem, audio, video e PDF, com cadeia de custodia rastreavel, jobs assincronos e geracao de laudos.
+Plataforma forense digital (local) para análise de imagem, áudio, vídeo e PDF, com cadeia de custódia, jobs assíncronos (CPU/GPU), artefatos por técnica e transferência VCP.
 
-## Ambiente de desenvolvimento
+## Começar aqui
 
-O projeto usa um ambiente **conda** dedicado:
+Manual pedagógico completo: **[docs/README.md](docs/README.md)**  
+(ordem de leitura, primeira semana, capítulos 01–10).
+
+## Setup rápido (dev)
 
 ```bash
 conda env create -f environment.yml
 conda activate forensicauth
+pip install -r requirements.txt          # + requirements-gpu.txt se for usar ML/GPU
+
+# API
+cd src/backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Frontend (outra shell)
+cd src/frontend && npm install && npm run dev -- --host 0.0.0.0 --port 3000
 ```
 
-Ou, se o ambiente ja existir:
+Infra Postgres/Redis: `docker compose -f docker-compose.dev.yml up -d`  
+Stack completa: `docker compose up -d` · GPU: `docker-compose.gpu.yml`.
+
+## Testes
 
 ```bash
 conda activate forensicauth
-pip install -r requirements.txt
+PYTHONPATH=src/backend pytest tests/unit tests/integration -m "not weights and not gpu" -q
 ```
 
-Para analises com GPU (detecção de imagens sintéticas, deepfake, etc.), instale tambem `requirements-gpu.txt`.
+## Documentação por público
 
-### Stack dev completo (API + workers + Postgres/Redis)
+| Público | Onde |
+|---------|------|
+| Manual didático | [docs/](docs/) (capítulos 01–10) |
+| Instalação / custódia / VCP | [docs/public/](docs/public/) |
+| Deploy / worker remoto | [docs/deploy/](docs/deploy/) |
+| Contribuidores / scaffold | [docs/developer/](docs/developer/) |
+| Specs SDD | [docs/specs/](docs/specs/) |
+| Agentes | [AGENTS.md](AGENTS.md) |
 
-Com uma GPU local, use o script unificado (warmup ML **somente** no log do `worker-gpu`; a API nao ocupa VRAM):
+## Estrutura
 
-```bash
-./scripts/dev-stack.sh setup   # conda va-suite, deps, postgres+redis dev
-./scripts/dev-stack.sh start   # uvicorn + worker-cpu + worker-gpu + frontend
-./scripts/dev-stack.sh status
-./scripts/dev-stack.sh stop
+```text
+src/backend · src/frontend · vendor · models · reference_data · data · docs · tests
 ```
 
-Templates de `.env` por processo: `src/backend/.env.api.example`, `.env.worker-cpu.example`, `.env.worker-gpu.example`.
-
-## Execucao local (desenvolvimento)
-
-**Backend** (na pasta `src/backend`):
-
-```bash
-conda activate forensicauth
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-**Frontend** (na pasta `src/frontend`):
-
-```bash
-npm install
-npm run dev -- --host 0.0.0.0 --port 3000
-```
-
-## Producao
-
-Para implantacao em servidor Linux com Docker, consulte [docs/public/INSTALACAO-PRODUCAO-LINUX.md](docs/public/INSTALACAO-PRODUCAO-LINUX.md).
-
-Compose com GPU (`app` + `worker-cpu` + `worker-gpu`): use `docker-compose.gpu.yml` e `.env.production.example`.
-
-Worker GPU remoto na LAN (futuro): [docs/deploy/WORKER-REMOTE.md](docs/deploy/WORKER-REMOTE.md).
-
-## Documentacao
-
-| Publico | Conteudo |
-|---------|----------|
-| Operadores / administradores | [docs/public/](docs/public/) — instalacao, arquitetura, VCP, cadeia de custodia |
-| Desenvolvedores | [docs/developer/](docs/developer/) — visao geral, contribuicao, specs |
-| Agentes / automacao | [AGENTS.md](AGENTS.md) — regras de execucao do projeto |
-
-## Estrutura principal
-
-```
-ForensicAuth/
-├── src/backend/     # API FastAPI, plugins forenses, servicos
-├── src/frontend/    # Interface React + TypeScript
-├── docs/            # Documentacao publica e de desenvolvimento
-├── tests/           # Testes unitarios e de integracao
-└── prompts/         # Prompts de execucao por modulo
-```
+Ambiente conda: **`forensicauth`**. Não versionar `.env` nem evidências em `data/`.

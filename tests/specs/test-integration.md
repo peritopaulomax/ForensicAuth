@@ -33,13 +33,13 @@ Testar a comunicacao entre modulos, banco de dados, fila Celery e sistema de arq
 ### Passos
 1. POST /api/v1/analysis com evidence_id e technique="jpeg_ghosts"
 2. Verifica: HTTP 201, AnalysisJob criado com status="completed" (modo eager)
-3. Verifica: CustodyRecord de `analysis_started` e `analysis_completed` criados
+3. Verifica: **nenhum** CustodyRecord novo por causa do job (preview exploratorio)
 4. Verifica: Artefatos salvos em disco em `{RESULTS_DIR}/{case_id}/{evidence_id}/{job_id}/`
 5. Verifica: result_sha256 preenchido no AnalysisJob
 
 ### Estados
-- Antes: 0 jobs, 0 artefatos
-- Depois: 1 job completed, artefatos em disco, 2 registros de custodia
+- Antes: N registros de custodia (ex.: so o upload)
+- Depois: 1 job completed, artefatos em disco, **mesma** contagem de CustodyRecord (sem elo de job)
 
 ## Teste INT-003: Serializacao de Jobs GPU
 
@@ -59,35 +59,32 @@ Testar a comunicacao entre modulos, banco de dados, fila Celery e sistema de arq
 - job_1: pending → running → completed
 - job_2: pending → running (depois do 1) → completed
 
-## Teste INT-004: Geracao de Laudo Completo
+## Teste INT-004: Promocao de Derivado + Custodia
 
 ### Setup
-- Caso com 1 evidencia e 2 jobs completados
-- Template de relatorio padrao disponivel
+- Caso com 1 evidencia e 1 job completed com artefato em disco
 
 ### Passos
-1. POST /api/v1/reports com case_id e job_ids
-2. Worker gera PDF
-3. Verifica: Report criado com status="completed"
-4. Verifica: PDF existe em disco
-5. Verifica: SHA-256 do PDF calculado
-6. Verifica: CustodyRecord do tipo `report_generated` criado
-7. GET /api/v1/reports/{id}/download retorna PDF valido
+1. POST derivados (promove artefato do job)
+2. Verifica: Evidence derivada criada
+3. Verifica: CustodyRecord tipo `derivative_saved`
+4. Verifica: arquivo em `DERIVATIVES_DIR`
+5. Verifica: cadeia do caso ainda valida
 
 ### Estados
-- Antes: 0 reports
-- Depois: 1 report completed, PDF em disco, hash registrado
+- Antes: job completed sem derivado
+- Depois: evidencia derivada + elo `derivative_saved`
 
 ## Teste INT-005: Reprodutibilidade de Analise
 
 ### Setup
-- Job completado com artefatos e hash registrado
+- Job completado com artefatos e hash registrado no AnalysisJob
+- (Opcional) derivado salvo se o fluxo de reproducao exigir custody
 
 ### Passos
-1. GET /api/v1/audit/verify/{record_id} para o registro de analysis_completed
-2. Chama `recompute_job_hash(job_id)`
-3. Verifica: novo resultado tem mesmo hash que o original
-4. Verifica: `reproducible=true`
+1. Chama endpoint/utilitario de reproducao do job (`reproduce` / `recompute_job_hash` conforme API vigente)
+2. Verifica: novo resultado tem mesmo hash que o original (`result_sha256` / artefato)
+3. Verifica: `reproducible=true` (ou equivalente na resposta)
 
 ### Estados
 - Resultado original e reexecutado devem ser identicos

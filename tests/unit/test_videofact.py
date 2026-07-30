@@ -11,7 +11,7 @@ WORKSPACE = Path(__file__).resolve().parents[2]
 
 
 def test_videofact_runtime_missing_weights():
-    from core.legacy.videofact import videofact_runtime as vr
+    from forensics.videofact import videofact_runtime as vr
 
     ok, reason = vr.videofact_runtime_status()
     if (WORKSPACE / "models" / "videofact" / "weights" / "videofact_xfer.ckpt").is_file():
@@ -37,7 +37,7 @@ def test_videofact_plugin_validate_mode(monkeypatch):
 @pytest.mark.e2e
 def test_videofact_adapter_simulated(monkeypatch, tmp_path):
     from core.plugins.videofact_plugin import VideoFactPlugin
-    from core.legacy.videofact.videofact_pipeline import ModeResult, VideoFactAnalysis
+    from forensics.videofact.videofact_pipeline import ModeResult, VideoFactAnalysis
 
     monkeypatch.setattr(
         "core.plugins.videofact_plugin.videofact_runtime_status",

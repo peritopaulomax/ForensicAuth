@@ -68,7 +68,7 @@ class EvidenceService:
             mapped = MIME_TYPE_MAP.get(mime_type.lower())
             if mapped:
                 return mapped
-        # Fallback to extension
+        # Extension when MIME is missing or unmapped.
         ext = Path(filename).suffix.lower()
         if ext in (".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".webp"):
             return "imagem"
@@ -131,7 +131,6 @@ class EvidenceService:
         if case:
             assert_case_not_closed(case)
 
-        # Validate file size
         file_obj.seek(0, 2)  # Seek to end
         file_size = file_obj.tell()
         file_obj.seek(0)
@@ -143,15 +142,12 @@ class EvidenceService:
                 f"Arquivo excede o tamanho maximo de {MAX_FILE_SIZE // (1024 * 1024)} MB"
             )
 
-        # Infer type
         file_type = self._infer_file_type(mime_type, filename)
 
-        # Compute SHA-256
         sha256 = self._compute_sha256(file_obj)
 
         self._raise_if_active_duplicate(case_id, sha256)
 
-        # Save to disk
         evidence_id = uuid.uuid4()
         ext = Path(filename).suffix
         stored_filename = f"{evidence_id}{ext}"
@@ -171,7 +167,6 @@ class EvidenceService:
             except Exception:
                 pass
 
-        # Create DB record
         evidence = Evidence(
             id=evidence_id,
             case_id=case_id,

@@ -80,7 +80,7 @@ class TestPreviewMaterialize:
         assert int(mask[1, 1]) == 255
 
     def test_materialize_wavelet_reprocesses_from_npz(self, tmp_path: Path):
-        from core.legacy.wavelet_noise_residue import run_wavelet_noise_residue
+        from forensics.wavelet_noise_residue import run_wavelet_noise_residue
 
         gray = np.random.default_rng(3).integers(30, 200, (64, 64), dtype=np.uint8)
         npz_path = tmp_path / "wnr_dwt_coefficients.npz"

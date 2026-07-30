@@ -2,25 +2,24 @@
 
 ## Responsabilidade Unica
 
-Implementar adaptadores forenses para todas as tecnicas de analise de imagem dos legados, encapsulando bibliotecas especificas (jpegio, libzero, opencv, insightface, etc.) sob a interface `ForensicPlugin`.
+Implementar adaptadores forenses para as tecnicas de analise de imagem, encapsulando bibliotecas especificas (jpegio, libzero, opencv, insightface, etc.) sob a interface `ForensicPlugin`.
 
 ## Tecnicas Implementadas
 
-| Nome | Tecnica Legada | Biblioteca Sensivel | Usa GPU |
-|------|---------------|---------------------|---------|
-| `prnu` | PRNU.ipynb + src/ | Pipeline wavelet customizado | Nao |
-| `prnu_localizado` | PRNU Localizado.ipynb | Pipeline wavelet customizado | Nao |
-| `dct_artifacts` | Inconsistencias_Artefatos_Blocos_DCT.ipynb | `jpegio` + estimativaq.py | Nao |
-| `jpeg_ghosts` | JPEG_Ghosts.ipynb | OpenCV + DCT manual | Nao |
-| `bag_extraction` | ExtraçãoBAG.ipynb | OpenCV + scipy | Nao |
-| `zero_grid` | ZERO.ipynb | `iio`, `cffi`, `libzero.so_` | Nao |
-| `double_compression` | Deteccao_Dupla_Compressao.ipynb | `jpegio` + FFT | Nao |
-| `quantization_estimation` | Estimativa_M_Quantizacao.ipynb | scipy.fftpack.dct + FFT | Nao |
-| `resampling` | Reamostragem_Versao2.ipynb | skimage (Radon) + scipy | Nao |
-| `patchmatch` | patchmatch.py + postprocessing.py | Numba + Zernike customizado | Nao |
-| `copy_move_pca` | Peritus/copy-move-forgery-detection-pca | Numba + OpenCV PCA | Nao |
-| `deepfake_similarity` | Sepaelv1_Deepfake_detection_prediction_example.ipynb | `insightface`, OpenCV | Sim |
-| `synthetic_image_detection` | app_Gradio_Sepael_Models_Noise_FFT_V4.py | PyTorch, Transformers, XGBoost | Sim |
+| Nome | Motor / pipeline | Biblioteca Sensivel | Usa GPU |
+|------|------------------|---------------------|---------|
+| `prnu` | Extracao e correlacao PRNU | Pipeline wavelet customizado | Nao |
+| `prnu_localizado` | PRNU em regioes | Pipeline wavelet customizado | Nao |
+| `dct_artifacts` | Artefatos em blocos DCT | `jpegio` + estimativaq | Nao |
+| `jpeg_ghosts` | JPEG ghosts / mapas de qualidade | OpenCV + DCT | Nao |
+| `bag_extraction` | Extracao BAG | OpenCV + scipy | Nao |
+| `zero_grid` | Deteccao de grade JPEG (ZERO) | `iio`, `cffi`, `libzero.so_` | Nao |
+| `double_compression` | Dupla compressao JPEG | `jpegio` + FFT | Nao |
+| `quantization_estimation` | Estimativa de tabela de quantizacao | scipy.fftpack.dct + FFT | Nao |
+| `resampling` | Deteccao de reamostragem | skimage (Radon) + scipy | Nao |
+| `patchmatch` | Copia-movimento (PatchMatch + Zernike) | Numba | Nao |
+| `copy_move_pca` | Copia-movimento por PCA | Numba + OpenCV PCA | Nao |
+| `synthetic_image_detection` | Ensemble de deteccao de imagens sinteticas | PyTorch, Transformers, XGBoost | Sim |
 
 ## Interfaces Publicas
 

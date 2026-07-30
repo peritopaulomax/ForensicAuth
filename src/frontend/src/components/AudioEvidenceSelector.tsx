@@ -1,9 +1,11 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { listCaseAudioMetadata, listCaseEvidences } from "@/services/evidence";
+import { listCaseAudioMetadata, listCaseDerivatives, listCaseEvidences } from "@/services/evidence";
+import CollapsibleSection from "@/components/CollapsibleSection";
 import EvidenceFileGrid from "@/components/EvidenceFileGrid";
 import FileListViewHeader from "@/components/FileListViewHeader";
 import GlobalReferencesSelector from "@/components/GlobalReferencesSelector";
 import PeritusAnalysisFileSection from "@/components/PeritusAnalysisFileSection";
+import SelectableEvidenceList from "@/components/SelectableEvidenceList";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
 import { resolvePeritusFileForAnalysis } from "@/services/peritus";
 import { filterForensicAuthEvidences } from "@/lib/forensicAuthEvidence";
@@ -39,11 +41,20 @@ const cellMuted: CSSProperties = {
 export interface AudioEvidenceSelectorProps {
   caseId: string;
   selectedId: string | null;
-  onSelect: (id: string, filename: string) => void;
+  selectionSource?: "original" | "derivative";
+  onSelect: (id: string, source: "original" | "derivative", filename?: string) => void;
+  excludeDerivatives?: boolean;
 }
 
-export default function AudioEvidenceSelector({ caseId, selectedId, onSelect }: AudioEvidenceSelectorProps) {
+export default function AudioEvidenceSelector({
+  caseId,
+  selectedId,
+  selectionSource = "original",
+  onSelect,
+  excludeDerivatives = false,
+}: AudioEvidenceSelectorProps) {
   const [evidences, setEvidences] = useState<Evidence[]>([]);
+  const [derivatives, setDerivatives] = useState<Evidence[]>([]);
   const [metadataById, setMetadataById] = useState<Record<string, AudioTechnicalMetadata>>({});
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useFileListViewMode();
@@ -52,22 +63,30 @@ export default function AudioEvidenceSelector({ caseId, selectedId, onSelect }: 
 
   useEffect(() => {
     if (!caseId) return;
+    let cancelled = false;
     setLoading(true);
-    Promise.all([listCaseEvidences(caseId), listCaseAudioMetadata(caseId)])
-      .then(([evs, metaItems]) => {
+    Promise.all([listCaseEvidences(caseId), listCaseDerivatives(caseId), listCaseAudioMetadata(caseId)])
+      .then(([evs, derivs, metaItems]) => {
+        if (cancelled) return;
         setEvidences(filterForensicAuthEvidences(evs).filter((e) => e.file_type === "audio"));
+        setDerivatives(derivs.filter((e) => e.file_type === "audio"));
         const map: Record<string, AudioTechnicalMetadata> = {};
         for (const item of metaItems) {
           map[item.evidence_id] = item;
         }
         setMetadataById(map);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [caseId]);
 
-  function handleSelectVa(id: string, filename: string) {
+  function handleSelectVa(id: string, source: "original" | "derivative", filename = "") {
     setSelectedPeritusPath(null);
-    onSelect(id, filename);
+    onSelect(id, source, filename);
   }
 
   async function handleSelectPeritus(path: string) {
@@ -75,15 +94,17 @@ export default function AudioEvidenceSelector({ caseId, selectedId, onSelect }: 
     try {
       const resolved = await resolvePeritusFileForAnalysis(caseId, path);
       setSelectedPeritusPath(path);
-      onSelect(resolved.evidence_id, path.split("/").pop() || path);
+      onSelect(resolved.evidence_id, "original", path.split("/").pop() || path);
     } finally {
       setResolvingPeritus(false);
     }
   }
 
+  const showDerivatives = !excludeDerivatives;
   const vaSelectedId = selectedPeritusPath ? null : selectedId;
+  const vaSelectionSource = selectedPeritusPath ? "original" : selectionSource;
 
-  if (loading) {
+  if (loading && evidences.length === 0 && derivatives.length === 0) {
     return <p style={{ margin: 0, color: "#6b7280", fontSize: "0.85rem" }}>Carregando audios…</p>;
   }
 
@@ -100,8 +121,8 @@ export default function AudioEvidenceSelector({ caseId, selectedId, onSelect }: 
           {viewMode === "grid" ? (
             <EvidenceFileGrid
               items={evidences}
-              selected={(ev) => vaSelectedId === ev.id}
-              onSelect={(ev) => handleSelectVa(ev.id, ev.original_filename)}
+              selected={(ev) => vaSelectedId === ev.id && vaSelectionSource === "original"}
+              onSelect={(ev) => handleSelectVa(ev.id, "original", ev.original_filename)}
               maxHeight={imageSelectorListMaxHeight}
               renderFooter={(ev) => {
                 const meta = mergeAudioMeta(metadataById[ev.id], audioMetaFromEvidence(ev.extra_metadata));
@@ -153,7 +174,7 @@ export default function AudioEvidenceSelector({ caseId, selectedId, onSelect }: 
 
               <div style={{ ...scrollableListStyle, maxHeight: imageSelectorListMaxHeight }}>
                 {evidences.map((ev) => {
-                  const selected = vaSelectedId === ev.id;
+                  const selected = vaSelectedId === ev.id && vaSelectionSource === "original";
                   const meta = mergeAudioMeta(metadataById[ev.id], audioMetaFromEvidence(ev.extra_metadata));
                   return (
                     <label
@@ -174,7 +195,7 @@ export default function AudioEvidenceSelector({ caseId, selectedId, onSelect }: 
                         type="radio"
                         name="audio-evidence"
                         checked={selected}
-                        onChange={() => handleSelectVa(ev.id, ev.original_filename)}
+                        onChange={() => handleSelectVa(ev.id, "original", ev.original_filename)}
                         style={{ cursor: "pointer" }}
                       />
                       <span
@@ -210,14 +231,6 @@ export default function AudioEvidenceSelector({ caseId, selectedId, onSelect }: 
         </>
       )}
 
-      <GlobalReferencesSelector
-        caseId={caseId}
-        fileType="audio"
-        selectedId={vaSelectedId}
-        onSelect={(id) => handleSelectVa(id, "")}
-        radioName="audio-global-reference"
-      />
-
       <PeritusAnalysisFileSection
         caseId={caseId}
         fileType="audio"
@@ -226,6 +239,39 @@ export default function AudioEvidenceSelector({ caseId, selectedId, onSelect }: 
         radioName="audio-peritus"
         resolving={resolvingPeritus}
       />
+
+      <GlobalReferencesSelector
+        caseId={caseId}
+        fileType="audio"
+        selectedId={vaSelectedId}
+        onSelect={(id) => handleSelectVa(id, "original", "")}
+        radioName="audio-global-reference"
+      />
+
+      {showDerivatives && derivatives.length > 0 && (
+        <CollapsibleSection
+          title="Derivados (evidencias derivadas)"
+          subtitle="Audios derivados registrados na cadeia podem ser analisados da mesma forma."
+          badgeCount={derivatives.length}
+          defaultOpen={false}
+          forceOpen={vaSelectionSource === "derivative" && !!vaSelectedId}
+        >
+          <SelectableEvidenceList
+            sectionId={`audio-selector-derivatives-${caseId}`}
+            items={derivatives}
+            selectedId={vaSelectedId}
+            selectionSource={vaSelectionSource}
+            source="derivative"
+            onSelect={(id) => {
+              const item = derivatives.find((d) => d.id === id);
+              handleSelectVa(id, "derivative", item?.original_filename || "");
+            }}
+            radioName="audio-derivative-evidence"
+            badge="derivado"
+            emptyMessage="Nenhum derivado de audio neste caso."
+          />
+        </CollapsibleSection>
+      )}
     </div>
   );
 }

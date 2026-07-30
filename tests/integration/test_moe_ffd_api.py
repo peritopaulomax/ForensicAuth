@@ -47,7 +47,7 @@ class TestMoeFfdApiIntegration:
             lambda: (True, ""),
         )
         monkeypatch.setattr(
-            "core.legacy.moe_ffd.runtime.moe_ffd_runtime_status",
+            "forensics.moe_ffd.runtime.moe_ffd_runtime_status",
             lambda: (True, ""),
         )
         monkeypatch.setattr(

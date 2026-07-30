@@ -8,11 +8,13 @@ Documento técnico para peritos, auditores e administradores que precisam entend
 
 A cadeia de custódia responde a três perguntas forenses:
 
-1. **O que aconteceu?** — upload, derivado salvo, laudo, compartilhamento, fechamento, exclusão, importação VCP, etc.
+1. **O que aconteceu?** — upload, derivado salvo, compartilhamento, fechamento, exclusão, importação VCP, etc.
 2. **Quem fez?** — usuário autenticado (`user_id`) no momento do evento.
 3. **Com que integridade?** — hashes SHA-256 dos bytes envolvidos + encadeamento criptográfico + assinatura Ed25519 da instalação.
 
 Registros são **somente inserção** (append-only). A aplicação não reescreve elos antigos em operação normal.
+
+> **Nota:** o produto **não** gera laudo PDF oficial unificado; portanto não há elo `report_generated` no fluxo atual.
 
 ---
 
@@ -25,7 +27,6 @@ Registros são **somente inserção** (append-only). A aplicação não reescrev
 | Exclusão de caso | Sim | `case_deleted` |
 | Executar análise para preview | **Não** | — |
 | Salvar derivado ao caso | Sim | `derivative_saved` |
-| Gerar laudo PDF | Sim | `report_generated` |
 | Compartilhar / revogar caso | Sim | `case_shared` / `case_unshared` |
 | Fechar / reabrir caso | Sim | `case_closed` / `case_reopened` |
 | Exportar / importar VCP | Sim | `case_exported` / `case_imported` |
@@ -137,7 +138,7 @@ Escopo: **auditoria ampliada do caso**. Só retorna `valid: true` se **tudo** ab
 | Proveniência | Metadados de derivados vs registros `derivative_saved` |
 | Fechamentos | Manifesto recomposto = `manifest_sha256`; assinaturas primárias e adicionais |
 
-Uso: laudo, auditoria externa, decisão de confiar no caso antes de exportar VCP.
+Uso: relatório de verificação, auditoria externa, decisão de confiar no caso antes de exportar VCP.
 
 ### 6.3 Verificar registro (unitário)
 

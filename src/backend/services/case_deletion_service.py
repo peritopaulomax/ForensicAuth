@@ -15,7 +15,6 @@ from models.analysis_job import AnalysisJob
 from models.case import Case
 from models.custody_record import CustodyRecord
 from models.evidence import Evidence
-from models.report import Report
 from models.user import User
 from services.case_access import assert_can_delete_case
 from services.custody_service import CustodyService
@@ -103,7 +102,6 @@ class CaseDeletionService:
                 .filter(AnalysisJob.evidence_id.in_(evidence_ids))
                 .all()
             )
-        reports = self.db.query(Report).filter(Report.case_id == case.id).all()
 
         return {
             "case_id": str(case.id),
@@ -113,7 +111,6 @@ class CaseDeletionService:
             "process_number": case.process_number,
             "evidence_count": len(evidences),
             "job_count": len(jobs),
-            "report_count": len(reports),
             "evidences": [
                 {
                     "evidence_id": str(e.id),
@@ -135,19 +132,10 @@ class CaseDeletionService:
                 }
                 for j in jobs
             ],
-            "reports": [
-                {
-                    "report_id": str(r.id),
-                    "title": r.title,
-                    "sha256": r.sha256,
-                    "original_filename": Path(r.file_path).name if r.file_path else None,
-                }
-                for r in reports
-            ],
         }
 
     def _remove_case_files(self, case: Case, snapshot: dict[str, Any]) -> dict[str, int]:
-        counts = {"evidence_files": 0, "job_result_dirs": 0, "derivatives_dirs": 0, "report_files": 0}
+        counts = {"evidence_files": 0, "job_result_dirs": 0, "derivatives_dirs": 0}
 
         for ev in snapshot.get("evidences", []):
             ev_row = self.db.query(Evidence).filter(Evidence.id == uuid.UUID(ev["evidence_id"])).first()
@@ -198,18 +186,10 @@ class CaseDeletionService:
             PeritusBridgeService(self.db, self.settings).remove_case_storage(case.id)
             counts["peritus_storage"] = 1
 
-        for rep in snapshot.get("reports", []):
-            report = self.db.query(Report).filter(Report.id == uuid.UUID(rep["report_id"])).first()
-            if report and report.file_path:
-                p = Path(report.file_path)
-                if p.is_file():
-                    p.unlink(missing_ok=True)
-                    counts["report_files"] += 1
-
         return counts
 
     def _purge_operational_rows(self, case_id: uuid.UUID, user_id: uuid.UUID) -> None:
-        """Remove laudos do DB; jobs/evidencias permanecem (FK da cadeia intacta)."""
+        """Marca jobs/evidencias como purged; preserva FKs da cadeia de custodia."""
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         evidences = self.db.query(Evidence).filter(Evidence.case_id == case_id).all()
         evidence_ids = [e.id for e in evidences]
@@ -229,8 +209,6 @@ class CaseDeletionService:
                 params = dict(job.parameters or {})
                 params["purged_with_case"] = True
                 job.parameters = params
-
-        self.db.query(Report).filter(Report.case_id == case_id).delete(synchronize_session=False)
 
         for ev in evidences:
             ev.deleted_at = now

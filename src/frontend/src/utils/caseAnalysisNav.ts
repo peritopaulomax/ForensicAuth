@@ -1,8 +1,10 @@
 import { FORENSIC_TECHNIQUE_META, LEGACY_TECHNIQUE_LABELS } from "@/config/forensicTechniqueMeta";
 import { findImageGroupForTechnique } from "@/config/imageAnalysisGroups";
+import { findMediaGroupForTechnique } from "@/config/mediaAnalysisGroups";
+import { SCAFFOLDED_ROUTE_META } from "@/config/scaffoldedRouteMeta";
 
 /** Mapeamento slug da rota → meta (técnica e mídia). */
-export const ANALYSIS_ROUTE_META: Record<string, { technique: string; media: string; title?: string }> = {
+const _BASE_ANALYSIS_ROUTE_META: Record<string, { technique: string; media: string; title?: string }> = {
   ela: { technique: "ela", media: "imagem", title: FORENSIC_TECHNIQUE_META.ela.title },
   image_metadata: { technique: "metadata", media: "imagem", title: LEGACY_TECHNIQUE_LABELS.metadata },
   dct_quantization: { technique: "dct_quantization", media: "imagem", title: FORENSIC_TECHNIQUE_META.dct_quantization.title },
@@ -24,7 +26,6 @@ export const ANALYSIS_ROUTE_META: Record<string, { technique: string; media: str
     title: LEGACY_TECHNIQUE_LABELS.synthetic_image_detection,
   },
   safire: { technique: "safire", media: "imagem", title: FORENSIC_TECHNIQUE_META.safire.title },
-  noiseprint: { technique: "noiseprint", media: "imagem", title: FORENSIC_TECHNIQUE_META.noiseprint.title },
   prnu: { technique: "prnu", media: "imagem", title: FORENSIC_TECHNIQUE_META.prnu.title },
   audio: { technique: "audio_forensics", media: "audio", title: "Audio forense" },
   audio_spoofing: { technique: "audio_spoofing_detection", media: "audio", title: FORENSIC_TECHNIQUE_META.audio_spoofing_detection.title },
@@ -45,11 +46,26 @@ export const ANALYSIS_ROUTE_META: Record<string, { technique: string; media: str
     media: "video",
     title: FORENSIC_TECHNIQUE_META.lowres_fake_video.title,
   },
+  truvil: {
+    technique: "truvil",
+    media: "video",
+    title: FORENSIC_TECHNIQUE_META.truvil.title,
+  },
+  vilocal: {
+    technique: "vilocal",
+    media: "video",
+    title: FORENSIC_TECHNIQUE_META.vilocal.title,
+  },
   jpeg_structure_compare: {
     technique: "jpeg_structure_compare",
     media: "imagem",
     title: FORENSIC_TECHNIQUE_META.jpeg_structure_compare.title,
   },
+};
+
+export const ANALYSIS_ROUTE_META: Record<string, { technique: string; media: string; title?: string }> = {
+  ..._BASE_ANALYSIS_ROUTE_META,
+  ...SCAFFOLDED_ROUTE_META,
 };
 
 /** Tecnicas de audio espectral com pagina unificada /analysis/audio */
@@ -84,13 +100,17 @@ export const DEDICATED_ANALYSIS_TECHNIQUES = new Set([
   ...Object.values(ANALYSIS_ROUTE_META).map((m) => m.technique),
   ...AUDIO_FORENSICS_TECHNIQUES,
   ...IMDL_DEDICATED_ROUTE_TECHNIQUES,
+  "mp3_parser",
+  "opus_parser",
+  "audio_metadata",
+  "video_metadata",
 ]);
 
 export function techniqueHasDedicatedPage(technique: string): boolean {
   return DEDICATED_ANALYSIS_TECHNIQUES.has(technique);
 }
 
-/** Tecnicas registradas mas ocultas na UI da aba Imagem (hub substituido por cards/metodos dedicados). */
+/** Técnicas registradas e ocultas na aba Imagem (cards/métodos dedicados no hub). */
 export const HIDDEN_IMAGE_TECHNIQUES = new Set(["imdlbenco"]);
 
 /** Tecnicas registradas mas ocultas na UI da aba PDF. */
@@ -98,8 +118,6 @@ export const HIDDEN_PDF_TECHNIQUES = new Set<string>([]);
 
 /** Tecnicas registradas mas ocultas na UI da aba Audio. */
 export const HIDDEN_AUDIO_TECHNIQUES = new Set([
-  "mp3_parser",
-  "opus_parser",
   "wav_ima_adpcm",
 ]);
 
@@ -115,11 +133,28 @@ export function buildImageGroupUrl(caseId: string, groupId: string, tabId?: stri
   return `/cases/${caseId}/analysis/image-group/${groupId}${params}`;
 }
 
+export function buildMediaGroupUrl(
+  caseId: string,
+  media: "audio" | "video" | "pdf",
+  groupId: string,
+  tabId?: string,
+): string {
+  const params = tabId ? `?tab=${encodeURIComponent(tabId)}` : "";
+  return `/cases/${caseId}/analysis/media-group/${media}/${groupId}${params}`;
+}
+
 export function buildReturnToCaseAnalysesUrl(caseId: string, pathname: string): string {
   const parts = pathname.split("/").filter(Boolean);
   const groupIdx = parts.indexOf("image-group");
   if (groupIdx >= 0 && parts[groupIdx + 1]) {
     return buildCaseAnalysesUrl(caseId, "imagem");
+  }
+  const mediaGroupIdx = parts.indexOf("media-group");
+  if (mediaGroupIdx >= 0 && parts[mediaGroupIdx + 1]) {
+    const media = parts[mediaGroupIdx + 1];
+    if (media === "audio" || media === "video" || media === "pdf") {
+      return buildCaseAnalysesUrl(caseId, media);
+    }
   }
   const slug = parts.pop() || "";
   const meta = ANALYSIS_ROUTE_META[slug];
@@ -192,6 +227,12 @@ export function navigateToDedicatedAnalysis(
     return true;
   }
 
+  const mediaGroup = findMediaGroupForTechnique(technique);
+  if (mediaGroup) {
+    navigate(buildMediaGroupUrl(caseId, mediaGroup.media, mediaGroup.group.id, mediaGroup.tabId));
+    return true;
+  }
+
   const routes: Record<string, string> = {
     audio_spoofing_detection: `/cases/${caseId}/analysis/audio_spoofing`,
     pdf_font_color_overlay: `/cases/${caseId}/analysis/pdf_font_overlay`,
@@ -203,12 +244,27 @@ export function navigateToDedicatedAnalysis(
     videofact: `/cases/${caseId}/analysis/videofact`,
     stil_video_detection: `/cases/${caseId}/analysis/stil_video_detection`,
     lowres_fake_video: `/cases/${caseId}/analysis/lowres_fake_video`,
+    truvil: `/cases/${caseId}/analysis/truvil`,
+    vilocal: `/cases/${caseId}/analysis/vilocal`,
   };
 
   const path = routes[technique];
-  if (!path) return false;
-  navigate(path);
-  return true;
+  if (path) {
+    navigate(path);
+    return true;
+  }
+
+  // Técnicas scaffolded (e rotas em ANALYSIS_ROUTE_META) → /analysis/:slug
+  const metaSlug =
+    ANALYSIS_ROUTE_META[technique]?.technique === technique
+      ? technique
+      : Object.entries(ANALYSIS_ROUTE_META).find(([, meta]) => meta.technique === technique)?.[0];
+  if (metaSlug) {
+    navigate(`/cases/${caseId}/analysis/${metaSlug}`);
+    return true;
+  }
+
+  return false;
 }
 
 export function buildCaseAnalysesUrl(caseId: string, media: string): string {

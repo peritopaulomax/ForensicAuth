@@ -40,17 +40,20 @@ services:
       DERIVATIVES_DIR: /app/derivatives
       PERITUS_CASES_DIR: /app/peritus_cases
       MODELS_DIR: /app/models
+      REFERENCE_DATA_DIR: /app/reference_data
+      FORENSICAUTH_REFERENCE_DATA_DIR: /app/reference_data
       FORENSICAUTH_IMAGE_TAG: ${FORENSICAUTH_IMAGE_TAG:-forensicauth:local-cpu}
       FORENSICAUTH_IMAGE_DIGEST: ${FORENSICAUTH_IMAGE_DIGEST:-}
     depends_on:
       - db
       - redis
     volumes:
-      - ./uploads:/app/uploads
-      - ./results:/app/results
-      - ./derivatives:/app/derivatives
-      - ./peritus_cases:/app/peritus_cases
+      - ./data/uploads:/app/uploads
+      - ./data/results:/app/results
+      - ./data/derivatives:/app/derivatives
+      - ./data/peritus_cases:/app/peritus_cases
       - ./models:/app/models
+      - ./reference_data:/app/reference_data
 
   worker-cpu:
     build:
@@ -73,17 +76,20 @@ services:
       DERIVATIVES_DIR: /app/derivatives
       PERITUS_CASES_DIR: /app/peritus_cases
       MODELS_DIR: /app/models
+      REFERENCE_DATA_DIR: /app/reference_data
+      FORENSICAUTH_REFERENCE_DATA_DIR: /app/reference_data
       FORENSICAUTH_IMAGE_TAG: ${FORENSICAUTH_IMAGE_TAG:-forensicauth:local-cpu}
       FORENSICAUTH_IMAGE_DIGEST: ${FORENSICAUTH_IMAGE_DIGEST:-}
     depends_on:
       - db
       - redis
     volumes:
-      - ./uploads:/app/uploads
-      - ./results:/app/results
-      - ./derivatives:/app/derivatives
-      - ./peritus_cases:/app/peritus_cases
+      - ./data/uploads:/app/uploads
+      - ./data/results:/app/results
+      - ./data/derivatives:/app/derivatives
+      - ./data/peritus_cases:/app/peritus_cases
       - ./models:/app/models
+      - ./reference_data:/app/reference_data
 
   worker-gpu:
     build:
@@ -120,17 +126,20 @@ services:
       DERIVATIVES_DIR: /app/derivatives
       PERITUS_CASES_DIR: /app/peritus_cases
       MODELS_DIR: /app/models
+      REFERENCE_DATA_DIR: /app/reference_data
+      FORENSICAUTH_REFERENCE_DATA_DIR: /app/reference_data
       FORENSICAUTH_IMAGE_TAG: ${FORENSICAUTH_IMAGE_TAG:-forensicauth:local-gpu}
       FORENSICAUTH_IMAGE_DIGEST: ${FORENSICAUTH_IMAGE_DIGEST:-}
     depends_on:
       - db
       - redis
     volumes:
-      - ./uploads:/app/uploads
-      - ./results:/app/results
-      - ./derivatives:/app/derivatives
-      - ./peritus_cases:/app/peritus_cases
+      - ./data/uploads:/app/uploads
+      - ./data/results:/app/results
+      - ./data/derivatives:/app/derivatives
+      - ./data/peritus_cases:/app/peritus_cases
       - ./models:/app/models
+      - ./reference_data:/app/reference_data
 
 volumes:
   postgres_data:

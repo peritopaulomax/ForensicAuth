@@ -1,9 +1,8 @@
-"""Metadata extraction plugin — EXIF, IPTC, XMP, ICC, MakerNotes, Adobe, estrutura JPEG."""
+"""Metadata extraction plugin — EXIF, IPTC, XMP, ICC, MakerNotes, Adobe, C2PA, estrutura JPEG."""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Dict, Tuple
 
 from core.forensic_plugin import ForensicPlugin
@@ -12,7 +11,7 @@ from core.metadata.extractor import extract_image_metadata
 
 
 class MetadataPlugin(ForensicPlugin):
-    """Extrai metadados completos e estrutura JPEG (quantizacao, Huffman)."""
+    """Extrai metadados completos, C2PA e estrutura JPEG (quantizacao, Huffman)."""
 
     @property
     def name(self) -> str:
@@ -57,5 +56,30 @@ class MetadataPlugin(ForensicPlugin):
             with open(xmp_tree_path, "w", encoding="utf-8") as fh:
                 json.dump(tree_payload, fh, ensure_ascii=False, indent=2)
             payload["xmp_tree_json_path"] = str(xmp_tree_path)
+
+        c2pa = payload.get("c2pa_structured") or {}
+        if c2pa.get("available") and c2pa.get("present") and c2pa.get("store") is not None:
+            c2pa_path = result_dir / "c2pa_manifest.json"
+            artifact = {
+                "present": c2pa.get("present"),
+                "is_valid": c2pa.get("is_valid"),
+                "validation_state": c2pa.get("validation_state"),
+                "validation_codes": c2pa.get("validation_codes", []),
+                "claim_generator": c2pa.get("claim_generator"),
+                "title": c2pa.get("title"),
+                "format": c2pa.get("format"),
+                "active_manifest": c2pa.get("active_manifest"),
+                "actions": c2pa.get("actions", []),
+                "signature_info": c2pa.get("signature_info", {}),
+                "ingredient_count": c2pa.get("ingredient_count"),
+                "manifest_count": c2pa.get("manifest_count"),
+                "sdk_version": c2pa.get("sdk_version"),
+                "trust_anchors_configured": c2pa.get("trust_anchors_configured"),
+                "store": c2pa.get("store"),
+            }
+            with open(c2pa_path, "w", encoding="utf-8") as fh:
+                json.dump(artifact, fh, ensure_ascii=False, indent=2)
+            payload["c2pa_manifest_path"] = str(c2pa_path)
+            payload["c2pa_manifest_filename"] = "c2pa_manifest.json"
 
         return payload

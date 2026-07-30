@@ -1,0 +1,95 @@
+# Exemplo — template ensemble Wave 2 (calibrado: detectores + população + LR)
+# Features em reference_data/<domain>/ são publicadas offline (fora do scaffold).
+id: demo_ensemble_scores
+template: ensemble
+media: imagem
+title: "Demo Ensemble Calibrado (scaffold)"
+subtitle: "Detectores + gestão de bases + contrato LR (Wave 2)"
+description: >
+  Técnica de demonstração do scaffold ensemble calibrado.
+  A UI espelha áudio spoofing (picker de população, tipicidade, aug).
+  Implemente a lógica em forensics/demo_ensemble_scores/pipeline.py
+  (PoC posterior). Features das bases já devem existir no domínio indicado.
+citation: ""
+gpu: false
+disabled: true
+admin_only: true
+card:
+  mode: existing
+  group_id: classicas-compressao
+ensemble:
+  detectors:
+    - id: detector_a
+      label: "Detector A (demo)"
+    - id: detector_b
+      label: "Detector B (demo)"
+  result_headers:
+    - Modelo
+    - Score AI
+    - Score Real
+    - Razão (Log)
+    - Classificação
+    - Dispositivo
+  selected_param: selected_analyses
+  score_display:
+    positive_key: score_positive
+    negative_key: score_negative
+    label_key: label
+  reference_lr:
+    enabled: true
+    mode: calibrated
+    domain: demo_ensemble_lr
+    # Relativos a reference_data/demo_ensemble_lr/
+    scores_path: features/scores/scores.csv
+    embeddings_path: features/embeddings/
+    feature_map:
+      detector_a: score_a
+      detector_b: score_b
+    embedding_map:
+      detector_a: emb_a
+      detector_b: emb_b
+    allow_augmented: true
+    allow_typicality: true
+    allow_meta_classifier: true
+    enable_split_roles: true
+    default_meta_classifier: logistic
+    population_unit_label: imagens
+    lr_positive_label: real
+    subgroup_unit_label: subgrupos
+    hypothesis_hint: >
+      Defina subgrupos para treino/calibração e para teste (espelho áudio).
+      LR positiva favorece H1 = real/autêntico.
+      Meta-classificador permitido: logistic | xgboost.
+    # Catálogo inline (sem API). Alternativa: catalog_endpoint: /analysis/...
+    macros:
+      demo_toy:
+        label: Demo toy (fantasma)
+        year_range: "2026"
+        description: Bases fictícias para validar o contrato Wave 2 do scaffold.
+        items:
+          - base_group: ToyBase
+            subgroup: gen_alpha
+          - base_group: ToyBase
+            subgroup: gen_beta
+          - base_group: ToyBase2
+            subgroup: gen_gamma
+    default_reference_items:
+      - base_group: ToyBase
+        subgroup: gen_alpha
+      - base_group: ToyBase
+        subgroup: gen_beta
+parameters:
+  - name: threshold
+    type: float
+    widget: slider
+    label: Limiar
+    default: 0.5
+    min: 0.0
+    max: 1.0
+    step: 0.05
+artifacts:
+  - key: model_scores_txt_path
+    filename: model_scores.txt
+    role: txt
+    label: Scores (TXT)
+    savable: true

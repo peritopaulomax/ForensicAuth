@@ -1,23 +1,38 @@
 """Plugin registry for discovering and registering forensic analysis plugins."""
 
+from __future__ import annotations
+
 import importlib.util
-import os
+import logging
+import sys
 from pathlib import Path
-from typing import Dict, Type
+from typing import Dict, Optional, Type
 
 from core.forensic_plugin import ForensicPlugin
 
-# Tecnicas mantidas no codigo mas sem registro ativo (card/UI pendente).
+logger = logging.getLogger(__name__)
+
+# Tecnicas no codigo sem registro ativo no PluginRegistry (sem card/UI).
 STANDBY_PLUGIN_NAMES = frozenset({
-    "deepfake_similarity",
-    "distildire",
-    "fakevlm",
-    "clipbased_synthetic",
-    "mp3_parser",
-    "opus_parser",
     "wav_ima_adpcm",
     "pdf_touchup",
 })
+
+_GLOBAL_REGISTRY: Optional["PluginRegistry"] = None
+
+
+def default_plugins_dir() -> Path:
+    return Path(__file__).resolve().parent / "plugins"
+
+
+def get_plugin_registry(*, rediscover: bool = False) -> "PluginRegistry":
+    """Singleton com discovery dos plugins em ``core/plugins``."""
+    global _GLOBAL_REGISTRY
+    if _GLOBAL_REGISTRY is None or rediscover:
+        registry = PluginRegistry()
+        registry.discover_and_register(str(default_plugins_dir()))
+        _GLOBAL_REGISTRY = registry
+    return _GLOBAL_REGISTRY
 
 
 class PluginRegistry:
@@ -40,8 +55,16 @@ class PluginRegistry:
         for file_path in adapters_path.glob("*.py"):
             if file_path.name.startswith("_"):
                 continue
-
-            self._load_and_register(file_path)
+            try:
+                self._load_and_register(file_path)
+            except Exception as exc:
+                # Um plugin quebrado nao deve derrubar /analysis/techniques.
+                logger.warning(
+                    "Falha ao carregar plugin %s: %s",
+                    file_path.name,
+                    exc,
+                    exc_info=True,
+                )
 
     def _load_and_register(self, file_path: Path) -> None:
         """Load a single Python file and register valid plugin classes."""
@@ -50,10 +73,10 @@ class PluginRegistry:
             return
 
         module = importlib.util.module_from_spec(spec)
-        # Ensure core.forensic_plugin is available in the module's namespace
-        # by injecting it into sys.modules if needed
-        import sys
-        sys.modules.setdefault("core.forensic_plugin", __import__("core.forensic_plugin", fromlist=["ForensicPlugin"]))
+        sys.modules.setdefault(
+            "core.forensic_plugin",
+            __import__("core.forensic_plugin", fromlist=["ForensicPlugin"]),
+        )
 
         spec.loader.exec_module(module)
 

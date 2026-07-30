@@ -29,9 +29,17 @@ class TestAudioSpoofingMultiDetectorIntegration:
         assert "df_arena_1b" in ids
         assert "sls_xlsr" in ids
         assert "wedefense_wavlm_mhfa" in ids
+        by_id = {row["id"]: row for row in rows}
+        for row in rows:
+            assert row.get("description")
+            assert row.get("paper_title")
+            assert str(row.get("paper_url", "")).startswith("http")
+            assert str(row.get("repo_url", "")).startswith("http")
+        assert "2601.15240" in by_id["wedefense_wavlm_mhfa"]["paper_url"]
 
+    @pytest.mark.weights
     def test_sls_runtime_status_when_weights_present(self):
-        from core.legacy.sls_spoofing.sls_runtime import (
+        from forensics.sls_spoofing.sls_runtime import (
             resolve_sls_checkpoint_path,
             resolve_xlsr_weights_path,
             runtime_status,
@@ -42,9 +50,10 @@ class TestAudioSpoofingMultiDetectorIntegration:
         ok, reason = runtime_status()
         assert ok, reason
 
+    @pytest.mark.weights
     def test_sls_infer_short_audio(self, short_wav):
-        from core.legacy.sls_spoofing.sls_pipeline import infer_sls_windows
-        from core.legacy.sls_spoofing.sls_runtime import (
+        from forensics.sls_spoofing.sls_pipeline import infer_sls_windows
+        from forensics.sls_spoofing.sls_runtime import (
             resolve_sls_checkpoint_path,
             resolve_xlsr_weights_path,
         )
@@ -60,8 +69,9 @@ class TestAudioSpoofingMultiDetectorIntegration:
         assert "aggregated" in result
         assert 0.0 <= result["aggregated"]["spoof_prob"] <= 1.0
 
+    @pytest.mark.weights
     def test_wedefense_runtime_status_when_weights_present(self):
-        from core.legacy.wedefense_spoofing.wedefense_runtime import (
+        from forensics.wedefense_spoofing.wedefense_runtime import (
             resolve_avg_checkpoint_path,
             resolve_pruned_upstream_path,
             runtime_status,
@@ -72,9 +82,10 @@ class TestAudioSpoofingMultiDetectorIntegration:
         ok, reason = runtime_status()
         assert ok, reason
 
+    @pytest.mark.weights
     def test_wedefense_infer_short_audio(self, short_wav):
-        from core.legacy.wedefense_spoofing.wedefense_pipeline import infer_wedefense_windows
-        from core.legacy.wedefense_spoofing.wedefense_runtime import (
+        from forensics.wedefense_spoofing.wedefense_pipeline import infer_wedefense_windows
+        from forensics.wedefense_spoofing.wedefense_runtime import (
             resolve_avg_checkpoint_path,
             resolve_pruned_upstream_path,
         )

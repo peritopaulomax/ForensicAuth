@@ -28,6 +28,7 @@ from app.db_migrations import (
     ensure_custody_signing_columns,
     ensure_evidence_soft_delete_columns,
     ensure_password_set_column,
+    ensure_refresh_tokens_table,
 )
 
 settings = get_settings()
@@ -64,10 +65,10 @@ async def lifespan(app: FastAPI):
     if settings.ENVIRONMENT == "production":
         _run_alembic_upgrade()
     else:
-        # Dev/test: keep legacy bootstrap for compatibility
+        # Non-production: create schema from models (Alembic runs in production).
         Base.metadata.create_all(bind=engine)
 
-    # Legacy data migrations and column additions remain idempotent
+    # Idempotent column/table backfills for existing databases.
     ensure_password_set_column(engine)
     ensure_evidence_soft_delete_columns(engine)
     ensure_case_soft_delete_columns(engine)
@@ -75,6 +76,7 @@ async def lifespan(app: FastAPI):
     ensure_custody_chain_sequence_column(engine)
     ensure_custody_signing_columns(engine)
     ensure_custody_lifecycle_tables(engine)
+    ensure_refresh_tokens_table(engine)
     ensure_analysis_job_progress_columns(engine)
     ensure_analysis_job_reproducibility_columns(engine)
     ensure_case_storage_mode_column(engine)
@@ -93,7 +95,6 @@ async def lifespan(app: FastAPI):
             cleanup_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await cleanup_task
-        # Shutdown
         engine.dispose()
 
 
@@ -104,7 +105,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
 cors_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 cors_headers = ["*"]
 if settings.ENVIRONMENT == "production":
@@ -126,10 +126,10 @@ app.add_middleware(
 
 @app.get("/health")
 def health_check():
-    from core.legacy.camo.camo_warmup import camo_warmup_status
-    from core.legacy.effort.effort_warmup import effort_warmup_status
-    from core.legacy.iapl.iapl_warmup import iapl_warmup_status
-    from core.legacy.safe.safe_warmup import safe_warmup_status
+    from forensics.camo.camo_warmup import camo_warmup_status
+    from forensics.effort.effort_warmup import effort_warmup_status
+    from forensics.iapl.iapl_warmup import iapl_warmup_status
+    from forensics.safe.safe_warmup import safe_warmup_status
     from core.technique_runtime import technique_runtime_status
 
     zero_ok, zero_reason = technique_runtime_status("zero_grid")
@@ -171,6 +171,3 @@ app.include_router(analysis.router, prefix="/api/v1", tags=["analysis"])
 app.include_router(references.router, prefix="/api/v1", tags=["references"])
 app.include_router(prnu.router, prefix="/api/v1", tags=["prnu"])
 app.include_router(audit.router, prefix="/api/v1", tags=["audit"])
-
-# from api.v1.endpoints import cases, evidence, reports, audit
-# app.include_router(cases.router, prefix="/api/v1/cases", tags=["cases"])

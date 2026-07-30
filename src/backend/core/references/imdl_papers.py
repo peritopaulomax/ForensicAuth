@@ -23,14 +23,27 @@ def papers_root() -> Path:
 def load_manifest() -> dict[str, Any]:
     path = papers_root() / _MANIFEST_NAME
     if not path.is_file():
-        return {"techniques": {}}
-    with path.open(encoding="utf-8") as handle:
-        data = json.load(handle)
-    if not isinstance(data, dict):
-        return {"techniques": {}}
+        data: dict[str, Any] = {"techniques": {}}
+    else:
+        with path.open(encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        data = loaded if isinstance(loaded, dict) else {"techniques": {}}
     techniques = data.get("techniques")
     if not isinstance(techniques, dict):
         data["techniques"] = {}
+        techniques = data["techniques"]
+
+    # Técnicas geradas pelo scaffold (não editar o manifesto principal à mão).
+    scaffolded_path = papers_root() / "scaffolded_manifest.json"
+    if scaffolded_path.is_file():
+        try:
+            with scaffolded_path.open(encoding="utf-8") as handle:
+                extra = json.load(handle)
+            extra_tech = extra.get("techniques") if isinstance(extra, dict) else None
+            if isinstance(extra_tech, dict):
+                techniques.update(extra_tech)
+        except (OSError, json.JSONDecodeError):
+            pass
     return data
 
 

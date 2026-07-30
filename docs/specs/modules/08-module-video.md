@@ -6,11 +6,12 @@ Implementar adaptadores forenses para analise estrutural de containers de video 
 
 ## Tecnicas Implementadas
 
-| Nome | Tecnica Legada | Biblioteca Sensivel | Usa GPU |
-|------|---------------|---------------------|---------|
-| `isomedia_parser` | Analise Estrutura de Arquivo - Video - Parser Isom.ipynb | Parser binario puro (struct) + networkx | Nao |
-| `isomedia_compare` | isom_compare_sepael.py + isom_similarity_matrix_sepael.py | networkx + numpy | Nao |
-| `stts_analysis` | Analise STTS MP4.ipynb | struct puro (big-endian) | Nao |
+| Nome | Motor / pipeline | Biblioteca Sensivel | Usa GPU |
+|------|------------------|---------------------|---------|
+| `video_metadata` | Metadados + ffprobe + ISO BMFF | ExifTool, ffprobe, parser struct | Nao |
+| `isomedia_parser` | Parser estrutural ISO BMFF | Parser binario puro (struct) + networkx | Nao |
+| `isomedia_compare` | Similaridade estrutural ISO BMFF | networkx + numpy | Nao |
+| `stts_analysis` | Analise de tabela STTS (MP4) | struct puro (big-endian) | Nao |
 
 ## Interfaces Publicas
 

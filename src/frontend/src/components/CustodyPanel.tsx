@@ -84,6 +84,12 @@ export default function CustodyPanel({
   const [narrativeExporting, setNarrativeExporting] = useState(false);
   const [graphEvidenceId, setGraphEvidenceId] = useState<string | null>(null);
   const [graphEvidenceName, setGraphEvidenceName] = useState("");
+  const [verifyingRecordId, setVerifyingRecordId] = useState<string | null>(null);
+  const [recordVerify, setRecordVerify] = useState<{
+    id: string;
+    valid: boolean;
+    signatureValid: boolean | null;
+  } | null>(null);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -206,15 +212,26 @@ export default function CustodyPanel({
   }
 
   async function handleVerifyRecord(recordId: string) {
+    setVerifyingRecordId(recordId);
+    setRecordVerify(null);
+    setError("");
     try {
       const result = await verifyRecord(recordId);
+      setRecordVerify({
+        id: recordId,
+        valid: result.valid,
+        signatureValid: result.signature_valid ?? null,
+      });
       if (!result.valid) {
-        setError(`Registro ${recordId.slice(0, 8)}… falhou na verificacao`);
-      } else {
-        setError("");
+        setError(
+          `Registro ${recordId.slice(0, 8)}… falhou na verificacao — hash do registro nao confere.`
+        );
       }
     } catch {
+      setRecordVerify(null);
       setError("Erro ao verificar registro");
+    } finally {
+      setVerifyingRecordId(null);
     }
   }
 
@@ -688,6 +705,7 @@ export default function CustodyPanel({
                     <button
                       type="button"
                       onClick={() => handleVerifyRecord(rec.id)}
+                      disabled={verifyingRecordId === rec.id}
                       style={{
                         marginTop: "0.5rem",
                         padding: "0.25rem 0.5rem",
@@ -695,11 +713,33 @@ export default function CustodyPanel({
                         background: "#f3f4f6",
                         border: "none",
                         borderRadius: "4px",
-                        cursor: "pointer",
+                        cursor: verifyingRecordId === rec.id ? "wait" : "pointer",
                       }}
                     >
-                      Verificar este registro
+                      {verifyingRecordId === rec.id
+                        ? "Verificando…"
+                        : "Verificar este registro"}
                     </button>
+                    {recordVerify?.id === rec.id && (
+                      <div
+                        style={{
+                          marginTop: "0.5rem",
+                          padding: "0.5rem 0.65rem",
+                          borderRadius: 6,
+                          fontSize: "0.78rem",
+                          background: recordVerify.valid ? "#ecfdf5" : "#fef2f2",
+                          color: recordVerify.valid ? "#065f46" : "#991b1b",
+                        }}
+                      >
+                        {recordVerify.valid
+                          ? recordVerify.signatureValid === true
+                            ? "Registro integro — hash e assinatura Ed25519 conferem."
+                            : recordVerify.signatureValid === false
+                              ? "Hash confere, mas a assinatura Ed25519 e invalida."
+                              : "Registro integro — hash confere."
+                          : "Registro invalido — hash armazenado nao confere com o conteudo."}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

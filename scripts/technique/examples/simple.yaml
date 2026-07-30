@@ -1,0 +1,39 @@
+# Exemplo — template simple (métricas + HTML interativo opcional)
+id: demo_simple_metrics
+template: simple
+media: imagem
+title: "Demo Simple (scaffold)"
+subtitle: "Exemplo gerado pelo scaffold — substitua ou remova"
+description: >
+  Técnica de demonstração do scaffold (template simple).
+  Implemente a lógica em forensics/demo_simple_metrics/pipeline.py.
+citation: ""
+# Opcional — descomente para bibliografia + botão PDF:
+# citation: |
+#   AUTOR. Título. Venue, ano.
+# paper:
+#   title: "Título"
+#   venue: "Venue"
+#   sources: ["https://doi.org/..."]
+#   local_file: "demo_simple_metrics/paper.pdf"
+gpu: false
+disabled: true
+admin_only: true
+card:
+  mode: existing
+  group_id: classicas-compressao
+parameters:
+  - name: window
+    type: int
+    widget: slider
+    label: Janela
+    default: 8
+    min: 2
+    max: 64
+    step: 1
+artifacts:
+  - key: interactive_html_path
+    filename: interactive.html
+    role: interactive
+    label: Relatório interativo
+    savable: true

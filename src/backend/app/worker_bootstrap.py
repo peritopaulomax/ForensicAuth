@@ -32,10 +32,10 @@ def schedule_worker_warmups() -> None:
         )
         return
 
-    from core.legacy.camo.camo_warmup import schedule_camo_warmup
-    from core.legacy.effort.effort_warmup import schedule_effort_warmup
-    from core.legacy.iapl.iapl_warmup import schedule_iapl_warmup
-    from core.legacy.safe.safe_warmup import schedule_safe_warmup
+    from forensics.camo.camo_warmup import schedule_camo_warmup
+    from forensics.effort.effort_warmup import schedule_effort_warmup
+    from forensics.iapl.iapl_warmup import schedule_iapl_warmup
+    from forensics.safe.safe_warmup import schedule_safe_warmup
 
     schedule_effort_warmup()
     schedule_safe_warmup()

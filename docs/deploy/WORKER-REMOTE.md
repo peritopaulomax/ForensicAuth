@@ -5,13 +5,13 @@ Este guia prepara uma **segunda máquina** na rede local com GPU NVIDIA como `wo
 ## Premissas
 
 - Mesma versão do código e modelos em ambas as máquinas.
-- Paths de dados **idênticos** no filesystem lógico: `~/forensicauth/{uploads-dev,results-dev,derivatives-dev,models}` (dev) ou `./uploads`, `./results`, `./derivatives`, `./models` (produção).
+- Paths de dados **idênticos** no filesystem lógico: `data/{uploads,results,derivatives}` + `models/` (dev e produção). Em Docker Compose o host usa `./data/...` montado em `/app/uploads` etc. Legado `uploads-dev` / `./uploads` na raiz não deve mais ser usado.
 - Redis e PostgreSQL acessíveis pela LAN (portas liberadas no firewall).
 - Celery consome a fila global `gpu`; o lock Redis `forensicauth:gpu:0` serializa jobs ML entre todas as GPUs.
 
 ## 1. NFS no servidor (máquina principal)
 
-Exporte os diretórios de dados para a máquina worker. Exemplo em `scripts/nfs-exports.example`.
+Exporte os diretórios de dados para a máquina worker (NFS). Exemplo de exports: se existir `scripts/nfs-exports.example` no repo, use-o; caso contrário configure `/etc/exports` manualmente com os paths de `data/uploads`, `data/results`, `data/derivatives` e `models/`.
 
 ```bash
 sudo mkdir -p /srv/nfs-forensicauth
@@ -23,20 +23,21 @@ sudo systemctl restart nfs-kernel-server
 No worker, monte com o mesmo caminho local:
 
 ```fstab
-<NFS_SERVER>:/opt/forensicauth/uploads-dev    /opt/forensicauth/uploads-dev    nfs defaults 0 0
-<NFS_SERVER>:/opt/forensicauth/results-dev    /opt/forensicauth/results-dev    nfs defaults 0 0
-<NFS_SERVER>:/opt/forensicauth/derivatives-dev /opt/forensicauth/derivatives-dev nfs defaults 0 0
-<NFS_SERVER>:/opt/forensicauth/models         /opt/forensicauth/models         nfs defaults 0 0
+<NFS_SERVER>:/opt/forensicauth/data/uploads      /opt/forensicauth/data/uploads      nfs defaults 0 0
+<NFS_SERVER>:/opt/forensicauth/data/results      /opt/forensicauth/data/results      nfs defaults 0 0
+<NFS_SERVER>:/opt/forensicauth/data/derivatives  /opt/forensicauth/data/derivatives  nfs defaults 0 0
+<NFS_SERVER>:/opt/forensicauth/models            /opt/forensicauth/models            nfs defaults 0 0
 ```
 
 > **Importante:** o caminho montado no worker deve coincidir com `UPLOAD_DIR`, `RESULTS_DIR`, etc. no `.env`.
 
 ## 2. Bundle no worker
 
-Na máquina principal:
+Na máquina principal, sincronize código + deps para o worker (rsync/scp do clone). Exemplo:
 
 ```bash
-./scripts/prepare-worker-bundle.sh user@<WORKER_IP>
+rsync -a --exclude '.git' --exclude 'data/uploads' --exclude 'data/results' \
+  ./ user@<WORKER_IP>:~/forensicauth/
 ```
 
 No worker:
@@ -92,6 +93,6 @@ O nome `-n gpu-maquina2@%h` aparece em logs e no `runtime_manifest.hostname` par
 
 ## Troubleshooting
 
-- **Job pending indefinidamente:** nenhum worker `-Q gpu` ativo; verifique `dev-stack.sh status` ou `docker compose ps`.
+- **Job pending indefinidamente:** nenhum worker `-Q gpu` ativo; verifique `docker compose ps` / `celery inspect active` ou os processos locais do worker-gpu.
 - **FileNotFoundError em evidência:** path NFS diferente entre máquinas — alinhe montagens.
 - **OOM na GPU:** reduza `GPU_RESIDENT_TECHNIQUES` ou aumente `GPU_MIN_FREE_MB`; TruFor/DistilDIRE continuam exclusivos por job.

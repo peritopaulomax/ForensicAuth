@@ -24,16 +24,21 @@ def sample_jpg():
 class TestPRNULegacy:
     """TU-LEG-001: PRNU with real legacy code."""
 
+    _FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "prnu"
+
     def test_prnu_fingerprint_exists(self):
         """Fingerprint file exists from previous generation."""
         assert os.path.exists("models/prnu/fingerprints/test_D70.npy")
 
     def test_prnu_authentic_high_pce(self):
         """Authentic image from same camera gives high PCE."""
+        image = self._FIXTURES / "authentic_d70.jpg"
+        if not image.is_file():
+            pytest.skip(f"PRNU fixture ausente: {image}")
         from core.plugins.prnu_adapter import PRNUAdapter
         adapter = PRNUAdapter()
         result = adapter.analyze(
-            "Legados/imagens/02 - PRNU para Autenticidade e Fonte/padrao/Padrao D70/DSC_5270.JPG",
+            str(image),
             {"fingerprint_path": "models/prnu/fingerprints/test_D70.npy", "mode": "full", "sigma": 2.0},
         )
         assert result["success"] is True
@@ -47,10 +52,13 @@ class TestPRNULegacy:
 
     def test_prnu_different_lower_pce(self):
         """Different camera gives lower PCE."""
+        image = self._FIXTURES / "other_camera.jpg"
+        if not image.is_file():
+            pytest.skip(f"PRNU fixture ausente: {image}")
         from core.plugins.prnu_adapter import PRNUAdapter
         adapter = PRNUAdapter()
         result = adapter.analyze(
-            "Legados/imagens/02 - PRNU para Autenticidade e Fonte/padrao/Padrao D70 Tipo 2/10.JPG",
+            str(image),
             {"fingerprint_path": "models/prnu/fingerprints/test_D70.npy", "mode": "full", "sigma": 2.0},
         )
         assert result["success"] is True
@@ -85,7 +93,7 @@ class TestZeroGrid:
     """TU-LEG-003b: ZERO grid (libzero.so_)."""
 
     def test_zero_unavailable_on_windows(self):
-        from core.legacy.zero.libzero_loader import zero_runtime_status
+        from forensics.zero.libzero_loader import zero_runtime_status
 
         if sys.platform != "win32":
             pytest.skip("Windows-only probe")
@@ -97,11 +105,11 @@ class TestZeroGrid:
     def test_zero_grid_runs(self, sample_jpg):
         from core.plugins.zero_grid_plugin import ZeroGridPlugin
 
-        ok, _ = ZeroGridPlugin.is_runtime_available()
+        plugin = ZeroGridPlugin()
+        ok, _ = plugin.is_runtime_available()
         if not ok:
             pytest.skip("libzero not available")
 
-        plugin = ZeroGridPlugin()
         result = plugin.analyze(sample_jpg, {"include_simulation": False})
         assert result["success"] is True
         assert "votes_colored_image_path" in result

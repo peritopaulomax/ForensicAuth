@@ -8,8 +8,8 @@ from typing import Any, Dict, Tuple
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.stil.stil_pipeline import run_stil_analysis, write_stil_report
-from core.legacy.stil.stil_runtime import CLIP_SIZE, stil_runtime_status
+from forensics.stil.stil_pipeline import run_stil_analysis, write_stil_report
+from forensics.stil.stil_runtime import CLIP_SIZE, stil_runtime_status
 from core.progress import pop_progress_callback, report_progress
 
 

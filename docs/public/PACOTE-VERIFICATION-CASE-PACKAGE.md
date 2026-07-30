@@ -106,7 +106,7 @@ Array de usuários **referenciados** (criador, uploaders, signatários, etc.).
 | `id` | UUID |
 | `username` | Login |
 | `email` | E-mail |
-| `role` | `admin`, `perito`, `analista` |
+| `role` | `admin`, `perito` |
 
 **Importação:** se UUID não existir na instância destino, cria **stub** inativo (`imported_stub`) com username/email ajustados em caso de colisão. Preserva `user_id` nos registros de custódia.
 

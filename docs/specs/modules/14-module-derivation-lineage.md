@@ -17,7 +17,7 @@ Retorna grafo DAG com:
 | `operations[]` | Operacoes merge (>=2 insumos) |
 | `phases[]` | Camadas do DAG |
 | `derivation_groups[]` | Irmaos promovidos do mesmo `derivation_group_id` / `source_job_id` |
-| `legacy_notes[]` | Avisos de metadados legados (PRNU antigo, sem `parent_inputs`) |
+| `legacy_notes[]` | Avisos de metadados incompletos (ex.: PRNU sem `parent_inputs`) |
 
 ### `GET /api/v1/analysis/provenance-contract`
 

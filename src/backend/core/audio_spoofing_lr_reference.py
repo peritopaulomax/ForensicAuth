@@ -19,7 +19,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from core.legacy.audio_spoofing.runtime import (
+from forensics.audio_spoofing.runtime import (
     AUDIO_SPOOFING_ANALYSIS_DF_ARENA,
     AUDIO_SPOOFING_ANALYSIS_SLS_XLSR,
     AUDIO_SPOOFING_ANALYSIS_WEDEFENSE,
@@ -63,18 +63,37 @@ from core.synthetic_lr_reference import (
     _train_meta_classifier,
     _validate_classifier,
     _write_json,
+    normalize_meta_classifier,
+)
+
+from core.reference_data.paths import (
+    audio_augmented_score_matrix as _audio_augmented_score_matrix,
+    audio_representations_matrix as _audio_representations_matrix,
+    audio_score_matrix as _audio_score_matrix,
+    project_root as _project_root_fn,
 )
 
 ALL_DETECTORS = DEFAULT_AUDIO_SPOOFING_ANALYSES
 FEATURE_SUFFIX = "_bonafide_logit"
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_SCORE_MATRIX = PROJECT_ROOT / "outputs/lr_calibration/audio_spoofing/score_matrices/lr_scores_balanced_full.csv"
-DEFAULT_AUGMENTED_SCORE_MATRIX = (
-    PROJECT_ROOT / "outputs/lr_calibration/audio_spoofing/score_matrices/lr_scores_balanced_full_augmented.csv"
-)
-DEFAULT_REPRESENTATIONS_MATRIX = (
-    PROJECT_ROOT / "outputs/lr_calibration/audio_spoofing/representations/representations.csv"
-)
+PROJECT_ROOT = _project_root_fn()
+
+
+def default_score_matrix() -> Path:
+    return _audio_score_matrix()
+
+
+def default_augmented_score_matrix() -> Path:
+    return _audio_augmented_score_matrix()
+
+
+def default_representations_matrix() -> Path:
+    return _audio_representations_matrix()
+
+
+# Prefer default_*() at call sites — these are only for older imports.
+DEFAULT_SCORE_MATRIX = _audio_score_matrix()
+DEFAULT_AUGMENTED_SCORE_MATRIX = _audio_augmented_score_matrix()
+DEFAULT_REPRESENTATIONS_MATRIX = _audio_representations_matrix()
 AUGMENTATION_NAMES: tuple[str, ...] = ("mp3_128k", "opus_32k", "noise_snr_20", "noise_snr_15")
 AUGMENTATION_MULTIPLIER = 1 + len(AUGMENTATION_NAMES)
 # Cap paralelismo na materializacao k-NN (SSD + varios usuarios concorrentes).
@@ -286,6 +305,59 @@ def default_reference_population() -> list[dict[str, str]]:
     return [{"base_group": item.base_group, "subgroup": item.subgroup} for item in DEFAULT_VOICE_CLONE_REFERENCE]
 
 
+def refresh_reference_catalog_from_disk() -> str:
+    """Reload macros/bases/default population from YAML under reference_data/.
+
+    Returns ``\"yaml\"`` when macros.yaml was applied, else ``\"fallback\"``.
+    """
+    global REFERENCE_MACRO_CATEGORIES, REFERENCE_GENERATORS, BASE_LABELS, BASE_CATALOG
+    global DEFAULT_VOICE_CLONE_REFERENCE
+
+    from core.reference_data.catalog_loader import load_macros, population_items
+
+    fallback_bases = {
+        base_id: {
+            "label": BASE_LABELS.get(base_id, base_id),
+            "generators": list(gens),
+            **BASE_CATALOG.get(base_id, {}),
+        }
+        for base_id, gens in REFERENCE_GENERATORS.items()
+    }
+    loaded = load_macros(
+        "audio_spoofing",
+        item_factory=PopulationItem,
+        fallback_macros=REFERENCE_MACRO_CATEGORIES,
+        fallback_bases=fallback_bases,
+    )
+    if loaded.source == "yaml" and loaded.macros:
+        REFERENCE_MACRO_CATEGORIES = loaded.macros
+        if loaded.bases:
+            REFERENCE_GENERATORS = {
+                base_id: list(meta.get("generators") or [])
+                for base_id, meta in loaded.bases.items()
+            }
+            for base_id, meta in loaded.bases.items():
+                if meta.get("label"):
+                    BASE_LABELS[base_id] = str(meta["label"])
+                entry = {
+                    k: meta[k]
+                    for k in ("description", "paper_title", "paper_url")
+                    if meta.get(k)
+                }
+                if entry:
+                    BASE_CATALOG[base_id] = {**BASE_CATALOG.get(base_id, {}), **entry}
+
+    yaml_defaults = population_items(
+        "audio_spoofing",
+        "voice_clone_default",
+        item_factory=PopulationItem,
+        which="fit_items",
+    )
+    if yaml_defaults:
+        DEFAULT_VOICE_CLONE_REFERENCE = tuple(yaml_defaults)
+    return loaded.source
+
+
 DETECTOR_PAPERS: dict[str, dict[str, str]] = {
     AUDIO_SPOOFING_ANALYSIS_DF_ARENA: {
         "label": "DF Arena 1B",
@@ -312,8 +384,8 @@ DETECTOR_PAPERS: dict[str, dict[str, str]] = {
         "description": (
             "WavLM Base podado com MHFA para detecção de spoofing; checkpoint ASVspoof 2025."
         ),
-        "paper_title": "WeDefense: WavLM Base Pruning for Anti-Spoofing (ASVspoof 2025)",
-        "paper_url": "https://huggingface.co/JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning",
+        "paper_title": "WeDefense: A Toolkit to Defend Against Fake Audio",
+        "paper_url": "https://arxiv.org/abs/2601.15240",
         "repo_url": "https://huggingface.co/JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning",
     },
 }
@@ -371,6 +443,9 @@ REFERENCE_MACRO_CATEGORIES: dict[str, dict[str, Any]] = {
     },
 }
 
+# Prefer catalog/macros.yaml + populations/*.yaml when present (UI source of truth).
+refresh_reference_catalog_from_disk()
+
 
 def _base_catalog_entry(base_id: str) -> dict[str, str | None]:
     meta = BASE_CATALOG.get(base_id, {})
@@ -407,7 +482,7 @@ def _eer_spoof_detector(df: pd.DataFrame, detector_id: str) -> float | None:
 
 def build_generator_detector_eers(score_matrix: Path | None = None) -> dict[str, list[float | None]]:
     """Map ``dataset/generator`` keys to [DF Arena, SLS, WeDefense] EER percent values."""
-    path = score_matrix or DEFAULT_SCORE_MATRIX
+    path = score_matrix or default_score_matrix()
     if not path.is_file():
         return {}
     df = _load_scores(path)
@@ -905,38 +980,57 @@ def _save_audio_lr_cache(
     scored: pd.DataFrame | None = None,
     typicality_refs: dict[str, TypicalityReference] | None = None,
 ) -> Path:
-    path = _cache_dir() / f"{cache_key}.joblib"
-    payload: dict[str, Any] = {
-        "model": model,
-        "feature_cols": feature_cols,
-        "calibration": _serialize_calibration(calibration),
-        "selected_detectors": list(selected_detectors),
-        "metadata": metadata,
-    }
-    if scored is not None:
-        payload["scored"] = scored
-    if typicality_refs is not None:
-        payload["typicality_refs"] = typicality_refs
-    joblib.dump(payload, path)
-    return path
+    return _save_lr_cache(
+        cache_key=cache_key,
+        model=model,
+        calibration=calibration,
+        feature_cols=feature_cols,
+        selected_detectors=selected_detectors,
+        metadata=metadata,
+        scored=scored,
+        typicality_refs=typicality_refs,
+    )
 
 
 def _load_audio_lr_cache(
     cache_key: str,
 ) -> tuple[Any, dict[str, Any], list[str], tuple[str, ...], pd.DataFrame | None, dict[str, TypicalityReference] | None] | None:
-    cached = _load_lr_cache(cache_key)
-    if cached is None:
-        return None
-    model, calibration, feature_cols, selected_detectors, scored = cached
-    path = _cache_dir() / f"{cache_key}.joblib"
-    typicality_refs = None
-    if path.is_file():
-        try:
-            data = joblib.load(path)
-            typicality_refs = data.get("typicality_refs")
-        except Exception:
-            typicality_refs = None
-    return model, calibration, feature_cols, selected_detectors, scored, typicality_refs
+    """Load cached audio LR payload (6-tuple, same contract as synthetic ``_load_lr_cache``)."""
+    return _load_lr_cache(cache_key)
+
+
+def _cache_key_from_parts(
+    *,
+    score_matrix_hash: str,
+    roles: ReferenceSelectionRoles,
+    selected_detectors: tuple[str, ...],
+    classifier: str,
+    seed: int,
+    sample_multiplier: int = 1,
+    use_latent_typicality: bool = False,
+    typicality_k: int = TYPICALITY_K,
+    typicality_distance: str = TYPICALITY_DISTANCE,
+    typicality_system: str = TYPICALITY_SYSTEM,
+) -> str:
+    import hashlib
+
+    canonical = {
+        "kind": "audio_spoofing_lr",
+        "score_matrix_hash": score_matrix_hash,
+        "fit_items": sorted(item.key for item in roles.fit_items),
+        "test_items": sorted(item.key for item in roles.test_items),
+        "selected_detectors": list(selected_detectors),
+        "classifier": classifier,
+        "seed": seed,
+        "sample_multiplier": sample_multiplier,
+        "sample_per_class": SAMPLE_PER_CLASS,
+        "use_latent_typicality": use_latent_typicality,
+        "typicality_k": typicality_k if use_latent_typicality else None,
+        "typicality_distance": typicality_distance if use_latent_typicality else None,
+        "typicality_system": typicality_system if use_latent_typicality else None,
+    }
+    payload = json.dumps(canonical, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
 def _assign_splits(sample: pd.DataFrame, seed: int, sample_multiplier: int = 1) -> pd.DataFrame:
@@ -969,25 +1063,68 @@ def _cache_key(
     typicality_distance: str = TYPICALITY_DISTANCE,
     typicality_system: str = TYPICALITY_SYSTEM,
 ) -> str:
-    import hashlib
+    return _cache_key_from_parts(
+        score_matrix_hash=_score_matrix_hash(score_matrix),
+        roles=roles,
+        selected_detectors=selected_detectors,
+        classifier=classifier,
+        seed=seed,
+        sample_multiplier=sample_multiplier,
+        use_latent_typicality=use_latent_typicality,
+        typicality_k=typicality_k,
+        typicality_distance=typicality_distance,
+        typicality_system=typicality_system,
+    )
 
-    canonical = {
-        "kind": "audio_spoofing_lr",
-        "score_matrix_hash": _score_matrix_hash(score_matrix),
-        "fit_items": sorted(item.key for item in roles.fit_items),
-        "test_items": sorted(item.key for item in roles.test_items),
-        "selected_detectors": list(selected_detectors),
-        "classifier": classifier,
-        "seed": seed,
-        "sample_multiplier": sample_multiplier,
-        "sample_per_class": SAMPLE_PER_CLASS,
-        "use_latent_typicality": use_latent_typicality,
-        "typicality_k": typicality_k if use_latent_typicality else None,
-        "typicality_distance": typicality_distance if use_latent_typicality else None,
-        "typicality_system": typicality_system if use_latent_typicality else None,
-    }
-    payload = json.dumps(canonical, sort_keys=True)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+
+def _cache_key_candidates(
+    *,
+    score_matrix: Path,
+    roles: ReferenceSelectionRoles,
+    selected_detectors: tuple[str, ...],
+    classifier: str,
+    seed: int,
+    sample_multiplier: int = 1,
+    use_latent_typicality: bool = False,
+    typicality_k: int = TYPICALITY_K,
+    typicality_distance: str = TYPICALITY_DISTANCE,
+    typicality_system: str = TYPICALITY_SYSTEM,
+) -> list[str]:
+    """Primary path-stable hash; raw-file hash only if primary cache is missing."""
+    from core.synthetic_lr_reference import _raw_file_hash
+
+    primary = _cache_key_from_parts(
+        score_matrix_hash=_score_matrix_hash(score_matrix),
+        roles=roles,
+        selected_detectors=selected_detectors,
+        classifier=classifier,
+        seed=seed,
+        sample_multiplier=sample_multiplier,
+        use_latent_typicality=use_latent_typicality,
+        typicality_k=typicality_k,
+        typicality_distance=typicality_distance,
+        typicality_system=typicality_system,
+    )
+    keys = [primary]
+    primary_path = _cache_dir() / f"{primary}.joblib"
+    if primary_path.is_file() and primary_path.stat().st_size >= 1024:
+        return keys
+
+    raw_key = _cache_key_from_parts(
+        score_matrix_hash=_raw_file_hash(score_matrix),
+        roles=roles,
+        selected_detectors=selected_detectors,
+        classifier=classifier,
+        seed=seed,
+        sample_multiplier=sample_multiplier,
+        use_latent_typicality=use_latent_typicality,
+        typicality_k=typicality_k,
+        typicality_distance=typicality_distance,
+        typicality_system=typicality_system,
+    )
+    if raw_key not in keys:
+        keys.append(raw_key)
+    return keys
 
 
 def _detector_features(detector_scores: dict[str, Any], selected_detectors: tuple[str, ...]) -> np.ndarray:
@@ -1174,6 +1311,9 @@ def _build_report(
             "mu_real": calibration["mu_real"],
         },
         "feature_weights": feature_weights,
+        "feature_values": {
+            col: float(val) for col, val in zip(feature_cols, np.asarray(features, dtype=float).ravel())
+        },
         "questioned": {
             "log10_lr": questioned.get("log10_lr"),
             "lr": questioned.get("lr"),
@@ -1222,13 +1362,16 @@ def compute_reference_lr(
     selection: Any,
     out_dir: Path,
     seed: int = 20260704,
-    score_matrix: Path = DEFAULT_SCORE_MATRIX,
+    score_matrix: Path | None = None,
     selected_detectors: tuple[str, ...] = ALL_DETECTORS,
     classifier: str = DEFAULT_META_CLASSIFIER,
     sample_multiplier: int = 1,
     use_latent_typicality: bool = False,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
+    import time
+
+    t0 = time.perf_counter()
     selected_detectors = tuple(detector for detector in ALL_DETECTORS if detector in selected_detectors)
     if not selected_detectors:
         raise RuntimeError("Pelo menos um detector deve ser selecionado para calibracao LR.")
@@ -1236,12 +1379,13 @@ def compute_reference_lr(
     sample_multiplier = max(1, int(sample_multiplier))
     augmented_reference = sample_multiplier > 1
     out_dir.mkdir(parents=True, exist_ok=True)
-    report_progress(on_progress, 8, "Carregando matriz de referencia LR…")
 
     if use_latent_typicality:
-        score_matrix = DEFAULT_REPRESENTATIONS_MATRIX
+        score_matrix = default_representations_matrix()
         feature_cols = feature_columns_for_detectors(TYPICALITY_SYSTEM, selected_detectors)
     else:
+        if score_matrix is None:
+            score_matrix = default_score_matrix()
         feature_cols = _feature_cols(selected_detectors)
 
     roles = normalize_reference_selection_roles(selection)
@@ -1252,6 +1396,142 @@ def compute_reference_lr(
     union_items = list(roles.union_items)
     if not score_matrix.is_file():
         raise RuntimeError(f"Score matrix nao encontrada: {score_matrix}")
+
+    # Cache-first: never pay for loading the giant CSV/embeddings until MISS.
+    report_progress(on_progress, 8, "Consultando cache de calibracao LR…")
+    cache_keys = _cache_key_candidates(
+        score_matrix=score_matrix,
+        roles=roles,
+        selected_detectors=selected_detectors,
+        classifier=classifier,
+        seed=seed,
+        sample_multiplier=sample_multiplier,
+        use_latent_typicality=use_latent_typicality,
+    )
+    cache_key = cache_keys[0]
+    used_cache = False
+    hit_key: str | None = None
+    scored: pd.DataFrame | None = None
+    model = None
+    calibration = None
+    typicality_refs: dict[str, TypicalityReference] | None = None
+
+    for candidate_key in cache_keys:
+        path = _cache_dir() / f"{candidate_key}.joblib"
+        if not path.is_file() or path.stat().st_size < 1024:
+            continue
+        print(
+            f"[audio_lr] trying cache {candidate_key} ({path.stat().st_size / 1e6:.1f} MB)…",
+            flush=True,
+        )
+        candidate = _load_audio_lr_cache(candidate_key)
+        if candidate is None:
+            continue
+        (
+            model,
+            calibration,
+            cached_feature_cols,
+            cached_detectors,
+            scored,
+            typicality_refs,
+        ) = candidate
+        if (
+            cached_feature_cols == feature_cols
+            and cached_detectors == selected_detectors
+            and scored is not None
+            and model is not None
+            and calibration is not None
+            and (not use_latent_typicality or typicality_refs is not None)
+        ):
+            used_cache = True
+            hit_key = candidate_key
+            break
+        model = None
+        calibration = None
+        scored = None
+        typicality_refs = None
+
+    if used_cache:
+        elapsed = time.perf_counter() - t0
+        msg = (
+            f"[audio_lr] CACHE HIT key={hit_key} primary={cache_key} "
+            f"items={len(union_items)} latent={use_latent_typicality} "
+            f"mult={sample_multiplier} in {elapsed:.1f}s"
+        )
+        print(msg, flush=True)
+        report_progress(on_progress, 45, "Cache de calibracao LR encontrado — reutilizando modelo")
+        if hit_key and hit_key != cache_key:
+            try:
+                from core.synthetic_lr_reference import _alias_lr_cache
+
+                _alias_lr_cache(cache_key, hit_key)
+            except Exception:
+                pass
+        # Rewrite bloated legacy caches (sklearn trees) into slim float32 form.
+        try:
+            hit_path = _cache_dir() / f"{hit_key}.joblib"
+            if hit_path.is_file() and hit_path.stat().st_size > 1_500_000_000 and typicality_refs is not None:
+                print(
+                    f"[audio_lr] rewriting slim cache {hit_key} "
+                    f"({hit_path.stat().st_size / 1e6:.0f} MB → compress+float32)…",
+                    flush=True,
+                )
+                _save_audio_lr_cache(
+                    cache_key=cache_key,
+                    model=model,
+                    calibration=calibration,
+                    feature_cols=feature_cols,
+                    selected_detectors=selected_detectors,
+                    metadata={
+                        "kind": "audio_spoofing_lr",
+                        "classifier": classifier,
+                        "seed": seed,
+                        "selected_count": len(roles.union_items),
+                        "fit_count": len(roles.fit_items),
+                        "test_count": len(roles.test_items),
+                        "score_matrix_hash": _score_matrix_hash(score_matrix),
+                        "created_at": pd.Timestamp.now(tz="UTC").isoformat(),
+                        "use_latent_typicality": use_latent_typicality,
+                        "sample_multiplier": sample_multiplier,
+                        "slim_rewrite": True,
+                    },
+                    scored=scored,
+                    typicality_refs=typicality_refs,
+                )
+                print(
+                    f"[audio_lr] slim cache now "
+                    f"{(_cache_dir() / f'{cache_key}.joblib').stat().st_size / 1e6:.1f} MB",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(f"[audio_lr] slim rewrite skipped: {exc}", flush=True)
+        assert model is not None and calibration is not None and scored is not None
+        report_progress(on_progress, 92, "Gerando graficos Tippett e relatorio LR…")
+        return _build_report(
+            model=model,
+            calibration=calibration,
+            feature_cols=feature_cols,
+            selected_detectors=selected_detectors,
+            roles=roles,
+            split=scored,
+            detector_scores=detector_scores,
+            classifier=classifier,
+            out_dir=out_dir,
+            used_cache=True,
+            sample_multiplier=sample_multiplier,
+            augmented_reference=augmented_reference,
+            scored=scored,
+            use_latent_typicality=use_latent_typicality,
+            typicality_refs=typicality_refs,
+        )
+
+    msg = (
+        f"[audio_lr] CACHE MISS keys={cache_keys} items={len(union_items)} "
+        f"latent={use_latent_typicality} mult={sample_multiplier} → full calibrate"
+    )
+    print(msg, flush=True)
+    report_progress(on_progress, 10, "Cache miss — carregando matriz de referencia LR…")
+
     df = _load_scores(score_matrix)
     if use_latent_typicality:
         before = len(df)
@@ -1292,113 +1572,73 @@ def compute_reference_lr(
         f"Amostra LR: {len(split):,} linhas ({len(union_items)} subgrupos{role_label}{aug_label}{tip_label})",
     )
 
-    cache_key = _cache_key(
-        score_matrix=score_matrix,
-        roles=roles,
-        selected_detectors=selected_detectors,
-        classifier=classifier,
-        seed=seed,
-        sample_multiplier=sample_multiplier,
-        use_latent_typicality=use_latent_typicality,
-    )
-    cached = _load_audio_lr_cache(cache_key) if use_latent_typicality else _load_lr_cache(cache_key)
-    used_cache = False
-    scored: pd.DataFrame | None = None
-    model = None
-    calibration = None
-    typicality_refs: dict[str, TypicalityReference] | None = None
-
-    if cached is not None:
-        if use_latent_typicality:
-            model, calibration, cached_feature_cols, cached_detectors, scored, typicality_refs = cached
-        else:
-            model, calibration, cached_feature_cols, cached_detectors, scored = cached
-            typicality_refs = None
-        if cached_feature_cols == feature_cols and cached_detectors == selected_detectors:
-            used_cache = True
-            report_progress(on_progress, 45, "Cache de calibracao LR encontrado — reutilizando modelo")
-        else:
-            cached = None
-            scored = None
-            typicality_refs = None
-
-    if cached is None:
-        if use_latent_typicality:
-            report_progress(on_progress, 22, "Construindo bancos k-NN no split de treino (anti-leak)…")
-            train_df = split[split["reference_split"].eq("train_logreg")].copy()
-            typicality_refs = _build_typicality_refs(train_df, selected_detectors)
-            split = _materialize_typicality_features(
-                split,
-                typicality_refs,
-                selected_detectors,
-                on_progress=on_progress,
-                progress_lo=25,
-                progress_hi=70,
-            )
-            # Belt-and-suspenders: typicality features (incl. S_*, which mirror the raw
-            # detector logit) must be finite before the meta-classifier sees them. Any
-            # residual non-finite row (e.g. a stray stale score) is dropped here so
-            # calibration never crashes with "Input X contains NaN".
-            before_tip = len(split)
-            split = _filter_rows_with_finite_features(split, feature_cols)
-            if split.empty:
-                raise RuntimeError(
-                    "Nenhuma linha com features de tipicidade finitas para calibracao LR."
-                )
-            if len(split) < before_tip:
-                report_progress(
-                    on_progress,
-                    71,
-                    f"Features de tipicidade filtradas: {len(split):,}/{before_tip:,} linhas finitas",
-                )
-        else:
-            report_progress(on_progress, 35, "Preparando logits dos detectores para treino LR…")
-        train = split[split["reference_split"].eq("train_logreg")]
-        x_train = train[feature_cols].to_numpy(dtype=float)
-        y_train = (1 - train["y_fake"].astype(int)).to_numpy()
-        report_progress(
-            on_progress,
-            72,
-            f"Treinando meta-classificador ({classifier}) em {len(train):,} amostras…",
+    if use_latent_typicality:
+        report_progress(on_progress, 22, "Construindo bancos k-NN no split de treino (anti-leak)…")
+        train_df = split[split["reference_split"].eq("train_logreg")].copy()
+        typicality_refs = _build_typicality_refs(train_df, selected_detectors)
+        split = _materialize_typicality_features(
+            split,
+            typicality_refs,
+            selected_detectors,
+            on_progress=on_progress,
+            progress_lo=25,
+            progress_hi=70,
         )
-        model = _train_meta_classifier(classifier, x_train, y_train, feature_cols, seed)
-        report_progress(on_progress, 85, "Calibracao bi-Gaussiana (EER) na populacao de referencia…")
-        calibration = _fit_bigauss(split, model, feature_cols)
+        before_tip = len(split)
+        split = _filter_rows_with_finite_features(split, feature_cols)
+        if split.empty:
+            raise RuntimeError(
+                "Nenhuma linha com features de tipicidade finitas para calibracao LR."
+            )
+        if len(split) < before_tip:
+            report_progress(
+                on_progress,
+                71,
+                f"Features de tipicidade filtradas: {len(split):,}/{before_tip:,} linhas finitas",
+            )
+    else:
+        report_progress(on_progress, 35, "Preparando logits dos detectores para treino LR…")
+    train = split[split["reference_split"].eq("train_logreg")]
+    x_train = train[feature_cols].to_numpy(dtype=float)
+    y_train = (1 - train["y_fake"].astype(int)).to_numpy()
+    report_progress(
+        on_progress,
+        72,
+        f"Treinando meta-classificador ({classifier}) em {len(train):,} amostras…",
+    )
+    model = _train_meta_classifier(classifier, x_train, y_train, feature_cols, seed)
+    report_progress(on_progress, 85, "Calibracao bi-Gaussiana (EER) na populacao de referencia…")
+    calibration = _fit_bigauss(split, model, feature_cols)
 
-    if scored is None:
-        scored = _score_dataframe(split, model, calibration, feature_cols)
-        metadata = {
-            "kind": "audio_spoofing_lr",
-            "classifier": classifier,
-            "seed": seed,
-            "selected_count": len(roles.union_items),
-            "fit_count": len(roles.fit_items),
-            "test_count": len(roles.test_items),
-            "score_matrix_hash": _score_matrix_hash(score_matrix),
-            "created_at": pd.Timestamp.now(tz="UTC").isoformat(),
-            "use_latent_typicality": use_latent_typicality,
-        }
-        if use_latent_typicality:
-            _save_audio_lr_cache(
-                cache_key=cache_key,
-                model=model,
-                calibration=calibration,
-                feature_cols=feature_cols,
-                selected_detectors=selected_detectors,
-                metadata=metadata,
-                scored=scored,
-                typicality_refs=typicality_refs,
-            )
-        else:
-            _save_lr_cache(
-                cache_key=cache_key,
-                model=model,
-                calibration=calibration,
-                feature_cols=feature_cols,
-                selected_detectors=selected_detectors,
-                metadata=metadata,
-                scored=scored,
-            )
+    scored = _score_dataframe(split, model, calibration, feature_cols)
+    metadata = {
+        "kind": "audio_spoofing_lr",
+        "classifier": classifier,
+        "seed": seed,
+        "selected_count": len(roles.union_items),
+        "fit_count": len(roles.fit_items),
+        "test_count": len(roles.test_items),
+        "score_matrix_hash": _score_matrix_hash(score_matrix),
+        "created_at": pd.Timestamp.now(tz="UTC").isoformat(),
+        "use_latent_typicality": use_latent_typicality,
+        "sample_multiplier": sample_multiplier,
+    }
+    _save_audio_lr_cache(
+        cache_key=cache_key,
+        model=model,
+        calibration=calibration,
+        feature_cols=feature_cols,
+        selected_detectors=selected_detectors,
+        metadata=metadata,
+        scored=scored,
+        typicality_refs=typicality_refs,
+    )
+    print(
+        f"[audio_lr] CACHE SAVE key={cache_key} "
+        f"({(_cache_dir() / f'{cache_key}.joblib').stat().st_size / 1e6:.1f} MB) "
+        f"in {time.perf_counter() - t0:.1f}s",
+        flush=True,
+    )
 
     report_progress(on_progress, 92, "Gerando graficos Tippett e relatorio LR…")
     return _build_report(
@@ -1411,7 +1651,7 @@ def compute_reference_lr(
         detector_scores=detector_scores,
         classifier=classifier,
         out_dir=out_dir,
-        used_cache=used_cache,
+        used_cache=False,
         sample_multiplier=sample_multiplier,
         augmented_reference=augmented_reference,
         scored=scored,

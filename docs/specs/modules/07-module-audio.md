@@ -2,21 +2,22 @@
 
 ## Responsabilidade Unica
 
-Implementar adaptadores forenses para todas as tecnicas de analise de audio dos legados, encapsulando parsers binarios customizados e analises espectrais sob a interface `ForensicPlugin`.
+Implementar adaptadores forenses para as tecnicas de analise de audio, encapsulando parsers binarios customizados e analises espectrais sob a interface `ForensicPlugin`.
 
 ## Tecnicas Implementadas
 
-| Nome | Tecnica Legada | Biblioteca Sensivel | Usa GPU |
-|------|---------------|---------------------|---------|
-| `mp3_parser` | Analise MP3.ipynb | Parser binario puro (struct) | Nao |
-| `opus_parser` | Analise_Opus.ipynb | Parser binario puro (struct) | Nao |
-| `wav_ima_adpcm` | Analise de Consistencia Indice WAV IMA ADPCM.ipynb | numpy + struct | Nao |
-| `audio_enf` | notebook legado de analise de audio (aba ENF) | scipy (FIR, Hilbert) | Nao |
-| `audio_quantization` | notebook legado de analise de audio (aba Quantizacao) | numpy + matplotlib | Nao |
-| `audio_dc_local` | notebook legado de analise de audio (aba DC Local) | numpy | Nao |
-| `audio_spectrogram` | notebook legado de analise de audio (aba Espectrograma) | `scipy.signal.spectrogram` | Nao |
-| `audio_ltas` | notebook legado de analise de audio (aba LTAS) | scipy.signal (Welch) | Nao |
-| `audio_stereo_residual` | notebook legado de analise de audio (Residuo Estereo) | numpy | Nao |
+| Nome | Motor / pipeline | Biblioteca Sensivel | Usa GPU |
+|------|------------------|---------------------|---------|
+| `audio_metadata` | Metadados + probe + C2PA | ExifTool (binario), c2pa-python | Nao |
+| `mp3_parser` | Parser estrutural MP3 | Parser binario puro (struct) | Nao |
+| `opus_parser` | Parser estrutural Ogg/Opus | Parser binario puro (struct) | Nao |
+| `wav_ima_adpcm` | Consistencia de indice WAV IMA ADPCM | numpy + struct | Nao |
+| `audio_enf` | ENF (rede eletrica) | scipy (FIR, Hilbert) | Nao |
+| `audio_quantization` | Analise de quantizacao | numpy + matplotlib | Nao |
+| `audio_dc_local` | DC local | numpy | Nao |
+| `audio_spectrogram` | Espectrograma | `scipy.signal.spectrogram` | Nao |
+| `audio_ltas` | LTAS (Welch) | scipy.signal | Nao |
+| `audio_stereo_residual` | Residuo estereo | numpy | Nao |
 
 ## Interfaces Publicas
 

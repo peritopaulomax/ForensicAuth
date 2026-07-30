@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 from core.forensic_plugin import ForensicPlugin
-from core.legacy.audio.audio_plotly_util import get_analyzer, write_plots
+from forensics.audio.audio_plotly_util import get_analyzer, write_plots
 from core.plugins.audio_plugin_helpers import run_legacy
 
 

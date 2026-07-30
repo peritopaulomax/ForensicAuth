@@ -9,13 +9,16 @@ import torch
 from PIL import Image
 
 
+
+pytestmark = [pytest.mark.weights, pytest.mark.gpu]
+
 def _device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def test_fsd_real_inference_smoke():
-    from core.legacy.fsd.fsd_pipeline import infer_fsd_from_pil
-    from core.legacy.fsd.fsd_runtime import fsd_runtime_status
+    from forensics.fsd.fsd_pipeline import infer_fsd_from_pil
+    from forensics.fsd.fsd_runtime import fsd_runtime_status
 
     ok, reason = fsd_runtime_status()
     if not ok:
@@ -27,8 +30,8 @@ def test_fsd_real_inference_smoke():
 
 
 def test_universal_fake_detect_real_inference_smoke():
-    from core.legacy.universal_fake_detect.ufd_pipeline import infer_ufd_from_pil
-    from core.legacy.universal_fake_detect.ufd_runtime import ufd_runtime_status
+    from forensics.universal_fake_detect.ufd_pipeline import infer_ufd_from_pil
+    from forensics.universal_fake_detect.ufd_runtime import ufd_runtime_status
 
     ok, reason = ufd_runtime_status()
     if not ok:
@@ -39,8 +42,8 @@ def test_universal_fake_detect_real_inference_smoke():
 
 
 def test_grip_clipd_real_inference_smoke():
-    from core.legacy.truebees_clip_d.clipd_pipeline import infer_clipd_from_pil
-    from core.legacy.truebees_clip_d.clipd_runtime import clipd_runtime_status
+    from forensics.truebees_clip_d.clipd_pipeline import infer_clipd_from_pil
+    from forensics.truebees_clip_d.clipd_runtime import clipd_runtime_status
 
     ok, reason = clipd_runtime_status()
     if not ok:

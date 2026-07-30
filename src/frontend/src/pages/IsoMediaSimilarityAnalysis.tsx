@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
+import TechniquePageShell from "@/components/TechniquePageShell";
+import { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
 import EvidenceDropZone from "@/components/EvidenceDropZone";
 import EvidenceFileGrid from "@/components/EvidenceFileGrid";
 import EvidenceFilePreview from "@/components/EvidenceFilePreview";
@@ -8,10 +9,12 @@ import FileListViewHeader from "@/components/FileListViewHeader";
 import PeritusMultiFilePicker from "@/components/PeritusMultiFilePicker";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
 import { useForensicJob } from "@/hooks/useForensicJob";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
+import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
 import {
   listCaseEvidences,
   listCaseReferences,
-  saveDerivative,
   uploadIsomStructureReference,
   type ReferenceGroup,
 } from "@/services/evidence";
@@ -43,11 +46,15 @@ export default function IsoMediaSimilarityAnalysis() {
 
   const [jaccardUrl, setJaccardUrl] = useState<string | null>(null);
   const [wlUrl, setWlUrl] = useState<string | null>(null);
-  const [savingDerivative, setSavingDerivative] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const { running, currentJobId, result, error, progress, progressLabel, runAnalysis, fetchImage, reset } =
     useForensicJob();
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
+  const { status: runtimeStatus } = useTechniqueRuntime("isomedia_compare");
+
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
+  const { embedded } = useGroupAwareEvidence(caseId || "", () => {});
 
   const rotuloOptions = useMemo(() => refGroups.map((g) => g.group_label), [refGroups]);
   const refVideos = useMemo(() => {
@@ -127,45 +134,29 @@ export default function IsoMediaSimilarityAnalysis() {
     if (wlUrl) URL.revokeObjectURL(wlUrl);
     setJaccardUrl(null);
     setWlUrl(null);
-    setSaveMessage(null);
+    clearMessage();
   }
 
   async function handleSaveDerivative(artifactFilename: string, label: string) {
     if (!currentJobId) return;
-    setSavingDerivative(artifactFilename);
-    setSaveMessage(null);
-    try {
-      const res = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: artifactFilename,
-        label,
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${res.message} «${res.evidence.original_filename}». SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined;
-      setSaveMessage({ type: "err", text: detail || "Erro ao salvar derivado" });
-    } finally {
-      setSavingDerivative(null);
-    }
+    await save(currentJobId, artifactFilename, label);
   }
 
-  function renderDerivativeActions(artifactFilename: string, label: string, buttonLabel = "Salvar em derivados") {
+  function renderDerivativeActions(
+    artifactFilename: string,
+    label: string,
+    buttonLabel = "Salvar em derivados"
+  ) {
     if (!currentJobId) return null;
     return (
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
         <button
           type="button"
           onClick={() => handleSaveDerivative(artifactFilename, label)}
-          disabled={!!savingDerivative}
+          disabled={!!saving}
           style={btnPrimary}
         >
-          {savingDerivative === artifactFilename ? "Salvando…" : buttonLabel}
+          {saving ? "Salvando…" : buttonLabel}
         </button>
         <button type="button" onClick={() => navigate(`/cases/${caseId}?tab=derivados`)} style={btnSecondary}>
           Abrir derivados
@@ -246,7 +237,7 @@ export default function IsoMediaSimilarityAnalysis() {
 
   async function process() {
     clearResults();
-    setSaveMessage(null);
+    setRefUploadMessage(null);
     const questIds = [...selectedQuestIds];
     try {
       if (tab === "with_reference") {
@@ -296,7 +287,6 @@ export default function IsoMediaSimilarityAnalysis() {
         );
       }
     } catch {
-      /* handled in hook */
     }
   }
 
@@ -306,10 +296,19 @@ export default function IsoMediaSimilarityAnalysis() {
   if (!caseId) return null;
 
   return (
-    <AnalysisPageShell
+    <TechniquePageShell
       caseId={caseId}
-      title="Video — Similaridade estrutural ISO BMFF"
-      subtitle="Matriz de similaridade Jaccard e kernel WL entre estruturas de boxes ISO BMFF."
+      techniqueId="isomedia_compare"
+      mediaType="video"
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      showEvidencePicker={false}
+      embedded={embedded}
     >
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", flexWrap: "wrap" }}>
         <button
@@ -407,7 +406,7 @@ export default function IsoMediaSimilarityAnalysis() {
         <div style={{ marginTop: "1rem" }}>
           <ProcessButton
             onClick={process}
-            disabled={!canProcess}
+            disabled={!canProcess || runtimeOk === false}
             running={running}
             progress={progress}
             progressLabel={progressLabel}
@@ -440,7 +439,7 @@ export default function IsoMediaSimilarityAnalysis() {
       )}
 
       {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
-    </AnalysisPageShell>
+    </TechniquePageShell>
   );
 }
 

@@ -7,9 +7,9 @@ from typing import Any, Dict, Tuple
 import numpy as np
 
 from core.forensic_plugin import ForensicPlugin
-from core.legacy.audio.audio_plotly_util import get_analyzer, write_plot_html
-from core.legacy.audio.spectrogram_export import write_spectrogram_png
-from core.legacy.audio.spectrogram_scipy import load_mono_audio
+from forensics.audio.audio_plotly_util import get_analyzer, write_plot_html
+from forensics.audio.spectrogram_export import write_spectrogram_png
+from forensics.audio.spectrogram_scipy import load_mono_audio
 from core.plugins.audio_plugin_helpers import run_legacy
 from core.progress import pop_progress_callback, report_progress
 

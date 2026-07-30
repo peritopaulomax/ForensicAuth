@@ -47,7 +47,7 @@ def run_forensic_analysis(self, job_id: str):
 ## Dependencias de Outros Modulos
 
 - **Core**: `ForensicPlugin`, `PLUGINS` registry, `Settings`
-- **Custody**: Jobs sao execucoes exploratorias (preview) e NAO geram `CustodyRecord`; a cadeia e registrada apenas em upload, derivados salvos e fechamento/laudos.
+- **Custody**: Jobs sao execucoes exploratorias (preview) e NAO geram `CustodyRecord`; a cadeia e registrada em upload, derivados salvos, compartilhamento, fechamento e importacao/exportacao.
 - **Database**: Models `AnalysisJob`, `Evidence`, sessao SQLAlchemy
 - **Adapters**: Implementacoes concretas de `ForensicPlugin`
 
@@ -63,7 +63,7 @@ def run_forensic_analysis(self, job_id: str):
 7. Publica task Celery `run_forensic_analysis.delay(job_id)`
 8. Retorna job_id ao cliente
 
-> Nota: jobs sao previews exploratorios e, portanto, nao geram `CustodyRecord` neste estagio. A cadeia de custodia e atualizada apenas quando um artefato e promovido a derivado ou incluido em um laudo.
+> Nota: jobs sao previews exploratorios e, portanto, nao geram `CustodyRecord` neste estagio. A cadeia de custodia e atualizada quando um artefato e promovido a derivado ou em eventos de lifecycle (share/close/import).
 
 ### Execucao do Worker
 1. Worker Celery recebe task `run_forensic_analysis`
@@ -97,9 +97,10 @@ def run_forensic_analysis(self, job_id: str):
 
 ## Regras de Negocio Especificas
 
-- **RN-JOB-01**: Jobs com tecnicas que usam GPU (synthetic_image_detection, safire, noiseprint, imdlbenco, videofact, stil_video_detection, lowres_fake_video, distildire, presentation_attack_detection, fakevlm, clipbased_synthetic) DEVEM ser serializados via semaforo Redis.
+- **RN-JOB-01**: Jobs com tecnicas que usam GPU (synthetic_image_detection, safire, imdlbenco, videofact, stil_video_detection, lowres_fake_video, presentation_attack_detection) DEVEM ser serializados via semaforo Redis.
 - **RN-JOB-02**: Cada job tem maximo de 3 retries automaticos em caso de falha (exceto falhas de validacao).
 - **RN-JOB-03**: Artefatos de resultado DEVEM ser armazenados em subdiretorio exclusivo por job, seguindo o padrao `{RESULTS_DIR}/{case_id}/{evidence_id}/{job_id}/`.
+- **RN-JOB-04**: Conteudo sob `RESULTS_DIR` e descartavel (preview/cache). A limpeza (startup + diaria no processo API, `JOB_PREVIEW_DAILY_CLEANUP`) remove: pastas com `result.json` (`preview: true` ou legado sem a chave), fallbacks de tecnica (`ela/`, `*_tmp/`, …) e orfaos por mtime apos `JOB_PREVIEW_RETENTION_DAYS` (0 = imediato com grace de 1h para jobs em voo). `preview: false` explicito e preservado. Derivados em `DERIVATIVES_DIR` nao sao removidos. Wipe operacional: `purge_all_previews()`.
 - **RN-JOB-05**: Jobs pendentes por mais de 24 horas sem worker disponivel devem ser marcados como failed.
 
 ## Tratamento de Erros

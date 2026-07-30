@@ -113,14 +113,6 @@
         }
       ]
     },
-    "noiseprint": {
-      "title": "Noiseprint: a CNN-Based Camera Model Fingerprint",
-      "venue": "TIFS 2020",
-      "sources": [
-        "https://doi.org/10.1109/TIFS.2019.2916364"
-      ],
-      "local_file": "noiseprint/cozzolino_verdoliva_2018_noiseprint.pdf"
-    },
     "presentation_attack_detection": {
       "title": "Face anti-spoofing — auxiliary supervision and frequency-domain references",
       "venue": "CVPR 2018 / CVPR 2020 / Sensors 2021",
@@ -228,6 +220,16 @@
         "https://ojs.aaai.org/index.php/AAAI/article/view/38250"
       ],
       "local_file": "co_transformers/paper.pdf"
+    },
+    "miml_apscnet": {
+      "title": "Towards Modern Image Manipulation Localization: A Large-Scale Dataset and Novel Methods",
+      "venue": "CVPR 2024",
+      "repo": "https://github.com/qcf-568/MIML",
+      "sources": [
+        "https://openaccess.thecvf.com/content/CVPR2024/papers/Qu_Towards_Modern_Image_Manipulation_Localization_A_Large-Scale_Dataset_and_Novel_CVPR_2024_paper.pdf",
+        "https://doi.org/10.1109/CVPR52733.2024.01025"
+      ],
+      "local_file": "miml_apscnet/paper.pdf"
     },
     "bfree": {
       "title": "A Bias-Free Training Paradigm for More General AI-generated Image Detection",

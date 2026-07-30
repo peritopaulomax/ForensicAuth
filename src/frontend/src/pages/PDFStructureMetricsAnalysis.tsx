@@ -1,24 +1,27 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
+import { useCallback, useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import TechniquePageShell from "@/components/TechniquePageShell";
+import { MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
 import PlotlyHtmlFrame from "@/components/PlotlyHtmlFrame";
-import MediaEvidenceSelector from "@/components/MediaEvidenceSelector";
 import { useForensicJob } from "@/hooks/useForensicJob";
-import { saveDerivative } from "@/services/evidence";
+import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 import api from "@/services/api";
 
 const PYVIS_INLINE_HEIGHT = 420;
 
 export default function PDFStructureMetricsAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
-  const navigate = useNavigate();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [graphUrl, setGraphUrl] = useState<string | null>(null);
   const [htmlUrl, setHtmlUrl] = useState<string | null>(null);
-  const [savingDerivative, setSavingDerivative] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const { running, currentJobId, result, error, progress, progressLabel, runAnalysis, fetchImage, reset } =
     useForensicJob();
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
+  const { status: runtimeStatus } = useTechniqueRuntime("pdf_structure_metrics");
+
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
 
   useEffect(
     () => () => {
@@ -32,39 +35,24 @@ export default function PDFStructureMetricsAnalysis() {
     setGraphUrl(null);
     if (htmlUrl) URL.revokeObjectURL(htmlUrl);
     setHtmlUrl(null);
-    setSaveMessage(null);
+    clearMessage();
   }
 
-  async function handleSaveDerivative(artifactFilename: string, label: string) {
-    if (!currentJobId) return;
-    setSavingDerivative(artifactFilename);
-    setSaveMessage(null);
-    try {
-      const res = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: artifactFilename,
-        label,
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${res.message} «${res.evidence.original_filename}». SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined;
-      setSaveMessage({ type: "err", text: detail || "Erro ao salvar derivado" });
-    } finally {
-      setSavingDerivative(null);
-    }
-  }
+  const applyEvidence = useCallback(
+    (_id: string) => {
+      clearArtifacts();
+    },
+    []
+  );
+
+  const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
+    useGroupAwareEvidence(caseId!, applyEvidence);
 
   async function process() {
-    if (!selectedId) return;
-    setSaveMessage(null);
+    if (!evidenceId || !runtimeOk) return;
+    clearMessage();
     try {
-      await runAnalysis(selectedId, "pdf_structure_metrics", {}, {
+      await runAnalysis(evidenceId, "pdf_structure_metrics", {}, {
         onArtifactsLoaded: async (jobId) => {
           const png = await fetchImage(jobId, "structure_graph.png");
           setGraphUrl(png);
@@ -80,7 +68,6 @@ export default function PDFStructureMetricsAnalysis() {
         },
       });
     } catch {
-      /* hook */
     }
   }
 
@@ -94,14 +81,11 @@ export default function PDFStructureMetricsAnalysis() {
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
         <button
           type="button"
-          onClick={() => handleSaveDerivative(artifactFilename, label)}
-          disabled={!!savingDerivative}
+          onClick={() => save(currentJobId, artifactFilename, label)}
+          disabled={!!saving}
           style={btnPrimary}
         >
-          {savingDerivative === artifactFilename ? "Salvando…" : buttonLabel}
-        </button>
-        <button type="button" onClick={() => navigate(`/cases/${caseId}?tab=derivados`)} style={btnSecondary}>
-          Abrir derivados
+          {saving ? "Salvando…" : buttonLabel}
         </button>
       </div>
     );
@@ -109,49 +93,32 @@ export default function PDFStructureMetricsAnalysis() {
 
   if (!caseId) return null;
 
-  return (
-    <AnalysisPageShell
-      caseId={caseId}
-      title="PDF — Estrutura e metricas (grafo)"
-      subtitle="Grafo de objetos PDF: layout Graphviz dot TB (arvore hierarquica) no PNG e no HTML interativo."
-    >
-      <AnalysisPanel title="Evidencia PDF">
-        <MediaEvidenceSelector
-          caseId={caseId}
-          fileType="pdf"
-          selectedId={selectedId}
-          onSelect={(id) => {
-            setSelectedId(id);
-            clearArtifacts();
-          }}
-          radioName="pdf-structure-metrics"
-        />
-        <div style={{ marginTop: "1rem" }}>
-          <ProcessButton
-            onClick={process}
-            disabled={!selectedId}
-            running={running}
-            progress={progress}
-            progressLabel={progressLabel}
-            label="Gerar grafo"
-          />
-        </div>
-        {error && <MessageBox type="err" text={error} />}
-      </AnalysisPanel>
+  const parametersPanel = (
+    <div style={{ marginTop: "1rem" }}>
+      <ProcessButton
+        onClick={process}
+        disabled={!evidenceId || runtimeOk === false}
+        running={running}
+        progress={progress}
+        progressLabel={progressLabel}
+        label="Gerar grafo"
+      />
+    </div>
+  );
 
+  const resultPanel = (
+    <>
       {result && (
-        <AnalysisPanel title="Metricas">
-          <p style={{ margin: 0, fontSize: "0.88rem" }}>
-            Nos: {Number(result.node_count)} · Arestas: {Number(result.edge_count)}
-            {result.layout_engine != null && (
-              <> · Motor de layout: {String(result.layout_engine)}</>
-            )}
-          </p>
-        </AnalysisPanel>
+        <p style={{ margin: 0, fontSize: "0.88rem" }}>
+          Nos: {Number(result.node_count)} · Arestas: {Number(result.edge_count)}
+          {result.layout_engine != null && (
+            <> · Motor de layout: {String(result.layout_engine)}</>
+          )}
+        </p>
       )}
 
       {htmlUrl && (
-        <AnalysisPanel title="Grafo interativo (PyVis)">
+        <>
           <p style={{ fontSize: "0.82rem", color: "#6b7280", marginTop: 0 }}>
             Mesma arvore hierarquica do PNG (Graphviz dot) ao carregar. Arraste nos e use zoom; no canto do grafo,
             o icone de engrenagem abre o painel PyVis (fisica hierarquica/gravitacional, interacao, layout). Ao
@@ -167,7 +134,7 @@ export default function PDFStructureMetricsAnalysis() {
             "pdf_structure_graph_html",
             "Salvar em derivados"
           )}
-        </AnalysisPanel>
+        </>
       )}
 
       {!htmlUrl && result && (
@@ -184,29 +151,42 @@ export default function PDFStructureMetricsAnalysis() {
       )}
 
       {graphUrl && (
-        <AnalysisPanel title="Grafo (PNG)">
+        <>
           <img src={graphUrl} alt="Grafo PDF" style={{ width: "100%", maxWidth: 960 }} />
           {renderDerivativeActions(
             "structure_graph.png",
             "pdf_structure_graph_png",
             "Salvar em derivados"
           )}
-        </AnalysisPanel>
+        </>
       )}
 
       {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
-    </AnalysisPageShell>
+    </>
+  );
+
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="pdf_structure_metrics"
+      mediaType="pdf"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      parametersPanel={parametersPanel}
+      resultPanel={resultPanel || undefined}
+    />
   );
 }
-
-const btnSecondary = {
-  padding: "0.45rem 0.9rem",
-  background: "#f3f4f6",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: "0.85rem",
-} as const;
 
 const btnPrimary = {
   padding: "0.45rem 0.9rem",

@@ -88,6 +88,11 @@ const MACRO_ACCENTS: Record<string, string> = {
   codec_conditions: "#7c3aed",
   deepfake_challenges: "#059669",
   in_the_wild: "#d97706",
+  gan_older: "#b45309",
+  diffusion_cnn_early: "#2563eb",
+  diffusion_cnn_modern: "#059669",
+  diffusion_transformer: "#7c3aed",
+  other_neural: "#d97706",
 };
 
 function macroAccent(macroId: string): string {
@@ -167,6 +172,10 @@ export type ReferenceLrResult = {
     logreg_z?: number;
     cdf_p?: number;
   };
+  feature_weights?: Record<string, number> | null;
+  feature_values?: Record<string, number> | null;
+  logreg_coefficients?: Record<string, number> | null;
+  logreg_intercept?: number | null;
   note?: string;
   meta_classifier?: string;
   meta_classifier_label?: string;
@@ -180,6 +189,33 @@ export type ReferenceLrResult = {
     k?: number;
   };
 };
+
+/** Rótulo legível para colunas internas do meta-classificador LR. */
+export function describeLrFeature(name: string): string {
+  if (name.endsWith("_logit_prob")) {
+    return `Logit da P(fake) — detector ${name.replace(/_logit_prob$/, "")}`;
+  }
+  if (name.endsWith("_bonafide_logit")) {
+    return `Logit bonafide — detector ${name.replace(/_bonafide_logit$/, "")}`;
+  }
+  const match = name.match(/^(S|T_R|T_S|OOD|Delta_r|rho|r_R|r_S)_(.+)$/);
+  if (match) {
+    const kind = match[1];
+    const detector = match[2];
+    const labels: Record<string, string> = {
+      S: "Score (logit)",
+      T_R: "Tipicidade k-NN (pool real/bonafide)",
+      T_S: "Tipicidade k-NN (pool sintético/spoof)",
+      OOD: "Fora de distribuição (1 − max tipicidade)",
+      Delta_r: "Diferença de raios k-NN (r_real − r_sint)",
+      rho: "log(r_real / r_sint)",
+      r_R: "Raio k-NN até pool real",
+      r_S: "Raio k-NN até pool sintético",
+    };
+    return `${labels[kind] || kind} — ${detector}`;
+  }
+  return name;
+}
 
 export function flattenCatalog(categories: MacroCategory[]): ReferencePopulationItem[] {
   return categories.flatMap((category) =>
@@ -420,27 +456,13 @@ export function ReferencePopulationSelector({
     return activePool === "fit" ? flags.inFit : flags.inTest;
   };
 
-  const macrosWithSelection = useMemo(() => {
-    const hasSelection = (category: MacroCategory) => {
-      if (activePool) {
-        return countCategoryInPool(category, getRole, activePool).active > 0;
-      }
-      return countCategorySelection(category, getRole).active > 0;
-    };
-    return catalog.filter(hasSelection).map((category) => category.id);
-  }, [catalog, entries, activePool]);
-
   useEffect(() => {
     const justOpened = drawerOpen && !drawerWasOpen.current;
     drawerWasOpen.current = drawerOpen;
     if (!justOpened) return;
-
-    const initial = new Set(macrosWithSelection);
-    if (initial.size === 0 && catalog[0]) {
-      initial.add(catalog[0].id);
-    }
-    setOpenMacros(initial);
-  }, [drawerOpen, catalog, macrosWithSelection]);
+    // Macros start collapsed; user expands what they need (search still auto-expands).
+    setOpenMacros(new Set());
+  }, [drawerOpen]);
 
   const upsertRole = (item: ReferencePopulationItem, role: ReferencePopulationRole) => {
     const key = referenceItemKey(item);
@@ -1078,16 +1100,283 @@ export function ReferenceLrPanel({
   );
 }
 
+type FeatureWeightSortKey = "feature" | "description" | "coef" | "value" | "contrib";
+
+type FeatureWeightRow = {
+  name: string;
+  description: string;
+  coef: number | null;
+  value: number | null;
+  contrib: number | null;
+};
+
+function SortableTh({
+  label,
+  column,
+  active,
+  direction,
+  align = "left",
+  onSort,
+  style,
+}: {
+  label: string;
+  column: FeatureWeightSortKey;
+  active: FeatureWeightSortKey;
+  direction: "asc" | "desc";
+  align?: "left" | "right";
+  onSort: (column: FeatureWeightSortKey) => void;
+  style: CSSProperties;
+}) {
+  const marker = active === column ? (direction === "asc" ? " ↑" : " ↓") : "";
+  return (
+    <th style={{ ...style, textAlign: align }}>
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        title={`Ordenar por ${label}`}
+        style={{
+          all: "unset",
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 2,
+          fontWeight: 600,
+          color: active === column ? "#1a1a2e" : "#374151",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label}
+        <span style={{ fontSize: "0.7rem", color: "#6b7280", minWidth: "0.75rem" }}>{marker}</span>
+      </button>
+    </th>
+  );
+}
+
+function LrFeatureWeightsTable({
+  rows,
+  isLogistic,
+  intercept,
+  weightColumnLabel = "Coef. / peso",
+}: {
+  rows: FeatureWeightRow[];
+  isLogistic: boolean;
+  intercept: number | null;
+  weightColumnLabel?: string;
+}) {
+  const [sortKey, setSortKey] = useState<FeatureWeightSortKey>("coef");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const sortedRows = useMemo(() => {
+    const copy = [...rows];
+    const dir = sortDir === "asc" ? 1 : -1;
+    copy.sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      if (typeof av === "string" && typeof bv === "string") {
+        return dir * av.localeCompare(bv, "pt-BR");
+      }
+      const an = typeof av === "number" && Number.isFinite(av) ? av : null;
+      const bn = typeof bv === "number" && Number.isFinite(bv) ? bv : null;
+      if (an == null && bn == null) return 0;
+      if (an == null) return 1;
+      if (bn == null) return -1;
+      return dir * (an - bn);
+    });
+    return copy;
+  }, [rows, sortKey, sortDir]);
+
+  const onSort = (column: FeatureWeightSortKey) => {
+    if (sortKey === column) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(column);
+      setSortDir(column === "feature" || column === "description" ? "asc" : "desc");
+    }
+  };
+
+  const th: CSSProperties = {
+    textAlign: "left",
+    padding: "0.35rem 0.5rem",
+    borderBottom: "1px solid #e5e7eb",
+    fontWeight: 600,
+    color: "#374151",
+    whiteSpace: "nowrap",
+  };
+  const td: CSSProperties = {
+    padding: "0.35rem 0.5rem",
+    borderBottom: "1px solid #f3f4f6",
+    verticalAlign: "top",
+  };
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table
+        style={{
+          width: "100%",
+          borderCollapse: "collapse",
+          fontSize: "0.78rem",
+          background: "#fff",
+        }}
+      >
+        <thead>
+          <tr style={{ background: "#f9fafb" }}>
+            <SortableTh
+              label="Feature"
+              column="feature"
+              active={sortKey}
+              direction={sortDir}
+              onSort={onSort}
+              style={th}
+            />
+            <SortableTh
+              label="Descrição"
+              column="description"
+              active={sortKey}
+              direction={sortDir}
+              onSort={onSort}
+              style={th}
+            />
+            <SortableTh
+              label={weightColumnLabel}
+              column="coef"
+              active={sortKey}
+              direction={sortDir}
+              align="right"
+              onSort={onSort}
+              style={th}
+            />
+            <SortableTh
+              label="Valor evidência"
+              column="value"
+              active={sortKey}
+              direction={sortDir}
+              align="right"
+              onSort={onSort}
+              style={th}
+            />
+            {isLogistic ? (
+              <SortableTh
+                label="Contrib. (β×x)"
+                column="contrib"
+                active={sortKey}
+                direction={sortDir}
+                align="right"
+                onSort={onSort}
+                style={th}
+              />
+            ) : null}
+          </tr>
+        </thead>
+        <tbody>
+          {sortedRows.map((row) => (
+            <tr key={row.name}>
+              <td style={{ ...td, fontFamily: "ui-monospace, monospace", fontSize: "0.72rem" }}>
+                {row.name}
+              </td>
+              <td style={{ ...td, color: "#4b5563" }}>{row.description}</td>
+              <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                {formatMetric(row.coef, 4)}
+              </td>
+              <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                {formatMetric(row.value, 4)}
+              </td>
+              {isLogistic ? (
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                  {formatMetric(row.contrib, 4)}
+                </td>
+              ) : null}
+            </tr>
+          ))}
+          {isLogistic && intercept != null ? (
+            <tr>
+              <td style={{ ...td, fontFamily: "ui-monospace, monospace", fontSize: "0.72rem" }}>
+                intercept
+              </td>
+              <td style={{ ...td, color: "#4b5563" }}>Intercepto da regressão logística</td>
+              <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                {formatMetric(intercept, 4)}
+              </td>
+              <td style={{ ...td, textAlign: "right" }}>—</td>
+              <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                {formatMetric(intercept, 4)}
+              </td>
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Tabela de coeficientes/pesos do meta-classificador — colapsada; use no final da página. */
+export function ReferenceLrFeatureWeightsPanel({ lr }: { lr: ReferenceLrResult | null }) {
+  if (!lr || lr.success === false) return null;
+  const weights = lr.logreg_coefficients || lr.feature_weights;
+  if (!weights || typeof weights !== "object") return null;
+  const entries = Object.entries(weights);
+  if (!entries.length) return null;
+  const values = lr.feature_values || {};
+  const isLogistic = Boolean(lr.logreg_coefficients) || lr.meta_classifier === "logistic";
+  const isXgb = lr.meta_classifier === "xgboost";
+  const rows: FeatureWeightRow[] = entries.map(([name, coef]) => {
+    const coefNum = typeof coef === "number" && Number.isFinite(coef) ? coef : null;
+    const xRaw = values[name];
+    const value = typeof xRaw === "number" && Number.isFinite(xRaw) ? xRaw : null;
+    const contrib =
+      isLogistic && coefNum != null && value != null ? coefNum * value : null;
+    return {
+      name,
+      description: describeLrFeature(name),
+      coef: coefNum,
+      value,
+      contrib,
+    };
+  });
+  const title = isLogistic
+    ? "Coeficientes da regressão logística"
+    : isXgb
+      ? "Importâncias das features (XGBoost)"
+      : "Pesos / importância das features";
+
+  return (
+    <details
+      style={{
+        marginTop: "1.5rem",
+        borderTop: "1px solid #e5e7eb",
+        paddingTop: "1rem",
+      }}
+    >
+      <summary
+        style={{
+          cursor: "pointer",
+          fontWeight: 600,
+          fontSize: "0.95rem",
+          color: "#1a1a2e",
+          marginBottom: "0.75rem",
+        }}
+      >
+        {title}
+      </summary>
+      <p style={{ margin: "0 0 0.45rem", fontSize: "0.72rem", color: "#6b7280" }}>
+        {isLogistic
+          ? "Coeficiente β por feature; contribuição ≈ β × valor na evidência. Direção do modelo: score alto favorece real/bonafide. Clique no título da coluna para ordenar."
+          : isXgb
+            ? "Importância relativa (gain) por feature no XGBoost — não é coeficiente linear. Clique no título da coluna para ordenar."
+            : "Importância relativa por feature (não é coeficiente linear). Clique no título da coluna para ordenar."}
+      </p>
+      <LrFeatureWeightsTable
+        rows={rows}
+        isLogistic={isLogistic}
+        intercept={typeof lr.logreg_intercept === "number" ? lr.logreg_intercept : null}
+        weightColumnLabel={isLogistic ? "Coeficiente β" : isXgb ? "Importância" : "Coef. / peso"}
+      />
+    </details>
+  );
+}
+
 export const META_CLASSIFIER_OPTIONS = [
   { value: "logistic", label: "Regressao Logistica" },
-  { value: "logistic_poly2", label: "Regressao Logistica (grau 2)" },
   { value: "xgboost", label: "XGBoost" },
-  { value: "gradient_boosting", label: "Gradient Boosting" },
-  { value: "random_forest", label: "Random Forest" },
-  { value: "extra_trees", label: "Extra Trees" },
-  { value: "svm_rbf", label: "SVM (RBF)" },
-  { value: "mlp", label: "MLP (rede neural)" },
-  { value: "kde_naive_bayes", label: "KDE Naive Bayes" },
 ] as const;
 
 export function MetaClassifierSelect({
@@ -1101,6 +1390,7 @@ export function MetaClassifierSelect({
   onChange: (value: string) => void;
   id?: string;
 }) {
+  const safeValue = META_CLASSIFIER_OPTIONS.some((o) => o.value === value) ? value : "logistic";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.88rem" }}>
       <label htmlFor={id} style={{ color: "#374151" }}>
@@ -1108,7 +1398,7 @@ export function MetaClassifierSelect({
       </label>
       <select
         id={id}
-        value={value}
+        value={safeValue}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         style={{

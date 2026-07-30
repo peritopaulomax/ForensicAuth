@@ -8,7 +8,7 @@
 # [CÓDIGO]-module-[nome].md — [Nome Completo do Módulo]
 
 - **Status:** Draft | Baseline | Stable | Deprecated
-- **Audiência:** LLM codificadora, desenvolvedores, revisores
+- **Audiência:** agentes de código, desenvolvedores, revisores
 - **Relacionados:** [links para specs dependentes, ex: SPEC-01-architecture.md, SPEC-04-auth.md]
 - **Regra de ouro:** [se houver uma regra absoluta para este módulo]
 

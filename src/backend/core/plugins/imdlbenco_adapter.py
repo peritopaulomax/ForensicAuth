@@ -8,9 +8,9 @@ from typing import Any, Dict, Tuple
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.imdlbenco.imdlbenco_catalog import get_method
-from core.legacy.imdlbenco.imdlbenco_pipeline import run_imdlbenco_analysis
-from core.legacy.imdlbenco.imdlbenco_runtime import (
+from forensics.imdlbenco.imdlbenco_catalog import get_method
+from forensics.imdlbenco.imdlbenco_pipeline import run_imdlbenco_analysis
+from forensics.imdlbenco.imdlbenco_runtime import (
     MESORCH_VARIANTS,
     imdlbenco_runtime_status,
     method_runtime_status,

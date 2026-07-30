@@ -1,0 +1,5 @@
+audio_path,base_id,subgroup,y_spoof,source_id,purpose
+/absolute/or/relative/path/to/spoof_001.wav,my_audio_bench,GeneratorA,1,spoof_001,reference_population
+/absolute/or/relative/path/to/bonafide_001.wav,my_audio_bench,GeneratorA,0,bona_001,reference_population
+/absolute/or/relative/path/to/spoof_002.flac,my_audio_bench,GeneratorB,spoof,spoof_002,reference_population
+/absolute/or/relative/path/to/bonafide_002.flac,my_audio_bench,GeneratorB,bonafide,bona_002,reference_population

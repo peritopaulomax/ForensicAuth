@@ -14,7 +14,7 @@ Guia passo a passo para implantar o **ForensicAuth** em um servidor Linux limpo,
 | **db** | PostgreSQL 15 | 5432 |
 | **redis** | Broker Celery | 6379 |
 
-Arquivos de evidência, derivados e resultados ficam em **volumes no disco** do host (`uploads/`, `results/`, `derivatives/`).
+Arquivos de evidência, derivados e resultados ficam em **volumes no disco** do host sob `data/` (`data/uploads/`, `data/results/`, `data/derivatives/`).
 
 ---
 
@@ -100,17 +100,20 @@ Crie pastas para dados que **não** podem ser perdidos ao recriar containers:
 
 ```bash
 cd /opt/forensicauth
-mkdir -p uploads results derivatives models secrets
-chmod 750 uploads results derivatives models secrets
+mkdir -p data/uploads data/results data/derivatives data/peritus_cases models secrets
+chmod 750 data data/uploads data/results data/derivatives data/peritus_cases models secrets
 ```
 
 | Pasta | Conteúdo |
 |-------|----------|
-| `uploads/` | Evidências originais por caso |
-| `results/` | Saída temporária de jobs de análise |
-| `derivatives/` | Arquivos derivados salvos pelo perito |
+| `data/uploads/` | Evidências originais por caso |
+| `data/results/` | Saída temporária de jobs de análise |
+| `data/derivatives/` | Arquivos derivados salvos pelo perito |
+| `data/peritus_cases/` | Workspaces Peritus importados |
 | `models/` | Pesos de modelos ML (Detecção de imagens sintéticas, etc.), se aplicável |
 | `secrets/` | Chaves Ed25519 de custódia (não versionar) |
+
+> Os containers montam `./data/uploads` → `/app/uploads` (e idem para results/derivatives/peritus_cases). Variáveis `UPLOAD_DIR` etc. no `.env` de produção continuam apontando para o path **dentro** do container (`/app/...`).
 
 ---
 
@@ -161,14 +164,13 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 
 Sem chave fixa, o backend gera chave **efêmera** a cada reinício — inválido para auditoria.
 
-Em uma máquina com Python 3.11+ e dependências:
+Em uma máquina com Python 3.11+, conda `forensicauth` e `cryptography`:
 
 ```bash
-pip install cryptography
-python3 scripts/generate_custody_signing_key.py
+python -c "from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; from cryptography.hazmat.primitives import serialization; import base64; k=Ed25519PrivateKey.generate(); print('PRIVATE='+base64.b64encode(k.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())).decode()); print('PUBLIC='+base64.b64encode(k.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode())"
 ```
 
-Copie os valores impressos para `.env`. Guarde `secrets/custody_ed25519_private.pem` em backup seguro **fora do Git**.
+Copie os valores impressos para `CUSTODY_SIGNING_PRIVATE_KEY` e `CUSTODY_SIGNING_PUBLIC_KEY` no `.env`. Guarde um backup seguro **fora do Git**. Detalhes: [`docs/deploy/ENV-PRODUCTION-TEMPLATE.md`](../deploy/ENV-PRODUCTION-TEMPLATE.md).
 
 ### Ajustar credenciais do PostgreSQL
 
@@ -191,18 +193,20 @@ services:
       - DEBUG=false
       - DERIVATIVES_DIR=/app/derivatives
     volumes:
-      - ./uploads:/app/uploads
-      - ./results:/app/results
-      - ./derivatives:/app/derivatives
+      - ./data/uploads:/app/uploads
+      - ./data/results:/app/results
+      - ./data/derivatives:/app/derivatives
+      - ./data/peritus_cases:/app/peritus_cases
       - ./models:/app/models
     env_file:
       - .env
 
   worker:
     volumes:
-      - ./uploads:/app/uploads
-      - ./results:/app/results
-      - ./derivatives:/app/derivatives
+      - ./data/uploads:/app/uploads
+      - ./data/results:/app/results
+      - ./data/derivatives:/app/derivatives
+      - ./data/peritus_cases:/app/peritus_cases
       - ./models:/app/models
     env_file:
       - .env
@@ -254,22 +258,36 @@ curl -s http://localhost/health
 
 ## 9. Criar o primeiro administrador
 
-Com os containers em execução, execute o seed **a partir do host** (montando o código do repositório):
+Não há script de seed no repositório. O fluxo é: **provisionar** um usuário `admin` com senha ainda não definida, depois definir a senha na UI **Primeiro Acesso**.
+
+Com os containers em execução (ajuste username/e-mail):
 
 ```bash
 cd /opt/forensicauth
-docker compose exec app pip install -q cryptography passlib bcrypt 2>/dev/null || true
-docker compose run --rm \
-  -v "$(pwd)/scripts:/scripts:ro" \
-  -e DATABASE_URL=postgresql+psycopg2://forensicauth_app:SENHA_FORTE_DB@db:5432/forensicauth \
-  app python /scripts/seed_users.py
+docker compose exec app python -c "
+from uuid import uuid4
+from app.database import SessionLocal
+from models.user import User
+from services.user_service import unset_password_hash
+
+db = SessionLocal()
+user = User(
+    id=uuid4(),
+    username='admin',
+    email='admin@localhost',
+    hashed_password=unset_password_hash(),
+    password_set=False,
+    role='admin',
+    is_active=True,
+)
+db.add(user)
+db.commit()
+print('provisionado:', user.username)
+db.close()
+"
 ```
 
-Alternativa: instale `requirements.txt` no host, exporte `DATABASE_URL` apontando para `localhost:5432` (se o Postgres estiver publicado só em loopback) e rode `python scripts/seed_users.py`.
-
-Edite `scripts/seed_users.py` antes se quiser alterar o username padrao do administrador.
-
-Acesse a interface web → **Primeiro Acesso** → defina a senha do administrador.
+Acesse a interface web → **Primeiro Acesso** → informe o username provisionado e defina a senha (mín. 8 caracteres, 1 maiúscula e 1 número). Demais usuários: após login como admin, tela **Usuários**.
 
 ---
 
@@ -323,7 +341,7 @@ docker compose exec db pg_dump -U forensicauth_app forensicauth | gzip > backup/
 ### Arquivos forenses
 
 ```bash
-tar czf backup/forensicauth_files_$(date +%F).tar.gz uploads results derivatives
+tar czf backup/forensicauth_files_$(date +%F).tar.gz data/uploads data/results data/derivatives
 ```
 
 ### Chaves de custódia
@@ -332,7 +350,7 @@ Backup offline de `secrets/` e das variáveis `CUSTODY_SIGNING_*` no `.env`.
 
 ### Restauração
 
-1. Restaurar volumes `uploads/`, `results/`, `derivatives/`
+1. Restaurar volumes `data/uploads/`, `data/results/`, `data/derivatives/`
 2. `gunzip -c backup.sql.gz | docker compose exec -T db psql -U forensicauth_app forensicauth`
 3. Reiniciar `app` e `worker`
 
@@ -387,7 +405,7 @@ O `requirements.txt` inclui, entre outros:
 - **Forense:** OpenCV, PyMuPDF, jpegio, NumPy, SciPy, WeasyPrint
 - **ML (opcional):** PyTorch, XGBoost — ver `requirements-gpu.txt` se existir
 
-Tudo isso é instalado **dentro da imagem Docker**; não é necessário Python no host, exceto para scripts auxiliares (`seed_users.py`, geração de chaves).
+Tudo isso é instalado **dentro da imagem Docker**; não é necessário Python no host, exceto para gerar chaves Ed25519 (one-liner em §6) ou tarefas administrativas pontuais.
 
 ---
 

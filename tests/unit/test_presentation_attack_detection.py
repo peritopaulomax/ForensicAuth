@@ -9,7 +9,7 @@ import pytest
 
 class TestPresentationAttackDetectionRuntime:
     def test_runtime_status_reports_ok_when_weights_present(self):
-        from core.legacy.pad.runtime import pad_runtime_status
+        from forensics.pad.runtime import pad_runtime_status
 
         ok, reason = pad_runtime_status()
         if ok:
@@ -73,6 +73,7 @@ class TestPresentationAttackDetectionModel:
         assert result["success"] is False
         assert result["error"] == "NO_FACE_DETECTED"
 
+    @pytest.mark.weights
     def test_regression_vs_original_algorithm(self, monkeypatch, tmp_path):
         """Adapter output must match the original test.py algorithm on a real face.
 
@@ -83,10 +84,10 @@ class TestPresentationAttackDetectionModel:
         """
         import urllib.request
 
-        from core.legacy.pad.anti_spoof_predict import AntiSpoofPredict
-        from core.legacy.pad.generate_patches import CropImage
-        from core.legacy.pad.runtime import pad_runtime_status
-        from core.legacy.pad.utility import parse_model_name
+        from forensics.pad.anti_spoof_predict import AntiSpoofPredict
+        from forensics.pad.generate_patches import CropImage
+        from forensics.pad.runtime import pad_runtime_status
+        from forensics.pad.utility import parse_model_name
         from core.plugins.presentation_attack_detection_adapter import PresentationAttackDetectionAdapter
 
         ok, reason = pad_runtime_status()

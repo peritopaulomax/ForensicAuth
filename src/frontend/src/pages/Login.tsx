@@ -18,7 +18,7 @@ export default function Login() {
     setLoading(true);
     try {
       const { tokens, user } = await login({ username, password });
-      setAuth(tokens.access_token, user);
+      setAuth(tokens.access_token, tokens.refresh_token, user);
       navigate("/");
     } catch (err: any) {
       setError(err.message || "Credenciais inválidas");

@@ -11,9 +11,9 @@ import {
 interface Props {
   caseId: string;
   title: string;
-  /** Subtítulo curto (legado). Omita quando usar `intro`. */
+  /** Subtítulo curto; omitir quando `intro` estiver definido. */
   subtitle?: string;
-  /** Bloco bibliográfico / intro abaixo do título (substitui o subtítulo descritivo). */
+  /** Bloco bibliográfico / intro abaixo do título. */
   intro?: ReactNode;
   /** Modo embutido na página de grupo — sem breadcrumb, voltar ou título. */
   embedded?: boolean;

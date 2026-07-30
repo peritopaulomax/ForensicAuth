@@ -14,7 +14,7 @@ import numpy as np
 from app.config import get_settings
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.jpeg_ghosts import run_jpeg_ghosts_analysis
+from forensics.jpeg_ghosts import run_jpeg_ghosts_analysis
 from core.progress import pop_progress_callback, report_progress
 
 

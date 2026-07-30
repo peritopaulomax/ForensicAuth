@@ -108,7 +108,7 @@ def release_synthetic_if_not_resident() -> None:
     if should_keep_resident("synthetic_image_detection"):
         return
     try:
-        from core.legacy.synthetic_image_detection.pipeline import release_gpu_memory
+        from forensics.synthetic_image_detection.pipeline import release_gpu_memory
 
         release_gpu_memory()
     except Exception:
@@ -120,7 +120,7 @@ def release_imdl_cache_if_needed() -> None:
         touch_lru("imdlbenco")
         return
     try:
-        from core.legacy.imdlbenco import imdlbenco_pipeline as pipeline
+        from forensics.imdlbenco import imdlbenco_pipeline as pipeline
 
         pipeline._clear_gpu_model_cache()
     except Exception:
@@ -132,7 +132,7 @@ def release_safire_cache_if_needed() -> None:
         touch_lru("safire")
         return
     try:
-        from core.legacy.safire.safire_pipeline import clear_predictor_cache
+        from forensics.safire.safire_pipeline import clear_predictor_cache
 
         clear_predictor_cache()
     except Exception:

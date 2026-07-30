@@ -1,12 +1,11 @@
 """PRNU (Photo Response Non-Uniformity) adapter — camera fingerprint matching.
 
-Wraps the legacy PRNU pipeline from Goljan et al. (SPIE 2009):
+Orchestrates the PRNU pipeline from Goljan et al. (SPIE 2009):
   - Noise extraction via wavelet domain (Filter.py)
   - Cross-correlation and PCE computation (Functions.py, maindir.py)
   - Fingerprint generation from reference images (getFingerprint.py)
 
-The legacy code is kept intact under core/legacy/prnu/;
-only import paths and I/O wrappers were adapted.
+Algorithm modules live under forensics/prnu/; this adapter handles I/O and plugin contracts.
 """
 
 from __future__ import annotations
@@ -353,7 +352,7 @@ class PRNUAdapter(ForensicPlugin):
         return best_C, best_det, None, scale_curve, best_scale
 
     def analyze(self, evidence_path: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        from core.legacy import prnu as prnu_legacy
+        from forensics import prnu as prnu_legacy
 
         progress = self._progress_cb(parameters)
         if progress:
@@ -458,7 +457,7 @@ class PRNUAdapter(ForensicPlugin):
                 if Noisex.shape == Fingerprint.shape:
                     if progress:
                         progress(82, "Mapa PRNU localizado — correlacao por blocos")
-                    from core.legacy.prnu import localized as prnu_loc
+                    from forensics.prnu import localized as prnu_loc
 
                     igr = cv2.imread(evidence_path, cv2.IMREAD_GRAYSCALE)
                     if igr is None:
@@ -538,8 +537,8 @@ class PRNUAdapter(ForensicPlugin):
         progress: Optional[Callable[[int, str], None]],
     ) -> Dict[str, Any]:
         """Reprocessa apenas mapas localizados (sem correlacao global / 3D)."""
-        from core.legacy import prnu as prnu_legacy
-        from core.legacy.prnu import localized as prnu_loc
+        from forensics import prnu as prnu_legacy
+        from forensics.prnu import localized as prnu_loc
 
         if progress:
             progress(15, "Extraindo ruido PRNU para mapa localizado")
@@ -620,7 +619,7 @@ class PRNUAdapter(ForensicPlugin):
         sigma: float = 3.0,
     ) -> Dict[str, Any]:
         """Generate a camera fingerprint from reference images."""
-        from core.legacy import prnu as prnu_legacy
+        from forensics import prnu as prnu_legacy
 
         try:
             RP, _LP, used_images = prnu_legacy.getFingerprint(image_paths, sigma=sigma)

@@ -12,7 +12,7 @@ import cv2
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.moe_ffd.runtime import moe_ffd_runtime_status
+from forensics.moe_ffd.runtime import moe_ffd_runtime_status
 from core.progress import pop_progress_callback, report_progress
 from core.technique_ids import MOE_FFD
 
@@ -78,7 +78,7 @@ class MoeFfdAdapter(ForensicPlugin):
 
         try:
             report_progress(on_progress, 5, "Preparando runtime MoE-FFD")
-            from core.legacy.moe_ffd import moe_ffd_pipeline as pipeline
+            from forensics.moe_ffd import moe_ffd_pipeline as pipeline
 
             report_progress(on_progress, 15, "Detectando e recortando face (RetinaFace)")
             report_progress(on_progress, 35, f"Inferencia MoE-FFD ({'GPU' if prefer_cuda else 'CPU'})")

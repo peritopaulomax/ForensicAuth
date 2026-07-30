@@ -2,7 +2,7 @@
 
 Prototype service for a selectable reference population:
 - uses stored detector scores as the reference population;
-- trains a meta LogisticRegression on detector logit(fake_prob) features;
+- trains a meta-classifier (logistic | xgboost) on detector logit features;
 - calibrates the meta-score with EER-based bi-Gaussianized calibration;
 - reports LR with positive values favoring H1 = real/authentic.
 """
@@ -23,21 +23,9 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from scipy.optimize import brentq
 from scipy.stats import gaussian_kde, norm
-from sklearn.ensemble import (
-    ExtraTreesClassifier,
-    GradientBoostingClassifier,
-    RandomForestClassifier,
-)
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, roc_curve
-from sklearn.model_selection import GridSearchCV
-from sklearn.naive_bayes import GaussianNB
-from sklearn.neighbors import KernelDensity
-from sklearn.neural_network import MLPClassifier
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.svm import SVC
 from xgboost import XGBClassifier
 
 matplotlib.use("Agg")
@@ -53,6 +41,7 @@ try:
     from core.latent_typicality.representations_utils import (
         ORIGINAL_AUGMENTATION_TAG,
         load_embeddings_row,
+        resolve_embedding_path,
         row_has_embeddings,
     )
     from core.latent_typicality.typicality import (
@@ -67,6 +56,7 @@ except ImportError:
     DEFAULT_TYPICALITY_SYSTEM_FROM_CONFIG = "D"
     feature_columns_for_detectors = None  # type: ignore[assignment]
     load_embeddings_row = None  # type: ignore[assignment]
+    resolve_embedding_path = None  # type: ignore[assignment]
     row_has_embeddings = None  # type: ignore[assignment]
     build_typicality_reference = None  # type: ignore[assignment]
     typicality_features_batch = None  # type: ignore[assignment]
@@ -75,14 +65,18 @@ except ImportError:
 
 ALL_DETECTORS = ("ai_image_detector_deploy", "sdxl_flux_detector_v1_1", "bfree", "corvi2023", "safe")
 FEATURE_COLS_FOR_DETECTORS = {detector: f"{detector}_logit_prob" for detector in ALL_DETECTORS}
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_SCORE_MATRIX = PROJECT_ROOT / "outputs/lr_calibration/score_matrices/lr_scores_balanced_full.csv"
-DEFAULT_AUGMENTED_SCORE_MATRIX = (
-    PROJECT_ROOT / "outputs/lr_calibration/score_matrices/lr_scores_balanced_full_augmented.csv"
+from core.reference_data.paths import (
+    lr_cache_dir as _reference_lr_cache_dir,
+    project_root as _project_root_fn,
+    synthetic_augmented_score_matrix as _synthetic_augmented_score_matrix,
+    synthetic_representations_matrix as _synthetic_representations_matrix,
+    synthetic_score_matrix as _synthetic_score_matrix,
 )
-DEFAULT_REPRESENTATIONS_MATRIX = (
-    PROJECT_ROOT / "outputs/lr_calibration/synthetic_image/representations/representations.csv"
-)
+
+PROJECT_ROOT = _project_root_fn()
+DEFAULT_SCORE_MATRIX = _synthetic_score_matrix()
+DEFAULT_AUGMENTED_SCORE_MATRIX = _synthetic_augmented_score_matrix()
+DEFAULT_REPRESENTATIONS_MATRIX = _synthetic_representations_matrix()
 _SCORE_ONLY_MATRICES = frozenset(
     {
         DEFAULT_SCORE_MATRIX.resolve(),
@@ -115,27 +109,20 @@ _LR_SCORED_CACHE: dict[str, pd.DataFrame] = {}
 
 META_CLASSIFIERS = (
     "logistic",
-    "logistic_poly2",
     "xgboost",
-    "gradient_boosting",
-    "random_forest",
-    "extra_trees",
-    "svm_rbf",
-    "mlp",
-    "kde_naive_bayes",
 )
 DEFAULT_META_CLASSIFIER = "logistic"
 
+# Aliases aceitos de manifests/scaffold legados → id canônico.
+_CLASSIFIER_ALIASES: dict[str, str] = {
+    "logistic_regression": "logistic",
+    "logreg": "logistic",
+    "xgb": "xgboost",
+}
+
 _CLASSIFIER_LABELS: dict[str, str] = {
     "logistic": "Regressao Logistica",
-    "logistic_poly2": "Regressao Logistica (grau 2)",
     "xgboost": "XGBoost",
-    "gradient_boosting": "Gradient Boosting",
-    "random_forest": "Random Forest",
-    "extra_trees": "Extra Trees",
-    "svm_rbf": "SVM (RBF)",
-    "mlp": "MLP (rede neural)",
-    "kde_naive_bayes": "KDE Naive Bayes",
 }
 
 BASE_LABELS = {
@@ -335,6 +322,38 @@ class PopulationItem:
         return f"{self.base_group}/{self.subgroup}"
 
 
+FIT_REFERENCE_SPLITS: frozenset[str] = frozenset({"train_logreg", "calibration_bigauss"})
+TEST_REFERENCE_SPLIT = "test_bigauss"
+
+
+@dataclass(frozen=True)
+class ReferenceSelectionRoles:
+    """Separate subgroups for meta-classifier fit/calibration vs held-out test."""
+
+    fit_items: tuple[PopulationItem, ...]
+    test_items: tuple[PopulationItem, ...]
+
+    @property
+    def union_items(self) -> tuple[PopulationItem, ...]:
+        by_key: dict[str, PopulationItem] = {}
+        for item in (*self.fit_items, *self.test_items):
+            by_key[item.key] = item
+        return tuple(by_key.values())
+
+    @property
+    def fit_keys(self) -> frozenset[str]:
+        return frozenset(item.key for item in self.fit_items)
+
+    @property
+    def test_keys(self) -> frozenset[str]:
+        return frozenset(item.key for item in self.test_items)
+
+
+# Default product population: Difusão Transformer + CNN moderna + AIGI Bench Social.
+# Expanded at module init (and optionally overridden by populations/default_modern.yaml).
+DEFAULT_MODERN_REFERENCE: tuple[PopulationItem, ...] = ()
+
+
 def generator_deploy_year(generator: str) -> int | None:
     return GENERATOR_DEPLOY_YEAR.get(generator)
 
@@ -428,6 +447,61 @@ REFERENCE_MACRO_CATEGORIES: dict[str, dict[str, Any]] = {
 }
 
 
+def refresh_reference_catalog_from_disk() -> str:
+    """Reload macros/bases/default population from YAML under reference_data/. Returns source tag."""
+    global REFERENCE_MACRO_CATEGORIES, REFERENCE_CATALOG, BASE_LABELS, BASE_CATALOG
+    global DEFAULT_MODERN_REFERENCE, _item_to_macro_cache
+
+    from core.reference_data.catalog_loader import load_macros, population_items
+
+    fallback_bases = {
+        base_id: {
+            "label": BASE_LABELS.get(base_id, base_id),
+            "generators": list(gens),
+            **BASE_CATALOG.get(base_id, {}),
+        }
+        for base_id, gens in REFERENCE_CATALOG.items()
+    }
+    loaded = load_macros(
+        "synthetic_image",
+        item_factory=PopulationItem,
+        fallback_macros=REFERENCE_MACRO_CATEGORIES,
+        fallback_bases=fallback_bases,
+    )
+    if loaded.source == "yaml" and loaded.macros:
+        REFERENCE_MACRO_CATEGORIES = loaded.macros
+        _item_to_macro_cache = None
+        if loaded.bases:
+            REFERENCE_CATALOG = {
+                base_id: list(meta.get("generators") or [])
+                for base_id, meta in loaded.bases.items()
+            }
+            for base_id, meta in loaded.bases.items():
+                if meta.get("label"):
+                    BASE_LABELS[base_id] = str(meta["label"])
+                entry = {
+                    k: meta[k]
+                    for k in ("description", "paper_title", "paper_url")
+                    if meta.get(k)
+                }
+                if entry:
+                    BASE_CATALOG[base_id] = {**BASE_CATALOG.get(base_id, {}), **entry}
+
+    yaml_defaults = population_items(
+        "synthetic_image",
+        "default_modern",
+        item_factory=PopulationItem,
+        which="fit_items",
+    )
+    if yaml_defaults:
+        selected = {item.key for item in yaml_defaults}
+        ordered = [item for item in _default_items() if item.key in selected]
+        DEFAULT_MODERN_REFERENCE = tuple(ordered or yaml_defaults)
+    else:
+        DEFAULT_MODERN_REFERENCE = _build_default_modern_reference()
+    return loaded.source
+
+
 def reference_macro_catalog() -> list[dict[str, Any]]:
     """Return hierarchical catalog: macro category -> base group -> generators."""
     catalog: list[dict[str, Any]] = []
@@ -482,6 +556,25 @@ def _expand_macro(macro_id: str) -> list[PopulationItem]:
     return list(macro["items"]) if macro else []
 
 
+def _build_default_modern_reference() -> tuple[PopulationItem, ...]:
+    """Difusão Transformer + Difusão CNN moderna + AIGI Bench Social (SocialRF)."""
+    by_key: dict[str, PopulationItem] = {}
+    for macro_id in ("diffusion_transformer", "diffusion_cnn_modern"):
+        for item in _expand_macro(macro_id):
+            by_key[item.key] = item
+    by_key["AIGIBench_SocialRF/SocialRF"] = PopulationItem("AIGIBench_SocialRF", "SocialRF")
+    selected = set(by_key)
+    ordered = [item for item in _default_items() if item.key in selected]
+    return tuple(ordered or by_key.values())
+
+
+def default_reference_population() -> list[dict[str, str]]:
+    return [
+        {"base_group": item.base_group, "subgroup": item.subgroup}
+        for item in DEFAULT_MODERN_REFERENCE
+    ]
+
+
 # Build reverse lookup lazily so REFERENCE_MACRO_CATEGORIES can be declared
 # after PopulationItem without forward-reference issues.
 _item_to_macro_cache: dict[str, str] | None = None
@@ -526,8 +619,12 @@ def _expand_items(raw_items: list[Any]) -> list[PopulationItem]:
 
 
 def normalize_reference_selection(selection: Any) -> list[PopulationItem]:
-    if not selection:
-        return _default_items()
+    fallback = list(DEFAULT_MODERN_REFERENCE or _build_default_modern_reference())
+    if selection is None:
+        return fallback
+    # Explicit empty list (used by fit_items/test_items parsers) stays empty.
+    if isinstance(selection, (list, tuple)) and len(selection) == 0:
+        return []
 
     items: list[PopulationItem] = []
 
@@ -552,7 +649,43 @@ def normalize_reference_selection(selection: Any) -> list[PopulationItem]:
     # Stable unique ordering according to catalog.
     selected = {item.key for item in items}
     ordered = [item for item in _default_items() if item.key in selected]
-    return ordered or _default_items()
+    return ordered or fallback
+
+
+def normalize_reference_selection_roles(selection: Any) -> ReferenceSelectionRoles:
+    """Parse fit/test subgroup selections with backward-compatible ``items`` fallback."""
+    fallback = tuple(DEFAULT_MODERN_REFERENCE or _build_default_modern_reference())
+    if selection is None:
+        return ReferenceSelectionRoles(fallback, fallback)
+
+    if isinstance(selection, dict):
+        fit_raw = selection.get("fit_items")
+        test_raw = selection.get("test_items")
+        if fit_raw is not None or test_raw is not None:
+            fit_items = tuple(normalize_reference_selection(fit_raw or []))
+            test_items = tuple(normalize_reference_selection(test_raw or []))
+            if not fit_items:
+                raise ValueError("fit_items nao pode ser vazio para calibracao LR.")
+            if not test_items:
+                test_items = fit_items
+            return ReferenceSelectionRoles(fit_items, test_items)
+        items = tuple(normalize_reference_selection(selection))
+        return ReferenceSelectionRoles(items, items)
+
+    items = tuple(normalize_reference_selection(selection))
+    return ReferenceSelectionRoles(items, items)
+
+
+def _filter_working_split(split: pd.DataFrame, roles: ReferenceSelectionRoles) -> pd.DataFrame:
+    """Keep only rows used in this experiment: fit splits 1+2 and test split 3."""
+    keys = split["reference_key"].astype(str)
+    fit_mask = keys.isin(roles.fit_keys) & split["reference_split"].astype(str).isin(FIT_REFERENCE_SPLITS)
+    test_mask = keys.isin(roles.test_keys) & split["reference_split"].astype(str).eq(TEST_REFERENCE_SPLIT)
+    return split.loc[fit_mask | test_mask].copy()
+
+
+# Load YAML macros/populations now that helpers exist.
+refresh_reference_catalog_from_disk()
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
@@ -610,7 +743,28 @@ def _query_for_item(df: pd.DataFrame, item: PopulationItem, y_fake: int) -> pd.S
         if y_fake:
             return df["dataset"].eq("BFree_extended_synthbuster") & df["generator"].eq(item.subgroup) & df["y_fake"].eq(1)
         return df["dataset"].eq("BFree_extended_synthbuster") & df["generator"].eq("RAISE") & df["y_fake"].eq(0)
-    raise ValueError(f"Unknown reference item: {item}")
+    # Generic ingested bases: UI base_group == CSV dataset, GenImage-style subgroup×class.
+    dataset_name = _dataset_name_for_base_group(item.base_group)
+    return (
+        df["dataset"].astype(str).eq(dataset_name)
+        & df["generator"].astype(str).eq(item.subgroup)
+        & df["y_fake"].astype(int).eq(int(y_fake))
+    )
+
+
+def _dataset_name_for_base_group(base_group: str) -> str:
+    """Map UI base_group → score-matrix ``dataset`` column (1:1 for new ingestions)."""
+    known = {
+        "GenImage": "GenImage",
+        "Defactify": "Defactify_MS_COCOAI",
+        "AIGCDetectBenchmark": "AIGCDetectBenchmark",
+        "OpenSDI": "OpenSDI_test",
+        "AIGIBench_no_SocialRF": "AIGIBench",
+        "AIGIBench_SocialRF": "AIGIBench",
+        "Synthbuster": "Synthbuster",
+        "BFree_extended_synthbuster": "BFree_extended_synthbuster",
+    }
+    return known.get(base_group, base_group)
 
 
 def _sample_rows(df: pd.DataFrame, n: int, rng: np.random.Generator, context: str) -> pd.DataFrame:
@@ -628,6 +782,59 @@ def _filter_matrix_scope(df: pd.DataFrame, *, augmented_reference: bool) -> pd.D
     if augmented_reference:
         return df.copy()
     return df[aug.isin(("", ORIGINAL_AUGMENTATION_TAG))].copy()
+
+
+def _item_has_fake_candidates(df: pd.DataFrame, item: PopulationItem) -> bool:
+    try:
+        return bool(_query_for_item(df, item, 1).any())
+    except Exception:
+        return False
+
+
+def _resolve_scope_for_population(
+    df: pd.DataFrame,
+    items: list[PopulationItem],
+    *,
+    augmented_reference: bool,
+    sample_multiplier: int,
+) -> tuple[pd.DataFrame, bool, int, list[str]]:
+    """Apply originals/augmented filter; auto-promote to augmented when needed.
+
+    Some published representation matrices (notably AIGCDetectBenchmark) only
+    contain augmented fakes. Tipicidade latente lê esse CSV e, com
+    ``augmented_reference=False``, ficava sem candidatos → erro opaco.
+    """
+    scoped = _filter_matrix_scope(df, augmented_reference=augmented_reference)
+    missing = [item.key for item in items if not _item_has_fake_candidates(scoped, item)]
+    if not missing:
+        return scoped, augmented_reference, sample_multiplier, []
+
+    if augmented_reference:
+        raise RuntimeError(
+            "LR por população de referência: nenhum candidato fake para "
+            + ", ".join(missing)
+            + " na matriz de scores/representations carregada."
+        )
+
+    aug_scoped = _filter_matrix_scope(df, augmented_reference=True)
+    still_missing = [
+        item.key for item in items if not _item_has_fake_candidates(aug_scoped, item)
+    ]
+    if still_missing:
+        raise RuntimeError(
+            "LR por população de referência: nenhum candidato fake para "
+            + ", ".join(still_missing)
+            + ". Verifique se a população existe na matriz publicada "
+            "(reference_data/.../scores ou representations)."
+        )
+
+    # Originais ausentes, mas aumentados existem → promove automaticamente.
+    return (
+        aug_scoped,
+        True,
+        max(int(sample_multiplier), int(AUGMENTATION_MULTIPLIER)),
+        missing,
+    )
 
 
 def _augmentation_strata(df: pd.DataFrame) -> pd.Series:
@@ -650,7 +857,11 @@ def _sample_stratified(
     if candidates.empty:
         if n_total == 0:
             return candidates.copy()
-        raise RuntimeError(f"{context}: nenhum candidato disponivel")
+        raise RuntimeError(
+            f"{context}: nenhum candidato disponivel "
+            "(verifique se a população existe na matriz e se "
+            "referência aumentada / tipicidade latente batem com os dados publicados)"
+        )
 
     strata = _augmentation_strata(candidates)
     unique_strata = sorted(strata.unique())
@@ -811,74 +1022,18 @@ def _classifier_label(name: str) -> str:
 
 def _validate_classifier(classifier: str) -> str:
     classifier = (classifier or DEFAULT_META_CLASSIFIER).lower().strip()
+    classifier = _CLASSIFIER_ALIASES.get(classifier, classifier)
     if classifier not in META_CLASSIFIERS:
         raise RuntimeError(
             f"Classificador meta '{classifier}' nao suportado. "
             f"Use um de: {', '.join(META_CLASSIFIERS)}"
         )
-    if classifier == "random_forest" and RandomForestClassifier is None:
-        raise RuntimeError("RandomForestClassifier nao esta disponivel neste ambiente.")
     return classifier
 
 
-def _bandwidth_grid_search(x: np.ndarray, y: np.ndarray) -> float:
-    """Select KDE bandwidth via 3-fold cross-validated log-likelihood."""
-    if len(np.unique(y)) < 2 or len(x) < 30:
-        return "scott"
-    params = {"bandwidth": np.logspace(-1.5, 0.5, 7)}
-    grid = GridSearchCV(
-        KernelDensity(kernel="gaussian"),
-        params,
-        cv=3,
-        scoring=lambda estimator, x, y: estimator.score_samples(x).sum(),
-    )
-    grid.fit(x)
-    return float(grid.best_params_["bandwidth"])
-
-
-class _KdeNaiveBayesClassifier:
-    """Naive-Bayes-like KDE ensemble: one KDE per class on full detector-logit vectors."""
-
-    def __init__(self, bandwidth: float | str = "scott"):
-        self.bandwidth = bandwidth
-        self.kde_real_: KernelDensity | None = None
-        self.kde_fake_: KernelDensity | None = None
-
-    def fit(self, x: np.ndarray, y: np.ndarray) -> "_KdeNaiveBayesClassifier":
-        x_real = x[y == 1]
-        x_fake = x[y == 0]
-        if len(x_real) < 2 or len(x_fake) < 2:
-            raise RuntimeError("KDE requer pelo menos 2 amostras por classe.")
-        bandwidth = self.bandwidth
-        if bandwidth == "auto":
-            bandwidth = _bandwidth_grid_search(x, y)
-        self.kde_real_ = KernelDensity(kernel="gaussian", bandwidth=bandwidth)
-        self.kde_fake_ = KernelDensity(kernel="gaussian", bandwidth=bandwidth)
-        self.kde_real_.fit(x_real)
-        self.kde_fake_.fit(x_fake)
-        return self
-
-    def decision_function(self, x: np.ndarray) -> np.ndarray:
-        if self.kde_real_ is None or self.kde_fake_ is None:
-            raise RuntimeError("KDE nao foi treinado.")
-        log_real = self.kde_real_.score_samples(x)
-        log_fake = self.kde_fake_.score_samples(x)
-        return (log_real - log_fake).astype(float)
-
-
-class _GaussianNbClassifier:
-    """Gaussian Naive Bayes exposing a decision_function as log-likelihood ratio."""
-
-    def __init__(self) -> None:
-        self.model_ = GaussianNB()
-
-    def fit(self, x: np.ndarray, y: np.ndarray) -> "_GaussianNbClassifier":
-        self.model_.fit(x, y)
-        return self
-
-    def decision_function(self, x: np.ndarray) -> np.ndarray:
-        log_prob = self.model_.predict_joint_log_proba(x)
-        return (log_prob[:, 1] - log_prob[:, 0]).astype(float)
+def normalize_meta_classifier(classifier: str | None = None) -> str:
+    """Canonical meta-classifier id (logistic | xgboost); accepts legacy aliases."""
+    return _validate_classifier(classifier or DEFAULT_META_CLASSIFIER)
 
 
 def _train_meta_classifier(
@@ -888,17 +1043,11 @@ def _train_meta_classifier(
     feature_cols: list[str],
     seed: int,
 ) -> Any:
-    """Train a meta-classifier on detector logit features."""
+    """Train a meta-classifier on detector logit features (logistic | xgboost)."""
+    del feature_cols  # reserved for future per-feature options
     classifier = _validate_classifier(classifier)
     if classifier == "logistic":
-        model = LogisticRegression(C=1.0, max_iter=2000, solver="lbfgs", random_state=seed)
-    elif classifier == "logistic_poly2":
-        model = Pipeline(
-            [
-                ("poly", PolynomialFeatures(degree=2, include_bias=False)),
-                ("logreg", LogisticRegression(C=1.0, max_iter=2000, solver="lbfgs", random_state=seed)),
-            ]
-        )
+        model: Any = LogisticRegression(C=1.0, max_iter=2000, solver="lbfgs", random_state=seed)
     elif classifier == "xgboost":
         model = XGBClassifier(
             n_estimators=100,
@@ -912,47 +1061,6 @@ def _train_meta_classifier(
             n_jobs=4,
             verbosity=0,
         )
-    elif classifier == "gradient_boosting":
-        model = GradientBoostingClassifier(
-            n_estimators=100,
-            max_depth=3,
-            learning_rate=0.1,
-            subsample=0.9,
-            random_state=seed,
-        )
-    elif classifier == "random_forest":
-        model = RandomForestClassifier(
-            n_estimators=200,
-            max_depth=None,
-            min_samples_leaf=5,
-            random_state=seed,
-            n_jobs=4,
-        )
-    elif classifier == "extra_trees":
-        model = ExtraTreesClassifier(
-            n_estimators=200,
-            max_depth=None,
-            min_samples_leaf=5,
-            random_state=seed,
-            n_jobs=4,
-        )
-    elif classifier == "svm_rbf":
-        model = SVC(kernel="rbf", C=1.0, gamma="scale", probability=False, random_state=seed)
-    elif classifier == "mlp":
-        model = MLPClassifier(
-            hidden_layer_sizes=(16, 8),
-            activation="relu",
-            solver="adam",
-            alpha=1e-3,
-            max_iter=2000,
-            random_state=seed,
-            early_stopping=True,
-            validation_fraction=0.15,
-        )
-    elif classifier == "kde_naive_bayes":
-        model = _KdeNaiveBayesClassifier(bandwidth="scott")
-    elif classifier == "gaussian_nb":
-        model = _GaussianNbClassifier()
     else:
         raise RuntimeError(f"Classificador nao implementado: {classifier}")
     model.fit(x, y)
@@ -962,8 +1070,8 @@ def _train_meta_classifier(
 def _classifier_decision_scores(model: Any, x: np.ndarray) -> np.ndarray:
     """Return a real-valued score in the direction real > synthetic.
 
-    For probabilistic classifiers (LogisticRegression, XGBoost, RandomForest),
-    use logit(p_real). For SVM, use decision_function.
+    Prefer decision_function when present (LogisticRegression linear score).
+    Otherwise use logit(p_real) from predict_proba (XGBoost).
     """
     if hasattr(model, "decision_function"):
         return np.asarray(model.decision_function(x), dtype=float)
@@ -973,10 +1081,7 @@ def _classifier_decision_scores(model: Any, x: np.ndarray) -> np.ndarray:
 
 
 def _classifier_feature_importance(model: Any, feature_cols: list[str]) -> dict[str, float] | None:
-    """Return feature importance/coefficients when available and interpretable."""
-    if isinstance(model, Pipeline):
-        # Polynomial expansion changes feature semantics; skip interpretable weights.
-        return None
+    """Return logistic coefficients or XGBoost feature importances when available."""
     if hasattr(model, "coef_"):
         return dict(zip(feature_cols, np.asarray(model.coef_[0], dtype=float).tolist()))
     if hasattr(model, "feature_importances_"):
@@ -1172,7 +1277,10 @@ def _filter_rows_with_embeddings(
 def _load_embedding_stack(df: pd.DataFrame, detector: str) -> np.ndarray:
     """Load all embeddings for ``detector`` as a single (N, D) float32 array."""
     paths = df[f"{detector}_embedding_path"].astype(str).tolist()
-    embeddings = [np.load(p) for p in paths]
+    if resolve_embedding_path is not None:
+        embeddings = [np.load(str(resolve_embedding_path(p))) for p in paths]
+    else:
+        embeddings = [np.load(p) for p in paths]
     return np.stack(embeddings, axis=0).astype(np.float32)
 
 
@@ -1333,30 +1441,162 @@ def _write_summary_txt(path: Path, report: dict[str, Any]) -> None:
 
 
 def _cache_dir() -> Path:
-    path = PROJECT_ROOT / "outputs" / "lr_calibration" / "cache"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _reference_lr_cache_dir()
 
 
-def _score_matrix_hash(score_matrix: Path) -> str:
+# Opaque content hashes of synthetic representations.csv from earlier on-disk
+# layouts. Kept so existing joblib caches remain addressable after path moves
+# inside reference_data/.
+_LEGACY_REPS_MATRIX_HASHES: tuple[str, ...] = (
+    "791a84597ebe3de1",
+    "c932672d60cbbae0",
+    "30ea2e6208d3a316",
+)
+
+
+def _normalize_matrix_text_for_hash(text: str) -> str:
+    """Collapse absolute ``reference_data`` prefixes before hashing CSVs."""
+    import re
+
+    patterns = (
+        (
+            r"(?:[A-Za-z]:)?(?:/[^,\n\"]+)?/reference_data/synthetic_image/features/representations/",
+            "<SYN_REPS>/",
+        ),
+        (
+            r"(?:[A-Za-z]:)?(?:/[^,\n\"]+)?/reference_data/synthetic_image/",
+            "<SYN_IMG>/",
+        ),
+        (
+            r"(?:[A-Za-z]:)?(?:/[^,\n\"]+)?/reference_data/audio_spoofing/",
+            "<AUDIO_REF>/",
+        ),
+        (
+            r"(?:[A-Za-z]:)?(?:/[^,\n\"]+)?/reference_data/",
+            "<REFDATA>/",
+        ),
+    )
+    normalized = text
+    for pattern, repl in patterns:
+        normalized = re.sub(pattern, repl, normalized)
+    return normalized
+
+
+def _raw_file_hash(score_matrix: Path) -> str:
     import hashlib
 
     h = hashlib.sha256()
     with open(score_matrix, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()[:16]
 
 
+def _matrix_hash_sidecar_path(score_matrix: Path) -> Path:
+    return score_matrix.with_suffix(score_matrix.suffix + ".sha16")
+
+
+def _score_matrix_hash(score_matrix: Path) -> str:
+    """Content hash stable across reference_data path-prefix migrations.
+
+    Result is cached next to the matrix (``.sha16``) keyed by size+mtime so HIT
+    paths do not re-read multi‑hundred‑MB CSVs on every job.
+    """
+    import hashlib
+    import json
+
+    path = Path(score_matrix)
+    stat = path.stat()
+    sidecar = _matrix_hash_sidecar_path(path)
+    token = f"{stat.st_size}:{stat.st_mtime_ns}"
+    if sidecar.is_file():
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+            if payload.get("token") == token and payload.get("hash"):
+                return str(payload["hash"])
+        except Exception:
+            pass
+
+    raw = path.read_bytes()
+    try:
+        normalized = _normalize_matrix_text_for_hash(raw.decode("utf-8")).encode("utf-8")
+    except UnicodeDecodeError:
+        normalized = raw
+    digest = hashlib.sha256(normalized).hexdigest()[:16]
+    try:
+        sidecar.write_text(
+            json.dumps({"token": token, "hash": digest}, sort_keys=True),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    return digest
+
+
 def _macro_category_for_selection(selection: Any) -> str | None:
     """Return macro category id if selection matches exactly one macro category."""
-    items = normalize_reference_selection(selection)
-    item_set = {item.key for item in items}
+    roles = normalize_reference_selection_roles(selection)
+    if roles.fit_keys != roles.test_keys:
+        return None
+    item_set = set(roles.fit_keys)
     for macro_id, macro in REFERENCE_MACRO_CATEGORIES.items():
         macro_set = {item.key for item in macro["items"]}
         if item_set == macro_set:
             return macro_id
     return None
+
+
+def _cache_key_from_parts(
+    *,
+    score_matrix_hash: str,
+    macro_category: str | None,
+    items: list[PopulationItem],
+    selected_detectors: tuple[str, ...],
+    classifier: str,
+    seed: int,
+    sample_multiplier: int = 1,
+    use_latent_typicality: bool = False,
+    typicality_system: str = DEFAULT_TYPICALITY_SYSTEM,
+    typicality_k: int = DEFAULT_TYPICALITY_K,
+    typicality_distance: str = DEFAULT_TYPICALITY_DISTANCE,
+    fit_items: list[PopulationItem] | None = None,
+    test_items: list[PopulationItem] | None = None,
+) -> str:
+    import hashlib
+
+    fit = list(fit_items) if fit_items is not None else list(items)
+    test = list(test_items) if test_items is not None else list(items)
+    roles_separated = {item.key for item in fit} != {item.key for item in test}
+
+    canonical: dict[str, Any] = {
+        "score_matrix_hash": score_matrix_hash,
+        "macro_category": macro_category,
+        # Keep legacy ``items`` key when fit==test so existing caches remain valid.
+        "items": (
+            sorted(item.key for item in items)
+            if macro_category is None and not roles_separated
+            else []
+        ),
+        "selected_detectors": list(selected_detectors),
+        "classifier": classifier,
+        "seed": seed,
+        "sample_multiplier": sample_multiplier,
+        "sample_per_class": SAMPLE_PER_CLASS,
+    }
+    if roles_separated:
+        canonical["fit_items"] = sorted(item.key for item in fit)
+        canonical["test_items"] = sorted(item.key for item in test)
+    if use_latent_typicality:
+        canonical.update(
+            {
+                "use_latent_typicality": True,
+                "typicality_system": typicality_system,
+                "typicality_k": typicality_k,
+                "typicality_distance": typicality_distance,
+            }
+        )
+    payload = json.dumps(canonical, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
 def _cache_key(
@@ -1373,29 +1613,93 @@ def _cache_key(
     typicality_k: int = DEFAULT_TYPICALITY_K,
     typicality_distance: str = DEFAULT_TYPICALITY_DISTANCE,
 ) -> str:
-    import hashlib
+    return _cache_key_from_parts(
+        score_matrix_hash=_score_matrix_hash(score_matrix),
+        macro_category=macro_category,
+        items=items,
+        selected_detectors=selected_detectors,
+        classifier=classifier,
+        seed=seed,
+        sample_multiplier=sample_multiplier,
+        use_latent_typicality=use_latent_typicality,
+        typicality_system=typicality_system,
+        typicality_k=typicality_k,
+        typicality_distance=typicality_distance,
+    )
 
-    canonical: dict[str, Any] = {
-        "score_matrix_hash": _score_matrix_hash(score_matrix),
-        "macro_category": macro_category,
-        "items": sorted(item.key for item in items) if macro_category is None else [],
-        "selected_detectors": list(selected_detectors),
-        "classifier": classifier,
-        "seed": seed,
-        "sample_multiplier": sample_multiplier,
-        "sample_per_class": SAMPLE_PER_CLASS,
-    }
+
+def _cache_key_candidates(
+    *,
+    score_matrix: Path,
+    macro_category: str | None,
+    items: list[PopulationItem],
+    selected_detectors: tuple[str, ...],
+    classifier: str,
+    seed: int,
+    sample_multiplier: int = 1,
+    use_latent_typicality: bool = False,
+    typicality_system: str = DEFAULT_TYPICALITY_SYSTEM,
+    typicality_k: int = DEFAULT_TYPICALITY_K,
+    typicality_distance: str = DEFAULT_TYPICALITY_DISTANCE,
+) -> list[str]:
+    """Primary path-stable hash; raw/legacy hashes only if primary cache is missing."""
+    primary = _cache_key_from_parts(
+        score_matrix_hash=_score_matrix_hash(score_matrix),
+        macro_category=macro_category,
+        items=items,
+        selected_detectors=selected_detectors,
+        classifier=classifier,
+        seed=seed,
+        sample_multiplier=sample_multiplier,
+        use_latent_typicality=use_latent_typicality,
+        typicality_system=typicality_system,
+        typicality_k=typicality_k,
+        typicality_distance=typicality_distance,
+    )
+    keys = [primary]
+    primary_path = _cache_dir() / f"{primary}.joblib"
+    if primary_path.is_file() and primary_path.stat().st_size >= 1024:
+        return keys
+
+    hashes: list[str] = [_raw_file_hash(score_matrix)]
     if use_latent_typicality:
-        canonical.update(
-            {
-                "use_latent_typicality": True,
-                "typicality_system": typicality_system,
-                "typicality_k": typicality_k,
-                "typicality_distance": typicality_distance,
-            }
+        hashes.extend(_LEGACY_REPS_MATRIX_HASHES)
+    seen = {primary}
+    for matrix_hash in hashes:
+        key = _cache_key_from_parts(
+            score_matrix_hash=matrix_hash,
+            macro_category=macro_category,
+            items=items,
+            selected_detectors=selected_detectors,
+            classifier=classifier,
+            seed=seed,
+            sample_multiplier=sample_multiplier,
+            use_latent_typicality=use_latent_typicality,
+            typicality_system=typicality_system,
+            typicality_k=typicality_k,
+            typicality_distance=typicality_distance,
         )
-    payload = json.dumps(canonical, sort_keys=True)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+        if key not in seen:
+            seen.add(key)
+            keys.append(key)
+    return keys
+
+
+def _alias_lr_cache(primary_key: str, existing_key: str) -> None:
+    """Point the primary cache name at an existing legacy joblib (symlink/copy)."""
+    if primary_key == existing_key:
+        return
+    cache_dir = _cache_dir()
+    primary = cache_dir / f"{primary_key}.joblib"
+    existing = cache_dir / f"{existing_key}.joblib"
+    if primary.exists() or not existing.is_file():
+        return
+    try:
+        primary.symlink_to(existing.name)
+    except OSError:
+        import shutil
+
+        shutil.copy2(existing, primary)
 
 
 def _serialize_calibration(calibration: dict[str, Any]) -> dict[str, Any]:
@@ -1462,6 +1766,8 @@ def _save_lr_cache(
     scored: pd.DataFrame | None = None,
     typicality_refs: dict[str, TypicalityReference] | None = None,
 ) -> Path:
+    from core.latent_typicality.typicality import slim_typicality_refs
+
     path = _cache_dir() / f"{cache_key}.joblib"
     payload = {
         "model": model,
@@ -1472,9 +1778,11 @@ def _save_lr_cache(
     }
     if scored is not None:
         payload["scored"] = scored
-    if typicality_refs is not None:
-        payload["typicality_refs"] = typicality_refs
-    joblib.dump(payload, path)
+    slim_refs = slim_typicality_refs(typicality_refs)
+    if slim_refs is not None:
+        payload["typicality_refs"] = slim_refs
+    # compress=3: tipicidade slim ~200MB → bem menor no disco e no HIT.
+    joblib.dump(payload, path, compress=3)
     if scored is not None:
         _LR_SCORED_CACHE[cache_key] = scored.copy()
     return path
@@ -1483,6 +1791,8 @@ def _save_lr_cache(
 def _load_lr_cache(
     cache_key: str,
 ) -> tuple[Any, dict[str, Any], list[str], tuple[str, ...], pd.DataFrame | None, dict[str, TypicalityReference] | None] | None:
+    from core.latent_typicality.typicality import rehydrate_typicality_refs
+
     if cache_key in _LR_SCORED_CACHE:
         scored = _LR_SCORED_CACHE[cache_key]
     else:
@@ -1500,7 +1810,7 @@ def _load_lr_cache(
         calibration = _deserialize_calibration(data["calibration"])
         selected_detectors = tuple(data["selected_detectors"])
         scored = data.get("scored", scored)
-        typicality_refs = data.get("typicality_refs")
+        typicality_refs = rehydrate_typicality_refs(data.get("typicality_refs"))
         if scored is not None and cache_key not in _LR_SCORED_CACHE:
             _LR_SCORED_CACHE[cache_key] = scored.copy()
         return model, calibration, feature_cols, selected_detectors, scored, typicality_refs
@@ -1514,7 +1824,7 @@ def _build_report(
     calibration: dict[str, Any],
     feature_cols: list[str],
     selected_detectors: tuple[str, ...],
-    items: list[PopulationItem],
+    roles: ReferenceSelectionRoles,
     split: pd.DataFrame,
     detector_scores: dict[str, Any],
     classifier: str,
@@ -1534,6 +1844,8 @@ def _build_report(
     test = scored[scored["reference_split"].eq("test_bigauss")].copy()
 
     if use_latent_typicality:
+        if typicality_refs is None:
+            raise RuntimeError("typicality_refs ausente para pontuar evidencia com tipicidade.")
         features = _build_questioned_features(
             detector_scores,
             selected_detectors,
@@ -1559,13 +1871,35 @@ def _build_report(
     identity_mse = _plot_identity(plot_dir / identity_name, test, "Funcao identidade - populacao de referencia")
 
     feature_weights = _classifier_feature_importance(model, feature_cols)
+    sample_rows = int(len(scored)) if scored is not None else int(len(split))
     report: dict[str, Any] = {
         "hypothesis_positive": "real_authentic",
         "hypothesis_negative": "synthetic_ai_generated",
         "sample_per_class_per_subgroup": SAMPLE_PER_CLASS,
-        "selected_items": [{"base_group": item.base_group, "subgroup": item.subgroup, "key": item.key} for item in items],
-        "selected_count": len(items),
-        "sample_rows": int(len(split)),
+        "selected_items": [
+            {"base_group": item.base_group, "subgroup": item.subgroup, "key": item.key}
+            for item in roles.union_items
+        ],
+        "selected_count": len(roles.union_items),
+        "fit_items": [
+            {"base_group": item.base_group, "subgroup": item.subgroup, "key": item.key}
+            for item in roles.fit_items
+        ],
+        "test_items": [
+            {"base_group": item.base_group, "subgroup": item.subgroup, "key": item.key}
+            for item in roles.test_items
+        ],
+        "fit_count": len(roles.fit_items),
+        "test_count": len(roles.test_items),
+        "split_roles_separated": roles.fit_keys != roles.test_keys
+        or roles.fit_items != roles.test_items,
+        "sample_rows": sample_rows,
+        "fit_sample_rows": int(
+            scored["reference_split"].astype(str).isin(FIT_REFERENCE_SPLITS).sum()
+        ),
+        "test_sample_rows": int(
+            (scored["reference_split"].astype(str) == TEST_REFERENCE_SPLIT).sum()
+        ),
         "augmented_reference": bool(augmented_reference),
         "sample_multiplier": int(sample_multiplier),
         "use_latent_typicality": bool(use_latent_typicality),
@@ -1585,6 +1919,9 @@ def _build_report(
             "mu_real": calibration["mu_real"],
         },
         "feature_weights": feature_weights,
+        "feature_values": {
+            col: float(val) for col, val in zip(feature_cols, np.asarray(features, dtype=float).ravel())
+        },
         "questioned": {
             "log10_lr": questioned.get("log10_lr"),
             "lr": questioned.get("lr"),
@@ -1634,6 +1971,10 @@ def compute_reference_lr(
     typicality_k: int = DEFAULT_TYPICALITY_K,
     typicality_distance: str = DEFAULT_TYPICALITY_DISTANCE,
 ) -> dict[str, Any]:
+    import logging
+    import time
+
+    log = logging.getLogger(__name__)
     selected_detectors = tuple(detector for detector in ALL_DETECTORS if detector in selected_detectors)
     if not selected_detectors:
         raise RuntimeError("Pelo menos um detector deve ser selecionado para calibracao LR.")
@@ -1660,34 +2001,19 @@ def compute_reference_lr(
         else _feature_cols(selected_detectors)
     )
 
-    items = normalize_reference_selection(selection)
-    df = _load_scores(effective_score_matrix)
-    if use_latent_typicality:
-        df = _filter_rows_with_embeddings(df, selected_detectors)
-        if df.empty:
-            raise RuntimeError(
-                "Nenhuma linha com embeddings completos no disco para calibracao com tipicidade."
-            )
-        # Ensure the score columns used by the baseline are still present.
-        for detector in selected_detectors:
-            df[f"{detector}_logit_prob"] = _logit_prob(df[f"{detector}_fake_prob"])
-
-    augmented_reference = sample_multiplier > 1
-    df = _filter_matrix_scope(df, augmented_reference=augmented_reference)
-    if df.empty:
-        raise RuntimeError(
-            "Nenhuma linha disponivel apos filtro de escopo "
-            + ("(referencia aumentada)" if augmented_reference else "(somente originais)")
-        )
-
-    sample = _build_reference_sample(df, items, seed, sample_multiplier=sample_multiplier)
-    split = _assign_splits(sample, seed, sample_multiplier=sample_multiplier)
-
+    roles = normalize_reference_selection_roles(selection)
+    if not roles.fit_items:
+        raise RuntimeError("Pelo menos um subgrupo em fit_items e necessario para calibracao LR.")
+    if not roles.test_items:
+        raise RuntimeError("Pelo menos um subgrupo em test_items e necessario para metricas de teste.")
+    items = list(roles.union_items)
     macro_category = _macro_category_for_selection(selection)
-    cache_key = _cache_key(
-        score_matrix=effective_score_matrix,
+    augmented_reference = sample_multiplier > 1
+    key_parts = dict(
         macro_category=macro_category,
         items=items,
+        fit_items=list(roles.fit_items),
+        test_items=list(roles.test_items),
         selected_detectors=selected_detectors,
         classifier=classifier,
         seed=seed,
@@ -1697,90 +2023,318 @@ def compute_reference_lr(
         typicality_k=typicality_k,
         typicality_distance=typicality_distance,
     )
-    cached = _load_lr_cache(cache_key)
+
+    # Cache-first: probe legacy joblib names BEFORE reading the multi-hundred-MB CSV.
+    t0 = time.perf_counter()
+    hash_candidates: list[str] = []
+    if use_latent_typicality:
+        hash_candidates.extend(_LEGACY_REPS_MATRIX_HASHES)
+
+    cache_keys: list[str] = []
+    seen_keys: set[str] = set()
+    for matrix_hash in hash_candidates:
+        key = _cache_key_from_parts(score_matrix_hash=matrix_hash, **key_parts)
+        if key not in seen_keys:
+            seen_keys.add(key)
+            cache_keys.append(key)
+
+    cached = None
+    hit_key: str | None = None
     used_cache = False
+    model: Any = None
+    calibration: dict[str, Any] | None = None
     scored: pd.DataFrame | None = None
     typicality_refs: dict[str, TypicalityReference] | None = None
 
-    if cached is not None:
-        model, calibration, cached_feature_cols, cached_detectors, scored, typicality_refs = cached
-        if cached_feature_cols == feature_cols and cached_detectors == selected_detectors:
-            used_cache = True
-        else:
+    def _try_keys(keys: list[str]) -> bool:
+        nonlocal cached, hit_key, used_cache, model, calibration, scored, typicality_refs
+        for candidate_key in keys:
+            path = _cache_dir() / f"{candidate_key}.joblib"
+            if not path.is_file():
+                continue
+            print(
+                f"[synthetic_lr] trying cache {candidate_key} ({path.stat().st_size / 1e6:.0f} MB)…",
+                flush=True,
+            )
+            candidate = _load_lr_cache(candidate_key)
+            if candidate is None:
+                continue
+            (
+                model,
+                calibration,
+                cached_feature_cols,
+                cached_detectors,
+                scored,
+                typicality_refs,
+            ) = candidate
+            if cached_feature_cols == feature_cols and cached_detectors == selected_detectors:
+                cached = candidate
+                hit_key = candidate_key
+                used_cache = True
+                return True
             cached = None
             scored = None
             typicality_refs = None
+            model = None
+            calibration = None
+        return False
 
-    if cached is None:
-        train = split[split["reference_split"].eq("train_logreg")]
-        if use_latent_typicality:
-            typicality_refs = _build_typicality_refs(
-                train,
-                selected_detectors,
-                typicality_k,
-                typicality_distance,
-            )
-            train = _materialize_typicality_features(
-                train.copy(), typicality_refs, selected_detectors
-            )
-            # Replace each split (train/calib/test) with its materialized version so
-            # the whole dataframe exposes the latent-typicality feature columns.
-            split = pd.concat(
-                [split[split["reference_split"].ne("train_logreg")], train],
-                ignore_index=True,
-            )
-            calibration_splits = ["calibration_bigauss", "test_bigauss"]
-            for split_name in calibration_splits:
-                split_part = split[split["reference_split"].eq(split_name)]
-                if not split_part.empty:
-                    split_part = _materialize_typicality_features(
-                        split_part.copy(), typicality_refs, selected_detectors
-                    )
-                    split = pd.concat(
-                        [split[split["reference_split"].ne(split_name)], split_part],
-                        ignore_index=True,
-                    )
+    if not _try_keys(cache_keys):
+        # Prefer path-stable hash (sidecar-cached); only then pay for raw SHA
+        # and only if the primary key still misses.
+        stable_hash = _score_matrix_hash(effective_score_matrix)
+        stable_key = _cache_key_from_parts(score_matrix_hash=stable_hash, **key_parts)
+        if stable_key not in seen_keys:
+            seen_keys.add(stable_key)
+            cache_keys.append(stable_key)
+        if not _try_keys([stable_key]):
+            raw_hash = _raw_file_hash(effective_score_matrix)
+            raw_key = _cache_key_from_parts(score_matrix_hash=raw_hash, **key_parts)
+            if raw_key not in seen_keys:
+                seen_keys.add(raw_key)
+                cache_keys.append(raw_key)
+            _try_keys([raw_key])
 
-        x_train = train[feature_cols].to_numpy(dtype=float)
-        y_train = (1 - train["y_fake"].astype(int)).to_numpy()
-        model = _train_meta_classifier(classifier, x_train, y_train, feature_cols, seed)
-        calibration = _fit_bigauss(split, model, feature_cols)
+    cache_key = cache_keys[-1] if cache_keys else _cache_key(
+        score_matrix=effective_score_matrix, **key_parts
+    )
 
-    if scored is None:
-        scored = _score_dataframe(split, model, calibration, feature_cols)
-        _save_lr_cache(
-            cache_key=cache_key,
+    if used_cache:
+        msg = (
+            f"[synthetic_lr] CACHE HIT key={hit_key} primary={cache_key} "
+            f"items={len(items)} latent={use_latent_typicality} mult={sample_multiplier} "
+            f"in {time.perf_counter() - t0:.1f}s"
+        )
+        print(msg, flush=True)
+        log.info(msg)
+        if hit_key and hit_key != cache_key:
+            _alias_lr_cache(cache_key, hit_key)
+        # Rewrite bloated legacy caches (sklearn k-NN trees) into slim float32 form.
+        try:
+            hit_path = _cache_dir() / f"{hit_key}.joblib"
+            if (
+                hit_path.is_file()
+                and hit_path.stat().st_size > 1_500_000_000
+                and typicality_refs is not None
+                and model is not None
+                and calibration is not None
+            ):
+                print(
+                    f"[synthetic_lr] rewriting slim cache {hit_key} "
+                    f"({hit_path.stat().st_size / 1e6:.0f} MB → compress+float32)…",
+                    flush=True,
+                )
+                _save_lr_cache(
+                    cache_key=cache_key,
+                    model=model,
+                    calibration=calibration,
+                    feature_cols=feature_cols,
+                    selected_detectors=selected_detectors,
+                    metadata={
+                        "classifier": classifier,
+                        "seed": seed,
+                        "selected_count": len(items),
+                        "fit_count": len(roles.fit_items),
+                        "test_count": len(roles.test_items),
+                        "score_matrix_hash": _score_matrix_hash(effective_score_matrix),
+                        "created_at": pd.Timestamp.now(tz="UTC").isoformat(),
+                        "use_latent_typicality": use_latent_typicality,
+                        "sample_multiplier": sample_multiplier,
+                        "slim_rewrite": True,
+                    },
+                    scored=scored,
+                    typicality_refs=typicality_refs,
+                )
+                new_path = _cache_dir() / f"{cache_key}.joblib"
+                print(
+                    f"[synthetic_lr] slim cache now {new_path.stat().st_size / 1e6:.1f} MB",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(f"[synthetic_lr] slim rewrite skipped: {exc}", flush=True)
+        assert model is not None and calibration is not None and scored is not None
+        return _build_report(
             model=model,
             calibration=calibration,
             feature_cols=feature_cols,
             selected_detectors=selected_detectors,
-            metadata={
-                "macro_category": macro_category,
-                "score_matrix_hash": _score_matrix_hash(effective_score_matrix),
-                "classifier": classifier,
-                "seed": seed,
-                "selected_count": len(items),
-                "created_at": pd.Timestamp.now(tz="UTC").isoformat(),
-                "use_latent_typicality": use_latent_typicality,
-                "typicality_system": typicality_system,
-                "typicality_k": typicality_k,
-                "typicality_distance": typicality_distance,
-            },
+            roles=roles,
+            split=scored,
+            detector_scores=detector_scores,
+            classifier=classifier,
+            out_dir=out_dir,
+            used_cache=True,
+            augmented_reference=augmented_reference,
+            sample_multiplier=sample_multiplier,
             scored=scored,
+            use_latent_typicality=use_latent_typicality,
             typicality_refs=typicality_refs,
+            typicality_system=typicality_system,
+            typicality_k=typicality_k,
+            typicality_distance=typicality_distance,
         )
+
+    msg = (
+        f"[synthetic_lr] CACHE MISS keys={cache_keys} items={len(items)} "
+        f"latent={use_latent_typicality} mult={sample_multiplier} → full calibrate"
+    )
+    print(msg, flush=True)
+    log.info(msg)
+
+    df = _load_scores(effective_score_matrix)
+    if use_latent_typicality:
+        print(
+            f"[synthetic_lr] filtering embeddings on {len(df)} rows…",
+            flush=True,
+        )
+        df = _filter_rows_with_embeddings(df, selected_detectors)
+        if df.empty:
+            raise RuntimeError(
+                "Nenhuma linha com embeddings completos no disco para calibracao com tipicidade."
+            )
+        for detector in selected_detectors:
+            df[f"{detector}_logit_prob"] = _logit_prob(df[f"{detector}_fake_prob"])
+
+    df, augmented_reference, sample_multiplier, auto_promoted = _resolve_scope_for_population(
+        df,
+        items,
+        augmented_reference=augmented_reference,
+        sample_multiplier=sample_multiplier,
+    )
+    if df.empty:
+        raise RuntimeError(
+            "Nenhuma linha disponivel apos filtro de escopo "
+            + ("(referencia aumentada)" if augmented_reference else "(somente originais)")
+        )
+    if auto_promoted:
+        key_parts["sample_multiplier"] = sample_multiplier
+        msg = (
+            "[synthetic_lr] auto-habilitou referencia aumentada "
+            f"(mult={sample_multiplier}) — originais ausentes na matriz para: "
+            + ", ".join(auto_promoted)
+        )
+        print(msg, flush=True)
+        log.info(msg)
+        # Re-probe cache under the promoted multiplier before full calibrate.
+        promoted_hash = _score_matrix_hash(effective_score_matrix)
+        promoted_key = _cache_key_from_parts(score_matrix_hash=promoted_hash, **key_parts)
+        if promoted_key not in seen_keys:
+            seen_keys.add(promoted_key)
+            cache_keys.append(promoted_key)
+        if _try_keys([promoted_key]):
+            cache_key = hit_key or promoted_key
+            assert model is not None and calibration is not None and scored is not None
+            return _build_report(
+                model=model,
+                calibration=calibration,
+                feature_cols=feature_cols,
+                selected_detectors=selected_detectors,
+                roles=roles,
+                split=scored,
+                detector_scores=detector_scores,
+                classifier=classifier,
+                out_dir=out_dir,
+                used_cache=True,
+                augmented_reference=augmented_reference,
+                sample_multiplier=sample_multiplier,
+                scored=scored,
+                use_latent_typicality=use_latent_typicality,
+                typicality_refs=typicality_refs,
+                typicality_system=typicality_system,
+                typicality_k=typicality_k,
+                typicality_distance=typicality_distance,
+            )
+        cache_key = promoted_key
+
+    role_label = (
+        f" (fit {len(roles.fit_items)}, test {len(roles.test_items)})"
+        if roles.fit_keys != roles.test_keys or roles.fit_items != roles.test_items
+        else ""
+    )
+    print(
+        f"[synthetic_lr] building sample/splits for {len(items)} subgroups{role_label} "
+        f"(mult={sample_multiplier})…",
+        flush=True,
+    )
+    sample = _build_reference_sample(df, items, seed, sample_multiplier=sample_multiplier)
+    split = _assign_splits(sample, seed, sample_multiplier=sample_multiplier)
+    split = _filter_working_split(split, roles)
+
+    train = split[split["reference_split"].eq("train_logreg")]
+    if use_latent_typicality:
+        print(
+            f"[synthetic_lr] building typicality refs on train={len(train)} rows…",
+            flush=True,
+        )
+        typicality_refs = _build_typicality_refs(
+            train,
+            selected_detectors,
+            typicality_k,
+            typicality_distance,
+        )
+        train = _materialize_typicality_features(
+            train.copy(), typicality_refs, selected_detectors
+        )
+        split = pd.concat(
+            [split[split["reference_split"].ne("train_logreg")], train],
+            ignore_index=True,
+        )
+        for split_name in ("calibration_bigauss", "test_bigauss"):
+            split_part = split[split["reference_split"].eq(split_name)]
+            if not split_part.empty:
+                split_part = _materialize_typicality_features(
+                    split_part.copy(), typicality_refs, selected_detectors
+                )
+                split = pd.concat(
+                    [split[split["reference_split"].ne(split_name)], split_part],
+                    ignore_index=True,
+                )
+
+    x_train = train[feature_cols].to_numpy(dtype=float)
+    y_train = (1 - train["y_fake"].astype(int)).to_numpy()
+    model = _train_meta_classifier(classifier, x_train, y_train, feature_cols, seed)
+    calibration = _fit_bigauss(split, model, feature_cols)
+    scored = _score_dataframe(split, model, calibration, feature_cols)
+    _save_lr_cache(
+        cache_key=cache_key,
+        model=model,
+        calibration=calibration,
+        feature_cols=feature_cols,
+        selected_detectors=selected_detectors,
+        metadata={
+            "macro_category": macro_category,
+            "score_matrix_hash": _score_matrix_hash(effective_score_matrix),
+            "classifier": classifier,
+            "seed": seed,
+            "sample_multiplier": sample_multiplier,
+            "selected_count": len(items),
+            "fit_count": len(roles.fit_items),
+            "test_count": len(roles.test_items),
+            "created_at": pd.Timestamp.now(tz="UTC").isoformat(),
+            "use_latent_typicality": use_latent_typicality,
+            "typicality_system": typicality_system,
+            "typicality_k": typicality_k,
+            "typicality_distance": typicality_distance,
+        },
+        scored=scored,
+        typicality_refs=typicality_refs,
+    )
+    print(
+        f"[synthetic_lr] calibrated+cached in {time.perf_counter() - t0:.1f}s key={cache_key}",
+        flush=True,
+    )
 
     return _build_report(
         model=model,
         calibration=calibration,
         feature_cols=feature_cols,
         selected_detectors=selected_detectors,
-        items=items,
+        roles=roles,
         split=split,
         detector_scores=detector_scores,
         classifier=classifier,
         out_dir=out_dir,
-        used_cache=used_cache,
+        used_cache=False,
         augmented_reference=augmented_reference,
         sample_multiplier=sample_multiplier,
         scored=scored,

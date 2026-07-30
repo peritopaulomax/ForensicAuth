@@ -1,10 +1,7 @@
 """PDF TouchUp_TextEdit detection plugin.
 
-Wraps the legacy pdf_forensic_scanner that detects Adobe Acrobat
-TouchUp_TextEdit marked content in page and Form XObject content streams.
-
-This is a key tampering indicator: TouchUp_TextEdit regions indicate
-manual text edits performed in Adobe Acrobat.
+Detects Adobe Acrobat TouchUp_TextEdit marked content in page and Form XObject
+content streams — a tampering indicator for manual text edits in Acrobat.
 """
 
 import sys
@@ -15,7 +12,7 @@ from typing import Any, Dict, Tuple
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "legacy" / "pdf"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "forensics" / "pdf"))
 from pdf_forensic_scanner import scan_pdf_for_touchups
 
 
@@ -41,7 +38,6 @@ class PDFTouchupPlugin(ForensicPlugin):
             out_pdf = result_dir / f"{base_name}_highlighted.pdf"
             out_txt = result_dir / f"{base_name}_touchup_text.txt"
 
-            # Run legacy scanner
             touchups = scan_pdf_for_touchups(
                 evidence_path,
                 str(out_pdf),

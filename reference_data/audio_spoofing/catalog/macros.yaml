@@ -1,0 +1,210 @@
+version: 1
+domain: audio_spoofing
+updated: '2026-07-21'
+macros:
+  asv_classic:
+    label: ASVspoof (LA)
+    year_range: 2019–2025
+    description: Competições ASVspoof logical access — referência histórica de countermeasures.
+    items:
+    - base_group: ASVspoof2019_LA
+      subgroup: flac_E
+    - base_group: ASVspoof2021_LA_eval
+      subgroup: LA_eval
+    - base_group: ASVspoof5
+      subgroup: flac_E_eval
+  codec_conditions:
+    label: CodecFake (7 codecs neurais)
+    year_range: '2024'
+    description: C1–C7 são condições de codec neural distintas (SoundStorm, etc.),
+      não geradores TTS — spoofing via re-síntese codec.
+    items:
+    - base_group: CodecFake
+      subgroup: C1
+    - base_group: CodecFake
+      subgroup: C2
+    - base_group: CodecFake
+      subgroup: C3
+    - base_group: CodecFake
+      subgroup: C4
+    - base_group: CodecFake
+      subgroup: C5
+    - base_group: CodecFake
+      subgroup: C6
+    - base_group: CodecFake
+      subgroup: C7
+  deepfake_challenges:
+    label: Desafios deepfake (ADD / DFADD / SONAR)
+    year_range: 2022–2024
+    description: Competições ADD, geradores nomeados em DFADD e TTS do benchmark SONAR.
+    items:
+    - base_group: ADD2022
+      subgroup: track1test
+    - base_group: ADD2022
+      subgroup: track32test
+    - base_group: ADD2023
+      subgroup: Track1.2_testR1
+    - base_group: ADD2023
+      subgroup: Track1.2_testR2
+    - base_group: DFADD
+      subgroup: GradTTS
+    - base_group: DFADD
+      subgroup: NaturalSpeech2
+    - base_group: DFADD
+      subgroup: StyleTTS2
+    - base_group: DFADD
+      subgroup: matcha
+    - base_group: DFADD
+      subgroup: pflow
+    - base_group: SONAR
+      subgroup: PromptTTS2
+    - base_group: SONAR
+      subgroup: FlashSpeech
+    - base_group: SONAR
+      subgroup: VALLE
+    - base_group: SONAR
+      subgroup: VoiceBox
+    - base_group: SONAR
+      subgroup: xTTS
+    - base_group: SONAR
+      subgroup: AudioGen
+    - base_group: SONAR
+      subgroup: NaturalSpeech3
+    - base_group: SONAR
+      subgroup: OpenAI_fixed
+  in_the_wild:
+    label: In-the-wild / vocoder / misc
+    year_range: 2020–2024
+    description: In-the-wild, Fake-or-Real e vocoders LibriSeVoc (bonafide compartilhado
+      via gt).
+    items:
+    - base_group: In-The-Wild
+      subgroup: In-The-Wild
+    - base_group: Fake-or-Real
+      subgroup: Fake-or-Real
+    - base_group: LibriSeVoc
+      subgroup: parallel_wave_gan
+    - base_group: LibriSeVoc
+      subgroup: melgan
+    - base_group: LibriSeVoc
+      subgroup: wavernn
+    - base_group: LibriSeVoc
+      subgroup: diffwave
+    - base_group: LibriSeVoc
+      subgroup: wavenet
+    - base_group: LibriSeVoc
+      subgroup: wavegrad
+bases:
+  ASVspoof2019_LA:
+    label: ASVspoof 2019 LA
+    description: Logical access ASVspoof 2019 — TTS/VC clássico sobre VCTK; split
+      flac_E para avaliação de countermeasures.
+    paper_title: 'ASVspoof 2019: Future Horizons in Spoofed and Countermeasure Speech'
+    paper_url: https://www.asvspoof.org/
+    generators:
+    - flac_E
+  ASVspoof2021_LA_eval:
+    label: ASVspoof 2021 LA eval
+    description: ASVspoof 2021 LA evaluation — ataques neural TTS/VC; referência histórica
+      para generalização cross-algoritmo.
+    paper_title: 'ASVspoof 2021: automatic speaker verification spoofing and countermeasures'
+    paper_url: https://www.asvspoof.org/
+    generators:
+    - LA_eval
+  ASVspoof5:
+    label: ASVspoof 5
+    description: ASVspoof 5 evaluation (flac_E_eval) — deepfakes recentes e condições
+      de canal ampliadas.
+    paper_title: 'ASVspoof 5: Design, Collection and Validation of Spoofing and Deepfake
+      Speech'
+    paper_url: https://www.asvspoof.org/
+    generators:
+    - flac_E_eval
+  CodecFake:
+    label: CodecFake
+    description: CodecFake — spoofing sob diferentes condições de codec neural (C1–C7);
+      fala re-sintetizada via codecs SOTA.
+    paper_title: 'CodecFake: Enhancing Anti-Spoofing Models Against Deepfake Audios
+      from Codec-Based Speech Synthesis Systems'
+    paper_url: https://arxiv.org/abs/2406.07237
+    generators:
+    - C1
+    - C2
+    - C3
+    - C4
+    - C5
+    - C6
+    - C7
+  ADD2022:
+    label: ADD 2022
+    description: Audio Deepfake Detection 2022 — tracks 1 (TTS) e 32 (VC) no split
+      de teste.
+    paper_title: 'ADD 2022 Challenge: Audio Deepfake Detection'
+    paper_url: https://www.addchallenge.org/add2022
+    generators:
+    - track1test
+    - track32test
+  ADD2023:
+    label: ADD 2023
+    description: Audio Deepfake Detection 2023 — tracks de teste com ataques TTS/VC
+      recentes.
+    paper_title: 'ADD 2023 Challenge: Audio Deepfake Detection'
+    paper_url: https://www.addchallenge.org/add2023
+    generators:
+    - Track1.2_testR1
+    - Track1.2_testR2
+  DFADD:
+    label: DFADD
+    description: Deepfake ADD — geradores nomeados no arquivo (GradTTS, FastSpeech2,
+      etc.) no split test_converted2.
+    paper_title: 'DFADD: Deepfake Audio Detection Dataset'
+    paper_url: https://github.com/Speech-Arena/speech_df_arena
+    generators:
+    - GradTTS
+    - NaturalSpeech2
+    - StyleTTS2
+    - matcha
+    - pflow
+  SONAR:
+    label: SONAR
+    description: SONAR — múltiplos geradores TTS/neural (PromptTTS2, VALL-E, VoiceBox,
+      etc.) para avaliação cross-generator.
+    paper_title: 'SONAR: A Synthetic Speech Detection Benchmark'
+    paper_url: https://github.com/Speech-Arena/speech_df_arena
+    generators:
+    - PromptTTS2
+    - FlashSpeech
+    - VALLE
+    - VoiceBox
+    - xTTS
+    - AudioGen
+    - NaturalSpeech3
+    - OpenAI_fixed
+  In-The-Wild:
+    label: In-The-Wild
+    description: Áudio in-the-wild (YouTube, podcasts) — condições acústicas e de
+      canal menos controladas.
+    paper_title: In-The-Wild Spoofing Attack Detection
+    paper_url: https://arxiv.org/abs/2207.01559
+    generators:
+    - In-The-Wild
+  Fake-or-Real:
+    label: Fake-or-Real
+    description: Fake-or-Real — pares bonafide/spoof balanceados para detecção geral.
+    paper_title: 'Fake-or-Real: A Benchmark for Audio Deepfake Detection'
+    paper_url: https://github.com/Speech-Arena/speech_df_arena
+    generators:
+    - Fake-or-Real
+  LibriSeVoc:
+    label: LibriSeVoc
+    description: LibriSeVoc — spoofing baseado em vocoders (WaveNet, WaveGrad, MelGAN,
+      etc.) sobre LibriSpeech.
+    paper_title: 'LibriSeVoc: A Vocoder-based Spoofing Dataset'
+    paper_url: https://github.com/Speech-Arena/speech_df_arena
+    generators:
+    - parallel_wave_gan
+    - melgan
+    - wavernn
+    - diffwave
+    - wavenet
+    - wavegrad

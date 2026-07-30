@@ -177,14 +177,14 @@ export default function CaseForm() {
 
         <div style={{ marginBottom: "1rem" }}>
           <label style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.9rem", fontWeight: 500, color: "#374151" }}>
-            Titulo *
+            Título *
           </label>
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
-            placeholder="Titulo descritivo do caso"
+            placeholder="Título descritivo do caso"
             style={{
               width: "100%",
               padding: "0.6rem 0.8rem",
@@ -199,13 +199,13 @@ export default function CaseForm() {
 
         <div style={{ marginBottom: "1rem" }}>
           <label style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.9rem", fontWeight: 500, color: "#374151" }}>
-            Descricao
+            Descrição
           </label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={4}
-            placeholder="Descricao detalhada do caso..."
+            placeholder="Descrição detalhada do caso..."
             style={{
               width: "100%",
               padding: "0.6rem 0.8rem",

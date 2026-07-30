@@ -12,14 +12,31 @@ pytestmark = []  # noqa: F401 — pacote de testes
 def pytest_configure(config):
     config.addinivalue_line("markers", "e2e: testes end-to-end simulados")
     config.addinivalue_line("markers", "integration: testes de integracao com pesos/runtime")
+    config.addinivalue_line(
+        "markers",
+        "e2e_sanitization: fluxo fim-a-fim da sanitizacao (preserva DB de dev)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "weights: exige pesos ML / vendor baixados (excluir do default com -m 'not weights')",
+    )
+    config.addinivalue_line(
+        "markers",
+        "gpu: exige CUDA/GPU real ou smoke GPU (excluir do default com -m 'not gpu')",
+    )
+    config.addinivalue_line(
+        "markers",
+        "slow: regressao lenta / compilacao nativa / golden pesado",
+    )
 from fastapi.testclient import TestClient
 from jose import jwt
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
-# Ensure src/backend and scripts are on path
+# Ensure src/backend, ops/calibration, and unit helpers are on path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "backend"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ops", "calibration"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "unit"))
 
 from app.config import get_settings
 from app.database import Base
@@ -59,10 +76,12 @@ def db_session() -> Session:
         ensure_case_custody_seal_columns,
         ensure_custody_lifecycle_tables,
         ensure_custody_signing_columns,
+        ensure_refresh_tokens_table,
     )
 
     ensure_custody_signing_columns(engine)
     ensure_custody_lifecycle_tables(engine)
+    ensure_refresh_tokens_table(engine)
     ensure_analysis_job_progress_columns(engine)
     ensure_case_custody_seal_columns(engine)
 
@@ -199,10 +218,10 @@ def provisioned_user(db_session):
 
 @pytest.fixture(scope="function")
 def auth_headers(test_user):
-    """Generate a valid JWT token for the test user."""
+    """Generate a valid JWT access token for the test user."""
     settings = get_settings()
     token = jwt.encode(
-        {"sub": str(test_user.id), "role": test_user.role},
+        {"sub": str(test_user.id), "role": test_user.role, "type": "access"},
         settings.SECRET_KEY,
         algorithm=settings.ALGORITHM,
     )
@@ -211,10 +230,10 @@ def auth_headers(test_user):
 
 @pytest.fixture(scope="function")
 def admin_auth_headers(test_admin):
-    """Generate a valid JWT token for the test admin."""
+    """Generate a valid JWT access token for the test admin."""
     settings = get_settings()
     token = jwt.encode(
-        {"sub": str(test_admin.id), "role": test_admin.role},
+        {"sub": str(test_admin.id), "role": test_admin.role, "type": "access"},
         settings.SECRET_KEY,
         algorithm=settings.ALGORITHM,
     )

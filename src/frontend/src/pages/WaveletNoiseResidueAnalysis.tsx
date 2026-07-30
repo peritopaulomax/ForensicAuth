@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
 import SyncedImagePairViewer, { type SyncedImagePairViewerHandle } from "@/components/SyncedImagePairViewer";
 import RectRoiCanvas, { type RectRoi } from "@/components/RectRoiCanvas";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
-import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
-import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
+import { AnalysisPanel, MessageBox } from "@/components/AnalysisPageShell";
+import TechniquePageShell from "@/components/TechniquePageShell";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 import api from "@/services/api";
-import { saveDerivative } from "@/services/evidence";
 
 type ViewMode = "overlay" | "colored" | "heatmap";
 
@@ -35,13 +34,16 @@ export default function WaveletNoiseResidueAnalysis() {
   const [loadingInput, setLoadingInput] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
   const viewerRef = useRef<SyncedImagePairViewerHandle>(null);
   const previewGenRef = useRef(0);
   const inputBlobRef = useRef<string | null>(null);
   const { running, currentJobId, result, error, progress, progressLabel, runAnalysis, reset } =
     useForensicJob();
+  const { status: runtimeStatus } = useTechniqueRuntime("wavelet_noise_residue");
+
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
 
   const order = levelsSlider * 2;
   const rightUrl = viewMode === "overlay" ? overlayUrl : viewMode === "colored" ? coloredUrl : heatmapUrl;
@@ -96,7 +98,6 @@ export default function WaveletNoiseResidueAnalysis() {
           return orig;
         });
       } catch {
-        /* original optional */
       }
       await loadPreviewImages(jobId, cacheBust);
     },
@@ -172,21 +173,21 @@ export default function WaveletNoiseResidueAnalysis() {
       setHeatmapUrl(null);
       setRoiRect(null);
       setPreviewError(null);
-      setSaveMessage(null);
+      clearMessage();
       setViewMode("overlay");
       previewGenRef.current += 1;
       viewerRef.current?.resetZoom();
       void loadInputBlob(id);
     },
-    [reset]
+    [reset, clearMessage]
   );
 
   const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
     useGroupAwareEvidence(caseId!, applyEvidence);
 
   async function process() {
-    if (!evidenceId) return;
-    setSaveMessage(null);
+    if (!evidenceId || !runtimeOk) return;
+    clearMessage();
     setPreviewError(null);
     const parameters: Record<string, unknown> = {
       levels_slider: levelsSlider,
@@ -203,110 +204,95 @@ export default function WaveletNoiseResidueAnalysis() {
         },
       });
     } catch {
-      /* hook */
     }
   }
 
   async function handleSave(filename: string, label: string) {
     if (!currentJobId) return;
-    setSaving(true);
-    try {
-      const res = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: filename,
-        effective_parameters: {
-          blocksize,
-          thr,
-          post,
-          levels_slider: levelsSlider,
-          order,
-        },
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${label} registrado na custodia. SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Erro ao salvar";
-      setSaveMessage({ type: "err", text: msg });
-    } finally {
-      setSaving(false);
-    }
+    await save(currentJobId, filename, label, {
+      blocksize,
+      thr,
+      post,
+      levels_slider: levelsSlider,
+      order,
+    });
   }
 
   if (!caseId) return null;
 
+  const parametersPanel = (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "0.75rem" }}>
+        <label style={{ fontSize: "0.82rem" }}>
+          Daubechies (slider 1–5 → db2…db10)
+          <input
+            type="range"
+            min={1}
+            max={5}
+            value={levelsSlider}
+            onChange={(e) => setLevelsSlider(Number(e.target.value))}
+            style={{ display: "block", width: "100%", marginTop: 4 }}
+          />
+          <span>db{order}</span>
+        </label>
+      </div>
+      <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem", flexWrap: "wrap", fontSize: "0.82rem" }}>
+        <label>
+          <input type="checkbox" checked={useRoi} onChange={(e) => setUseRoi(e.target.checked)} /> ROI
+        </label>
+      </div>
+      {useRoi && evidenceId && (
+        <AnalysisPanel title="Selecione a regiao de interesse">
+          {loadingInput && <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>Carregando imagem…</p>}
+          {!loadingInput && inputUrl && (
+            <RectRoiCanvas imageUrl={inputUrl} rect={roiRect} onRectChange={setRoiRect} maxHeight={520} />
+          )}
+          {!loadingInput && !inputUrl && (
+            <MessageBox type="err" text="Nao foi possivel carregar a imagem de entrada." />
+          )}
+          {roiRect && (
+            <p style={{ fontSize: "0.78rem", color: "#6b7280", marginTop: "0.5rem" }}>
+              ROI: x={roiRect.x}, y={roiRect.y}, largura={roiRect.width}, altura={roiRect.height}
+            </p>
+          )}
+        </AnalysisPanel>
+      )}
+      <div style={{ marginTop: "1rem" }}>
+        <button
+          type="button"
+          onClick={process}
+          disabled={!evidenceId || runtimeOk !== true || running || (useRoi && !roiRect)}
+          style={btnPrimary}
+        >
+          {running ? "Processando…" : "Processar Wavelet (DWT)"}
+        </button>
+      </div>
+      <p style={{ fontSize: "0.78rem", color: "#6b7280", marginTop: "0.5rem", lineHeight: 1.45 }}>
+        Executa apenas a decomposicao wavelet (DWT). Block size e threshold abaixo sao aplicados ao vivo, sem recomputar
+        os wavelets.
+      </p>
+    </>
+  );
+
   return (
-    <AnalysisPageShell
+    <TechniquePageShell
       caseId={caseId}
-      title={FORENSIC_TECHNIQUE_META.wavelet_noise_residue.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.wavelet_noise_residue} techniqueId="wavelet_noise_residue" />}
+      techniqueId="wavelet_noise_residue"
+      mediaType="imagem"
       embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      parametersPanel={parametersPanel}
     >
-      <AnalysisPanel title="Evidencia">
-        {showEvidencePicker && (
-          <ImageEvidenceSelector
-            caseId={caseId}
-            selectedId={evidenceId}
-            selectionSource={selectionSource}
-            onSelect={onSelectEvidence}
-          />
-        )}
-      </AnalysisPanel>
-
-      <AnalysisPanel title="Parametros wavelet (requer reprocessar)">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "0.75rem" }}>
-          <label style={{ fontSize: "0.82rem" }}>
-            Daubechies (slider 1–5 → db2…db10)
-            <input
-              type="range"
-              min={1}
-              max={5}
-              value={levelsSlider}
-              onChange={(e) => setLevelsSlider(Number(e.target.value))}
-              style={{ display: "block", width: "100%", marginTop: 4 }}
-            />
-            <span>db{order}</span>
-          </label>
-        </div>
-        <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem", flexWrap: "wrap", fontSize: "0.82rem" }}>
-          <label>
-            <input type="checkbox" checked={useRoi} onChange={(e) => setUseRoi(e.target.checked)} /> ROI
-          </label>
-        </div>
-        {useRoi && evidenceId && (
-          <AnalysisPanel title="Selecione a regiao de interesse">
-            {loadingInput && <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>Carregando imagem…</p>}
-            {!loadingInput && inputUrl && (
-              <RectRoiCanvas imageUrl={inputUrl} rect={roiRect} onRectChange={setRoiRect} maxHeight={520} />
-            )}
-            {!loadingInput && !inputUrl && (
-              <MessageBox type="err" text="Nao foi possivel carregar a imagem de entrada." />
-            )}
-            {roiRect && (
-              <p style={{ fontSize: "0.78rem", color: "#6b7280", marginTop: "0.5rem" }}>
-                ROI: x={roiRect.x}, y={roiRect.y}, largura={roiRect.width}, altura={roiRect.height}
-              </p>
-            )}
-          </AnalysisPanel>
-        )}
-        <div style={{ marginTop: "1rem" }}>
-          <ProcessButton
-            onClick={process}
-            disabled={!evidenceId || (useRoi && !roiRect)}
-            running={running}
-            progress={progress}
-            progressLabel={progressLabel}
-            label="Processar Wavelet (DWT)"
-          />
-        </div>
-        <p style={{ fontSize: "0.78rem", color: "#6b7280", marginTop: "0.5rem", lineHeight: 1.45 }}>
-          Executa apenas a decomposicao wavelet (DWT). Block size e threshold abaixo sao aplicados ao vivo, sem recomputar
-          os wavelets.
-        </p>
-        {error && <MessageBox type="err" text={error} />}
-      </AnalysisPanel>
-
       {result && (
         <AnalysisPanel title="Pos-processamento (ao vivo)">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "0.75rem" }}>
@@ -398,13 +384,21 @@ export default function WaveletNoiseResidueAnalysis() {
               </button>
             </div>
           )}
-          {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
         </AnalysisPanel>
       )}
-    </AnalysisPageShell>
+    </TechniquePageShell>
   );
 }
 
+const btnPrimary: React.CSSProperties = {
+  padding: "0.5rem 1rem",
+  background: "#0369a1",
+  color: "#fff",
+  border: "none",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: "0.85rem",
+};
 const btnSecondary: React.CSSProperties = {
   padding: "0.45rem 0.9rem",
   background: "#fff",

@@ -62,7 +62,8 @@ class ForensicPlugin(ABC):
   - REDIS_URL
   - SECRET_KEY
   - ALGORITHM (default: HS256)
-  - ACCESS_TOKEN_EXPIRE_MINUTES (default: 30)
+  - ACCESS_TOKEN_EXPIRE_MINUTES (default: 15)
+  - REFRESH_TOKEN_EXPIRE_DAYS (default: 14)
   - UPLOAD_DIR
   - RESULTS_DIR
   - GPU_AVAILABLE (bool, auto-detect)
@@ -80,10 +81,10 @@ class ForensicPlugin(ABC):
 1. Carrega `Settings` do ambiente
 2. Cria engine SQLAlchemy e tabelas (create_all) se nao existirem
 3. Configura Celery app
-4. Registra plugins forenses disponiveis (discovery dinamico em `adapters/`)
+4. Registra plugins forenses disponiveis (discovery dinamico em `core/plugins/`)
 
 ### Registro de Plugins
-1. No startup, escaneia `src/backend/adapters/`
+1. No startup, escaneia `src/backend/core/plugins/`
 2. Para cada modulo, verifica se exporta uma classe que herda de `ForensicPlugin`
 3. Registra em dicionario `PLUGINS: dict[str, ForensicPlugin]`
 4. Endpoint `/api/v1/analysis/techniques` consulta este registro

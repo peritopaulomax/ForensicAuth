@@ -6,11 +6,14 @@ Implementar adaptadores forenses para analise estrutural de documentos PDF, dete
 
 ## Tecnicas Implementadas
 
-| Nome | Tecnica Legada | Biblioteca Sensivel | Usa GPU |
-|------|---------------|---------------------|---------|
-| `pdf_structure` | estrutura_pdf_metricas.ipynb | pypdf + pdfminer.six + networkx | Nao |
-| `pdf_font_overlay` | pdf_font_color_overlay.py | PyMuPDF (fitz) | Nao |
-| `pdf_touchup_scan` | pdf_forensic_scanner.py | PyMuPDF + tokenizador customizado | Nao |
+| Nome | Motor / pipeline | Biblioteca Sensivel | Usa GPU |
+|------|------------------|---------------------|---------|
+| `pdf_structure` | Metricas e grafo estrutural | pypdf + pdfminer.six + networkx | Nao |
+| `pdf_font_overlay` | Overlay por fonte/cor | PyMuPDF (fitz) | Nao |
+| `pdf_touchup_scan` | Varredura TouchUp / content streams | PyMuPDF + tokenizador customizado | Nao |
+| `pdf_forensic_extract` | Extracao forense incremental | PyMuPDF + pypdf + pyHanko | Nao |
+
+`pdf_forensic_extract` extrai imagens embutidas, metadados (/Info + XMP), versoes incrementais (`%%EOF`) e assinaturas digitais via motor **pdfsig_forense** (PAdES/CAdES, enfase ICP-Brasil): digest/ByteRange, cadeia matematica (inclusive orfaos), DSS/VRI/LCR/OCSP, carimbos TSA, revisoes incrementais, nivel PAdES e relatório Markdown humanizado. Artefatos: `signatures_report.txt` (relatório), `signatures.json`, PEMs em `signatures/certs/`. Ancora recomendada: raiz oficial do ITI em `models/icpbrasil/` ou `PDF_SIG_TRUST_ANCHORS`; sem isso usa raiz do arquivo e marca circularidade. Nao substitui `validar.iti.gov.br`.
 
 ## Interfaces Publicas
 

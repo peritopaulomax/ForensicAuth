@@ -5,15 +5,17 @@ import {
   ANALYSIS_ROUTE_META,
 } from "./caseAnalysisNav";
 
-describe("caseAnalysisNav removed synthetic tabs", () => {
-  it("does not register distildire as dedicated page", () => {
-    expect(techniqueHasDedicatedPage("distildire")).toBe(false);
-    expect(ANALYSIS_ROUTE_META.distildire).toBeUndefined();
+describe("caseAnalysisNav purged techniques", () => {
+  const purged = ["distildire", "fakevlm", "clipbased_synthetic", "deepfake_similarity"] as const;
+
+  it.each(purged)("does not register %s as dedicated page", (technique) => {
+    expect(techniqueHasDedicatedPage(technique)).toBe(false);
+    expect(ANALYSIS_ROUTE_META[technique as keyof typeof ANALYSIS_ROUTE_META]).toBeUndefined();
   });
 
-  it("does not navigate to removed distildire analysis route", () => {
+  it.each(purged)("does not navigate to removed %s analysis route", (technique) => {
     const navigate = vi.fn();
-    const ok = navigateToDedicatedAnalysis(navigate, "case-abc", "distildire");
+    const ok = navigateToDedicatedAnalysis(navigate, "case-abc", technique);
     expect(ok).toBe(false);
     expect(navigate).not.toHaveBeenCalled();
   });

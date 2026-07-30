@@ -19,8 +19,8 @@ from app.config import get_settings
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
 from core.progress import pop_progress_callback, ProgressCallback, report_progress
-from core.legacy.patchmatch import patchmatch as pm
-from core.legacy.patchmatch import postprocessing as pp
+from forensics.patchmatch import patchmatch as pm
+from forensics.patchmatch import postprocessing as pp
 
 T = TypeVar("T")
 

@@ -13,6 +13,7 @@ from PIL import Image
 from PIL.ExifTags import TAGS
 
 from core.metadata.adobe_property_hints import adobe_property_hint
+from core.metadata.c2pa_extract import extract_c2pa_manifest, is_c2pa_exiftool_tag
 from core.metadata.exif_property_hints import exif_property_hint
 from core.metadata.forensic_metadata_insights import build_forensic_insights
 from core.metadata.icc_property_hints import icc_property_hint
@@ -78,6 +79,8 @@ def _safe_str(value: Any, max_len: int = 4096) -> str:
 
 
 def _classify_tag_group(tag: str) -> str:
+    if is_c2pa_exiftool_tag(tag):
+        return "c2pa"
     if ":" in tag:
         prefix = tag.split(":", 1)[0]
         if prefix == "EXIF":
@@ -243,6 +246,7 @@ def _empty_families() -> dict[str, list[dict[str, str]]]:
         "icc": [],
         "makernotes": [],
         "adobe": [],
+        "c2pa": [],
         "other": [],
     }
 
@@ -371,9 +375,13 @@ def _read_combined_metadata(path: str) -> dict[str, Any]:
 
 def _build_summary(file_info: dict[str, Any], meta: dict[str, Any], jpeg: dict[str, Any]) -> dict[str, Any]:
     families = meta.get("families", {})
-    counts = {k: len(families.get(k, [])) for k in ("exif", "iptc", "xmp", "icc", "makernotes", "adobe", "other")}
+    counts = {
+        k: len(families.get(k, []))
+        for k in ("exif", "iptc", "xmp", "icc", "makernotes", "adobe", "c2pa", "other")
+    }
     has_gps = any("gps" in e.get("tag", "").lower() for e in families.get("exif", []) + families.get("other", []))
     icc_ok = bool(families.get("icc")) or meta.get("icc_profile", {}).get("available")
+    c2pa_structured = meta.get("c2pa_structured") or {}
 
     return {
         "format": file_info.get("format"),
@@ -387,6 +395,10 @@ def _build_summary(file_info: dict[str, Any], meta: dict[str, Any], jpeg: dict[s
         "has_icc": icc_ok,
         "has_makernotes": counts.get("makernotes", 0) > 0,
         "has_adobe_tags": counts.get("adobe", 0) > 0,
+        "has_c2pa": bool(c2pa_structured.get("present")),
+        "c2pa_available": bool(c2pa_structured.get("available")),
+        "c2pa_valid": c2pa_structured.get("is_valid"),
+        "c2pa_validation_state": c2pa_structured.get("validation_state"),
         "jpeg_structure_available": jpeg.get("available", False),
         "quantization_table_count": len(jpeg.get("quantization_tables", [])),
         "huffman_dc_count": len(jpeg.get("huffman_dc_tables", [])),
@@ -414,10 +426,13 @@ def _forensic_highlights(families: dict[str, list[dict[str, str]]]) -> list[dict
         "iso",
         "shuttercount",
         "serial",
+        "c2pa",
+        "claim",
+        "jumbf",
     )
     highlights: list[dict[str, str]] = []
     seen: set[str] = set()
-    source_rank = {"exiftool": 0, "pillow": 1, "pillow_icc": 2, "xmp_sniff": 3}
+    source_rank = {"c2pa-python": 0, "exiftool": 1, "pillow": 2, "pillow_icc": 3, "xmp_sniff": 4}
     candidates: list[tuple[int, dict[str, str]]] = []
     for group, entries in families.items():
         for entry in entries:
@@ -466,6 +481,20 @@ def extract_image_metadata(path: str) -> dict[str, Any]:
     xmp_structured = extract_xmp_packet(path)
     meta["xmp_structured"] = xmp_structured
 
+    c2pa_structured = extract_c2pa_manifest(path)
+    # Não embutir o store completo em metadata.families / highlights.
+    c2pa_for_meta = {k: v for k, v in c2pa_structured.items() if k != "store"}
+    meta["c2pa_structured"] = c2pa_for_meta
+    c2pa_families = c2pa_structured.get("families") or {}
+    if c2pa_families.get("c2pa"):
+        _merge_families(meta.setdefault("families", _empty_families()), c2pa_families)
+    if c2pa_structured.get("engine") and c2pa_structured.get("available"):
+        engines = list(meta.get("engines") or [])
+        if "c2pa-python" not in engines:
+            engines.append("c2pa-python")
+        meta["engines"] = engines
+        meta["engine"] = "+".join(engines) if engines else meta.get("engine")
+
     jpeg_structure = read_jpeg_structure(path)
     families = meta.get("families", {})
     summary = _build_summary(file_info, meta, jpeg_structure)
@@ -478,7 +507,9 @@ def extract_image_metadata(path: str) -> dict[str, Any]:
         summary["has_xmp_packet"] = False
         summary["xmp_property_count"] = 0
 
-    forensic_insights = build_forensic_insights(families, xmp_structured, summary)
+    forensic_insights = build_forensic_insights(
+        families, xmp_structured, summary, c2pa_structured=c2pa_for_meta
+    )
 
     return {
         "success": True,
@@ -490,4 +521,5 @@ def extract_image_metadata(path: str) -> dict[str, Any]:
         "metadata": meta,
         "jpeg_structure": jpeg_structure,
         "xmp_structured": xmp_structured,
+        "c2pa_structured": c2pa_structured,
     }

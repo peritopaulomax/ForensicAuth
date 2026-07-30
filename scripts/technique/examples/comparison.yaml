@@ -1,0 +1,42 @@
+# Exemplo — template comparison (matriz / heatmaps entre evidências)
+id: demo_comparison_matrix
+template: comparison
+media: imagem
+title: "Demo Comparison (scaffold)"
+subtitle: "Exemplo refs × questionados gerado pelo scaffold"
+description: >
+  Técnica de demonstração do scaffold (template comparison).
+  Implemente a lógica em forensics/demo_comparison_matrix/pipeline.py.
+  Use questioned_paths / reference_paths resolvidos pelo JobService.
+citation: ""
+gpu: false
+disabled: true
+admin_only: true
+card:
+  mode: existing
+  group_id: classicas-compressao
+comparison:
+  modes: [with_reference, all_pairs]
+  # case_evidences = multi-select nas evidências do caso
+  # case_references = refs globais (global_groups) por rótulo — aba Referências
+  reference_source: case_evidences
+  min_questioned: 1
+  min_references: 1
+parameters:
+  - name: metric
+    type: enum
+    widget: radio
+    label: Métrica
+    default: jaccard
+    options: [jaccard, cosine]
+artifacts:
+  - key: similarity_matrix_image_path
+    filename: similarity_matrix.png
+    role: plot_data
+    label: Matriz de similaridade
+    savable: true
+  - key: similarity_json_path
+    filename: similarity_matrices.json
+    role: json
+    label: JSON das matrizes
+    savable: true

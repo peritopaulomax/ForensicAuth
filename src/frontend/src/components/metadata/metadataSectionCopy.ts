@@ -8,6 +8,7 @@ const DESCRIPTIONS: Record<MetadataTabId, string> = {
   xmp: "Pacote XMP estruturado — histórico de edição, namespaces e árvore RDF/XML.",
   adobe: "Recursos Photoshop, Camera Raw, Lightroom e flags Adobe.",
   iptc: "Metadados editoriais IPTC (legenda, direitos, palavras-chave).",
+  c2pa: "Content Credentials (C2PA): manifesto JUMBF assinado com proveniência e histórico de ações.",
   icc: "Perfil de cor ICC embutido e tags de caracterização.",
   jpeg: "Marcadores, quantização, Huffman e componentes do bitstream JPEG.",
   other: "Tags complementares (arquivo, composite, trailer) não classificadas acima.",
@@ -70,6 +71,17 @@ export function metadataSectionMeta(
     case "adobe": {
       const n = families.adobe?.length ?? 0;
       return `${n} campo(s) · fontes: ${collectSources(families.adobe || [])}`;
+    }
+    case "c2pa": {
+      const n = families.c2pa?.length ?? 0;
+      const state = summary.c2pa_validation_state
+        ? String(summary.c2pa_validation_state)
+        : summary.has_c2pa
+          ? "presente"
+          : summary.c2pa_available
+            ? "ausente"
+            : "indisponível";
+      return `${n} campo(s) · status: ${state}`;
     }
     case "jpeg": {
       if (!summary.jpeg_structure_available) return undefined;

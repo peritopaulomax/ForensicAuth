@@ -1,15 +1,20 @@
 import { useCallback, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
 import SyncedImagePairViewer, { type SyncedImagePairViewerHandle } from "@/components/SyncedImagePairViewer";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
-import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
-import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
+import RectRoiCanvas, { type RectRoi } from "@/components/RectRoiCanvas";
+import { AnalysisPanel, MessageBox } from "@/components/AnalysisPageShell";
+import TechniquePageShell from "@/components/TechniquePageShell";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
-import { saveDerivative } from "@/services/evidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
+import api from "@/services/api";
 
 type ViewMode = "overlay" | "colored" | "mask";
+
+function revokeBlob(url: string | null) {
+  if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+}
 
 export default function CopyMovePcaAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
@@ -23,19 +28,39 @@ export default function CopyMovePcaAnalysis() {
   const [morph, setMorph] = useState(true);
   const [alphaMask, setAlphaMask] = useState(false);
   const [useRoi, setUseRoi] = useState(false);
-  const [roiX, setRoiX] = useState(0);
-  const [roiY, setRoiY] = useState(0);
-  const [roiW, setRoiW] = useState(512);
-  const [roiH, setRoiH] = useState(512);
+  const [roiRect, setRoiRect] = useState<RectRoi | null>(null);
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [overlayUrl, setOverlayUrl] = useState<string | null>(null);
   const [coloredUrl, setColoredUrl] = useState<string | null>(null);
   const [maskUrl, setMaskUrl] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [inputUrl, setInputUrl] = useState<string | null>(null);
+  const [loadingInput, setLoadingInput] = useState(false);
   const viewerRef = useRef<SyncedImagePairViewerHandle>(null);
+  const inputBlobRef = useRef<string | null>(null);
   const { running, currentJobId, result, error, progress, progressLabel, runAnalysis, fetchImage, reset } =
     useForensicJob();
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
+  const { status: runtimeStatus } = useTechniqueRuntime("copy_move_pca");
+
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
+
+  async function loadInputBlob(id: string) {
+    setLoadingInput(true);
+    revokeBlob(inputBlobRef.current);
+    inputBlobRef.current = null;
+    setInputUrl(null);
+    try {
+      const res = await api.get(`/evidences/${id}/file`, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      inputBlobRef.current = url;
+      setInputUrl(url);
+    } catch {
+      setInputUrl(null);
+    } finally {
+      setLoadingInput(false);
+    }
+  }
 
   const applyEvidence = useCallback(
     (id: string, _source: "original" | "derivative") => {
@@ -44,19 +69,22 @@ export default function CopyMovePcaAnalysis() {
       setOverlayUrl(null);
       setColoredUrl(null);
       setMaskUrl(null);
-      setSaveMessage(null);
+      setRoiRect(null);
+      clearMessage();
       setViewMode("overlay");
       viewerRef.current?.resetZoom();
+      void loadInputBlob(id);
     },
-    [reset],
+    [reset, clearMessage],
   );
 
   const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
     useGroupAwareEvidence(caseId!, applyEvidence);
 
   async function process() {
-    if (!evidenceId) return;
-    setSaveMessage(null);
+    if (!evidenceId || !runtimeOk) return;
+    if (useRoi && !roiRect) return;
+    clearMessage();
     const parameters: Record<string, unknown> = {
       b,
       n_comp: nComp,
@@ -67,8 +95,8 @@ export default function CopyMovePcaAnalysis() {
       morph,
       alpha_mask: alphaMask,
     };
-    if (useRoi) {
-      parameters.region = [roiX, roiY, roiW, roiH];
+    if (useRoi && roiRect) {
+      parameters.region = [roiRect.x, roiRect.y, roiRect.width, roiRect.height];
     }
     try {
       await runAnalysis(evidenceId, "copy_move_pca", parameters, {
@@ -88,25 +116,12 @@ export default function CopyMovePcaAnalysis() {
         },
       });
     } catch {
-      /* hook */
     }
   }
 
   async function handleSave(filename: string, label: string) {
     if (!currentJobId) return;
-    setSaving(true);
-    try {
-      const res = await saveDerivative({ job_id: currentJobId, artifact_filename: filename });
-      setSaveMessage({
-        type: "ok",
-        text: `${label} registrado na custodia. SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Erro ao salvar";
-      setSaveMessage({ type: "err", text: msg });
-    } finally {
-      setSaving(false);
-    }
+    await save(currentJobId, filename, label);
   }
 
   const rightUrl = viewMode === "overlay" ? overlayUrl : viewMode === "colored" ? coloredUrl : maskUrl;
@@ -115,166 +130,170 @@ export default function CopyMovePcaAnalysis() {
       ? "Overlay (alpha ou blend)"
       : viewMode === "colored"
         ? "Mapa colorido por deslocamento"
-        : "Mascara de cantos de bloco";
+        : "Máscara de cantos de bloco";
 
   if (!caseId) return null;
 
-  return (
-    <AnalysisPageShell
-      caseId={caseId}
-      title={FORENSIC_TECHNIQUE_META.copy_move_pca.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.copy_move_pca} techniqueId="copy_move_pca" />}
-      embedded={embedded}
-    >
-      <AnalysisPanel title="Evidencia">
-        {showEvidencePicker && (
-          <ImageEvidenceSelector
-            caseId={caseId}
-            selectedId={evidenceId}
-            selectionSource={selectionSource}
-            onSelect={onSelectEvidence}
-          />
-        )}
-      </AnalysisPanel>
-
-      <AnalysisPanel title="Parametros">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "0.75rem" }}>
-          {(
-            [
-              { label: "Tamanho do bloco (b)", value: b, onChange: setB, step: 1 },
-              { label: "PCA % (n_comp)", value: nComp, onChange: setNComp, step: 0.05 },
-              { label: "Profundidade de busca (nn)", value: nn, onChange: setNn, step: 1 },
-              { label: "Quantização (Q)", value: q, onChange: setQ, step: 16 },
-              { label: "Clone mínimo (nf)", value: nf, onChange: setNf, step: 16 },
-              { label: "Distância mínima (nd)", value: nd, onChange: setNd, step: 4 },
-            ] as const
-          ).map(({ label, value, onChange, step }) => (
-            <label key={label} style={{ fontSize: "0.82rem" }}>
-              {label}
-              <input
-                type="number"
-                step={step}
-                min={0}
-                value={value}
-                onChange={(e) => onChange(Number(e.target.value))}
-                style={{ display: "block", width: "100%", marginTop: 4 }}
-              />
-            </label>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem", flexWrap: "wrap", fontSize: "0.82rem" }}>
-          <label>
-            <input type="checkbox" checked={morph} onChange={(e) => setMorph(e.target.checked)} /> Morfologia
-          </label>
-          <label>
-            <input type="checkbox" checked={alphaMask} onChange={(e) => setAlphaMask(e.target.checked)} /> Máscara alfa
-          </label>
-          <label>
-            <input type="checkbox" checked={useRoi} onChange={(e) => setUseRoi(e.target.checked)} /> ROI
-          </label>
-        </div>
-        {useRoi && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem", marginTop: "0.5rem" }}>
-            {(
-              [
-                ["X", roiX, setRoiX],
-                ["Y", roiY, setRoiY],
-                ["Largura", roiW, setRoiW],
-                ["Altura", roiH, setRoiH],
-              ] as const
-            ).map(([label, val, setVal]) => (
-              <label key={label} style={{ fontSize: "0.82rem" }}>
-                {label}
-                <input
-                  type="number"
-                  min={1}
-                  value={val}
-                  onChange={(e) => setVal(Number(e.target.value))}
-                  style={{ display: "block", width: "100%", marginTop: 4 }}
-                />
-              </label>
-            ))}
-          </div>
-        )}
-        <div style={{ marginTop: "1rem" }}>
-          <ProcessButton
-            onClick={process}
-            disabled={!evidenceId}
-            running={running}
-            progress={progress}
-            progressLabel={progressLabel}
-            label="Processar Copy-Move PCA"
-          />
-        </div>
-        <p style={{ fontSize: "0.78rem", color: "#6b7280", marginTop: "0.5rem", lineHeight: 1.45 }}>
-          Imagens grandes podem levar varios minutos (resolucao completa). Use ROI para analisar apenas uma regiao.
-        </p>
-        {error && <MessageBox type="err" text={error} />}
-      </AnalysisPanel>
-
-      {result && (
-        <AnalysisPanel title="Resultado">
-          <p style={{ fontSize: "0.9rem", margin: "0 0 0.75rem 0", color: "#374151" }}>
-            Deslocamentos unicos: {Number(result.clone_regions_detected)} · Area mascarada:{" "}
-            {Number(result.mask_area_pixels).toLocaleString()} px ({(Number(result.mask_ratio) * 100).toFixed(3)}%)
-          </p>
-
-          <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
-            {(
-              [
-                ["overlay", "Overlay"],
-                ["colored", "Colorido"],
-                ["mask", "Mascara"],
-              ] as const
-            ).map(([mode, label]) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setViewMode(mode)}
-                style={{
-                  padding: "0.4rem 0.85rem",
-                  borderRadius: 6,
-                  border: `1px solid ${viewMode === mode ? "#0369a1" : "#d1d5db"}`,
-                  background: viewMode === mode ? "#e0f2fe" : "#fff",
-                  cursor: "pointer",
-                  fontSize: "0.82rem",
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {originalUrl && rightUrl && (
-            <SyncedImagePairViewer
-              ref={viewerRef}
-              leftSrc={originalUrl}
-              rightSrc={rightUrl}
-              leftLabel="Original"
-              rightLabel={rightLabel}
+  const parametersPanel = (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "1rem 1.25rem" }}>
+        {(
+          [
+            { label: "Tamanho do bloco (b)", value: b, onChange: setB, step: 1 },
+            { label: "PCA % (n_comp)", value: nComp, onChange: setNComp, step: 0.05 },
+            { label: "Prof. de busc (nn)", value: nn, onChange: setNn, step: 1 },
+            { label: "Quantização (Q)", value: q, onChange: setQ, step: 16 },
+            { label: "Clone mínimo (nf)", value: nf, onChange: setNf, step: 16 },
+            { label: "Distância mínima (nd)", value: nd, onChange: setNd, step: 4 },
+          ] as const
+        ).map(({ label, value, onChange, step }) => (
+          <label key={label} style={{ fontSize: "0.82rem", display: "flex", flexDirection: "column", gap: 6 }}>
+            {label}
+            <input
+              type="number"
+              step={step}
+              min={0}
+              value={value}
+              onChange={(e) => onChange(Number(e.target.value))}
+              style={{ display: "block", width: "100%", boxSizing: "border-box" }}
             />
+          </label>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem", flexWrap: "wrap", fontSize: "0.82rem" }}>
+        <label>
+          <input type="checkbox" checked={morph} onChange={(e) => setMorph(e.target.checked)} /> Morfologia
+        </label>
+        <label>
+          <input type="checkbox" checked={alphaMask} onChange={(e) => setAlphaMask(e.target.checked)} /> Máscara alfa
+        </label>
+        <label>
+          <input type="checkbox" checked={useRoi} onChange={(e) => setUseRoi(e.target.checked)} /> ROI
+        </label>
+      </div>
+      {useRoi && evidenceId && (
+        <AnalysisPanel title="Selecione a região de interesse">
+          {loadingInput && <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>Carregando imagem…</p>}
+          {!loadingInput && inputUrl && (
+            <RectRoiCanvas imageUrl={inputUrl} rect={roiRect} onRectChange={setRoiRect} maxHeight={520} />
           )}
-
-          {currentJobId && (
-            <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-              <button type="button" disabled={saving} onClick={() => handleSave("overlay.png", "Overlay")} style={btnSecondary}>
-                Salvar overlay
-              </button>
-              <button type="button" disabled={saving} onClick={() => handleSave("colored_overlay.png", "Mapa colorido")} style={btnSecondary}>
-                Salvar colorido
-              </button>
-              <button type="button" disabled={saving} onClick={() => handleSave("mask.png", "Mascara")} style={btnSecondary}>
-                Salvar mascara
-              </button>
-            </div>
+          {!loadingInput && !inputUrl && (
+            <MessageBox type="err" text="Não foi possível carregar a imagem de entrada." />
           )}
-          {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
+          {roiRect && (
+            <p style={{ fontSize: "0.78rem", color: "#6b7280", marginTop: "0.5rem" }}>
+              ROI: x={roiRect.x}, y={roiRect.y}, largura={roiRect.width}, altura={roiRect.height}
+            </p>
+          )}
         </AnalysisPanel>
       )}
-    </AnalysisPageShell>
+      <div style={{ marginTop: "1rem" }}>
+        <button
+          type="button"
+          onClick={process}
+          disabled={!evidenceId || runtimeOk !== true || running || (useRoi && !roiRect)}
+          style={btnPrimary}
+        >
+          {running ? "Processando…" : "Processar Copy-Move PCA"}
+        </button>
+      </div>
+      <p style={{ fontSize: "0.78rem", color: "#6b7280", marginTop: "0.5rem", lineHeight: 1.45 }}>
+        Imagens grandes podem levar vários minutos (resolução completa). Use ROI para analisar apenas uma região.
+      </p>
+    </>
+  );
+
+  const resultPanel = result ? (
+    <>
+      <p style={{ fontSize: "0.9rem", margin: "0 0 0.75rem 0", color: "#374151" }}>
+        Deslocamentos únicos: {Number(result.clone_regions_detected)} · Área mascarada:{" "}
+        {Number(result.mask_area_pixels).toLocaleString()} px ({(Number(result.mask_ratio) * 100).toFixed(3)}%)
+      </p>
+
+      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
+        {(
+          [
+            ["overlay", "Overlay"],
+            ["colored", "Colorido"],
+            ["mask", "Máscara"],
+          ] as const
+        ).map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setViewMode(mode)}
+            style={{
+              padding: "0.4rem 0.85rem",
+              borderRadius: 6,
+              border: `1px solid ${viewMode === mode ? "#0369a1" : "#d1d5db"}`,
+              background: viewMode === mode ? "#e0f2fe" : "#fff",
+              cursor: "pointer",
+              fontSize: "0.82rem",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {originalUrl && rightUrl && (
+        <SyncedImagePairViewer
+          ref={viewerRef}
+          leftSrc={originalUrl}
+          rightSrc={rightUrl}
+          leftLabel="Original"
+          rightLabel={rightLabel}
+        />
+      )}
+
+      {currentJobId && (
+        <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <button type="button" disabled={saving} onClick={() => handleSave("overlay.png", "Overlay")} style={btnSecondary}>
+            Salvar overlay
+          </button>
+          <button type="button" disabled={saving} onClick={() => handleSave("colored_overlay.png", "Mapa colorido")} style={btnSecondary}>
+            Salvar colorido
+          </button>
+          <button type="button" disabled={saving} onClick={() => handleSave("mask.png", "Máscara")} style={btnSecondary}>
+            Salvar máscara
+          </button>
+        </div>
+      )}
+    </>
+  ) : null;
+
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="copy_move_pca"
+      mediaType="imagem"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      parametersPanel={parametersPanel}
+      resultPanel={resultPanel || undefined}
+    />
   );
 }
 
+const btnPrimary: React.CSSProperties = {
+  padding: "0.5rem 1rem",
+  background: "#0369a1",
+  color: "#fff",
+  border: "none",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: "0.85rem",
+};
 const btnSecondary: React.CSSProperties = {
   padding: "0.45rem 0.9rem",
   background: "#fff",

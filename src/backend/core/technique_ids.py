@@ -1,8 +1,8 @@
-"""Identificadores canônicos de técnicas e aliases legados (jobs antigos no banco)."""
+"""Identificadores canonicos de tecnicas e aliases historicos (jobs antigos no banco)."""
 
 from __future__ import annotations
 
-# Técnica: detecção de imagens sintéticas (ensemble Gradio CNN + FFT + Effort).
+# Técnica: detecção de imagens sintéticas (ensemble CNN + FFT + Effort).
 SYNTHETIC_IMAGE_DETECTION = "synthetic_image_detection"
 
 # Técnica: detecção de ataques de apresentação facial (PAD).

@@ -1,0 +1,34 @@
+# Default voice-clone oriented population (mirrors UI defaults).
+# Checkboxes in the product map to (base_group, subgroup) pairs listed here.
+
+version: 1
+id: voice_clone_default
+label: Voice-clone default (DFADD / SONAR / ASVspoof5 / In-The-Wild)
+status: published
+sample_per_class: 500
+train_per_class: 250
+calib_per_class: 125
+test_per_class: 125
+seed: 20260705
+
+fit_items:
+  - { base_group: DFADD, subgroup: StyleTTS2 }
+  - { base_group: DFADD, subgroup: NaturalSpeech2 }
+  - { base_group: SONAR, subgroup: xTTS }
+  - { base_group: SONAR, subgroup: PromptTTS2 }
+  - { base_group: SONAR, subgroup: VoiceBox }
+  - { base_group: ASVspoof5, subgroup: flac_E_eval }
+  - { base_group: In-The-Wild, subgroup: In-The-Wild }
+
+test_items:
+  - { base_group: DFADD, subgroup: StyleTTS2 }
+  - { base_group: DFADD, subgroup: NaturalSpeech2 }
+  - { base_group: SONAR, subgroup: xTTS }
+  - { base_group: SONAR, subgroup: PromptTTS2 }
+  - { base_group: SONAR, subgroup: VoiceBox }
+  - { base_group: ASVspoof5, subgroup: flac_E_eval }
+  - { base_group: In-The-Wild, subgroup: In-The-Wild }
+
+features:
+  scores: ../features/scores/lr_scores_balanced_full.csv
+  representations: ../features/representations/representations.csv

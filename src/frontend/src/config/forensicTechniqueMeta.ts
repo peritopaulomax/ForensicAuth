@@ -1,5 +1,7 @@
 /** Metadados bibliográficos (ABNT), títulos e cards das técnicas forenses. */
 
+import { SCAFFOLDED_TECHNIQUE_META } from "./scaffoldedTechniqueMeta";
+
 export interface ForensicTechniqueMeta {
   /** Título exibido na página e no card (português; siglas mantidas). */
   title: string;
@@ -15,7 +17,7 @@ export interface ForensicTechniqueMeta {
   repoUrl?: string;
 }
 
-export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
+const _BASE_FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
   jpeg_structure_compare: {
     title: "Comparação de Estruturas JPEG",
     citation:
@@ -46,7 +48,7 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
       "POPESCU, Alin C.; FARID, Hany. Statistical Tools for Digital Forensics. In: FRIDRICH, Jessica (Org.). Information Hiding. Berlin, Heidelberg: Springer Berlin Heidelberg, 2004. v. 3200. p. 128–147.\n\nMAHDIAN, B.; SAIC, S. Detecting double compressed JPEG images. In: 3RD INTERNATIONAL CONFERENCE ON IMAGING FOR CRIME DETECTION AND PREVENTION (ICDP 2009). 3rd International Conference on Imaging for Crime Detection and Prevention (ICDP 2009). London, UK: IET, 2009. Disponível em: <https://digital-library.theiet.org/content/conferences/10.1049/ic.2009.0240>. Acesso em: 18 nov. 2020.",
     cardSubtitle: "Histogramas de coeficientes DCT · detecção de dupla compressão",
     detail:
-      "Analisa a distribuição dos coeficientes DCT quantizados ao longo de um intervalo de índices, produzindo gráficos interativos (zoom/pan) por coeficiente. Padrões periódicos e descontinuidades nos histogramas sugerem dupla compressão JPEG.",
+      "Analisa a distribuição dos coeficientes DCT quantizados ao longo de um intervalo de índices, produzindo gráficos interativos (zoom/pan) por coeficiente. Padrões periódicos nos histogramas sugerem dupla compressão JPEG.",
   },
   ela: {
     title: "Análise de Nível de Erro (ELA)",
@@ -62,7 +64,7 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
       "LI, Weihai; YUAN, Yuan; YU, Nenghai. DETECTING COPY-PASTE FORGERY OF JPEG IMAGE VIA BLOCK ARTIFACT GRID EXTRACTION. p. 6, [S.d.].",
     cardSubtitle: "Canal Y · mapa de desalinhamento da grade 8×8",
     detail:
-      "Calcula, no canal de luminância, métricas de desalinhamento entre blocos JPEG adjacentes (BlockDiff) e gera mapa visual da grade de artefatos de bloco — base para análise de origem de grade e algoritmo ZERO.",
+      "Calcula, no canal de luminância, métricas de desalinhamento entre blocos JPEG adjacentes (BlockDiff) e gera mapa visual da grade de artefatos de bloco.",
   },
   zero_grid: {
     title: "ZERO — Origem da Grade JPEG",
@@ -70,7 +72,7 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
       "NIKOUKHAH, Tina et al. ZERO: a Local JPEG Grid Origin Detector Based on the Number of DCT Zeros and its Applications in Image Forensics. Image Processing On Line, v. 11, p. 396–433, 16 dez. 2021.",
     cardSubtitle: "Zeros DCT + libzero · NFA e regiões de grade estrangeira",
     detail:
-      "Conta coeficientes DCT nulos por pixel e agrega votos para estimar a origem da grade 8×8 (libzero). Entrega mapa de votos, grades globais com log-NFA e destaque de regiões com grade ausente ou inconsistente com o fundo.",
+      "Conta coeficientes DCT nulos, por pixel, para cada um dos 64 posicionamentos de grade possível, e agrega votos para estimar a origem da grade 8×8 (libzero). Entrega mapa de votos e destaque de regiões com grade ausente ou inconsistente com o fundo.",
   },
   resampling: {
     title: "Detecção de Reamostragem",
@@ -78,7 +80,7 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
       "MAHDIAN, B.; SAIC, S. Blind Authentication Using Periodic Properties of Interpolation. IEEE Transactions on Information Forensics and Security, v. 3, n. 3, p. 529–538, set. 2008.",
     cardSubtitle: "2ª derivada + FFT · periodicidade de interpolação",
     detail:
-      "Aplica segunda derivada na evidência (global ou em região selecionada) e analisa o espectro de frequência via FFT. Picos periódicos no espectro indicam reamostragem por interpolação (redimensionamento, rotação ou recorte com resize).",
+      "Aplica segunda derivada na função autocorrelação de diferentes projeções Radon da imagem questionada. Padrões periódicos nesta segunda derivada são detectados por meio de picos em sua FFT. O gráfico mostrado corresponde ao empilhamento max-hold de todas as FFT, nas diferentes direções da transformada Radon. Periodicidade indica reamostragem por interpolação (redimensionamento, rotação ou recorte com resize).",
   },
   patchmatch: {
     title: "Cópia e Colagem (PatchMatch)",
@@ -94,7 +96,7 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
       "POPESCU, Alin C.; FARID, Hany. Exposing Digital Forgeries by Detecting Duplicated Image Regions. [S.l.: s.n.], 2004.",
     cardSubtitle: "PCA + ordenação lexicográfica · método clássico Popescu & Farid",
     detail:
-      "Detecta regiões duplicadas internas via redução PCA de blocos, quantização lexicográfica e agrupamento por vetor de deslocamento. Complementar ao PatchMatch; processa a imagem na resolução original. Use ROI opcional para focar numa região.",
+      "Detecta regiões duplicadas internas via redução PCA de blocos, quantização lexicográfica e agrupamento por vetor de deslocamento. Processa a imagem na resolução original. Use ROI opcional para focar numa região.",
   },
   wavelet_noise_residue: {
     title: "Resíduo de Ruído Wavelet",
@@ -102,7 +104,7 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
       "MAHDIAN, B.; SAIC, S. Using noise inconsistencies for blind image forensics. Image and Vision Computing, v. 27, n. 10, p. 1497–1503, set. 2009.",
     cardSubtitle: "DWT db8 + mediana HH · inconsistências de ruído",
     detail:
-      "Extrai mapa de inconsistências de ruído via transformada wavelet (Daubechies), seleção de coeficientes HH e mediana por bloco. Visualização JET com pós-processamento opcional (distinto do denoising Wiener db4 usado no PRNU).",
+      "Extrai mapa de inconsistências de ruído via transformada wavelet (Daubechies), seleção de coeficientes HH e mediana por bloco.",
   },
   prnu: {
     title: "PRNU — Impressão Digital do Sensor",
@@ -123,18 +125,6 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
       "Entrega heatmap de probabilidade de falsificação, overlay na evidência e, no modo multi-fonte, partição por cluster de origens distintas.",
     license: "MIT",
     repoUrl: "https://github.com/mjkwon2021/SAFIRE",
-  },
-  noiseprint: {
-    title: "Noiseprint — Impressão Digital da Câmera",
-    citation:
-      "COZZOLINO, D.; VERDOLIVA, L. Noiseprint: A CNN-Based Camera Model Fingerprint. IEEE Transactions on Information Forensics and Security, v. 15, p. 144–159, 2020.",
-    cardSubtitle: "CNN fingerprint · resíduo de modelo de câmera",
-    detail:
-      "Rede fully-convolutional treinada para extrair o fingerprint do modelo de câmera, suprimindo conteúdo semântico da cena.",
-    summary:
-      "Explora inconsistências de ruído entre regiões. Entrega mapa noiseprint, heatmap blind de localização, máscara valid e overlays de confiabilidade.",
-    license: "Acadêmica / nonprofit (GRIP-UNINA)",
-    repoUrl: "https://github.com/grip-unina/noiseprint",
   },
   trufor: {
     title: "TruFor — Localização de Manipulação",
@@ -220,6 +210,18 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
     license: "Ver repositório",
     repoUrl: "https://github.com/ProgrameThinking/Co-Transformers",
   },
+  miml_apscnet: {
+    title: "MIML APSC-Net — Localização de Manipulação",
+    citation:
+      "QU, Chenfan; ZHONG, Yiwu; LIU, Chongyu; XU, Guitao; PENG, Dezhi; GUO, Fengjun; JIN, Lianwen. Towards Modern Image Manipulation Localization: A Large-Scale Dataset and Novel Methods. In: IEEE/CVF CONFERENCE ON COMPUTER VISION AND PATTERN RECOGNITION (CVPR). 2024. p. 10781–10790. Disponível em: <https://github.com/qcf-568/MIML>. Acesso em: 28 jul. 2026.",
+    cardSubtitle: "CVPR 2024 · APSC-Net · Adaptive Perception + Self-Calibration",
+    detail:
+      "APSC-Net (Adaptive Perception + Self-Calibration) do ecossistema MIML: fusiona pistas multi-visão com pesos adaptativos e refina a máscara com kernel aprendido. Treinado no dataset MIML (~123 mil imagens forjadas manualmente), voltado a edições modernas do tipo Photoshop/web.",
+    summary:
+      "Localização single-image de regiões manipuladas. Entrega heatmap de probabilidade, overlay na evidência e máscara binária (inferência 512×512).",
+    license: "CC BY-NC 4.0",
+    repoUrl: "https://github.com/qcf-568/MIML",
+  },
   videofact: {
     title: "VideoFACT — Edições e Deepfake em Vídeo",
     citation:
@@ -227,7 +229,7 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
     cardSubtitle: "WACV 2024 · amostragem automática de frames · mapas de localização",
     detail:
       "Processa o vídeo diretamente (decord): amostra frames, aplica modelos Xfer (edições) e/ou Deepfake (DF) com scores e heatmaps por frame. Não exige extração manual de frames.",
-    summary: "Demo oficial em Gradio também opera sobre arquivo de vídeo com amostragem interna de frames.",
+    summary: "Processa o arquivo de vídeo com amostragem interna de frames (sem extração manual prévia).",
     license: "CC BY-NC 4.0",
     repoUrl: "https://github.com/ductai199x/videofact-wacv-2024",
   },
@@ -249,6 +251,26 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
     detail:
       "Amostra frames com detecção de rosto e classifica cada frame com baseline Xception treinada no FaceForensics++, agregando scores temporais para decisão do vídeo.",
     repoUrl: "https://github.com/lukasHoel/fake-video-detection",
+  },
+  truvil: {
+    title: "TruVIL — Localização de Inpainting em Vídeo",
+    citation:
+      "LOU, Z. et al. Trusted Video Inpainting Localization via Deep Attentive Noise Learning. IEEE Transactions on Dependable and Secure Computing, 2025.",
+    cardSubtitle: "IEEE TDSC 2025 · clips 5 frames · HP3D + atenção cross-modal",
+    detail:
+      "Localiza regiões de inpainting em vídeo via ruído 3D atento (HP3D) e fusão cross-modal. Protocolo oficial: 5 frames em 240×432; devolve máscara, heatmap e overlay sem rótulo autenticidade.",
+    license: "CC BY-NC 4.0",
+    repoUrl: "https://github.com/multimediaFor/TruVIL",
+  },
+  vilocal: {
+    title: "ViLocal — Localização de Inpainting em Vídeo",
+    citation:
+      "LOU, Z.; CAO, G.; LIN, M. Video Inpainting Localization with Contrastive Learning. IEEE Signal Processing Letters, 2025.",
+    cardSubtitle: "IEEE SPL 2025 · clips 5 frames · contrastive encoder + decoder",
+    detail:
+      "Localiza regiões de inpainting em vídeo com aprendizado contrastivo (encoder) e supervisão de localização (decoder). Protocolo oficial: 5 frames em 240×432; devolve máscara, heatmap e overlay sem rótulo autenticidade.",
+    license: "CC BY-NC 4.0",
+    repoUrl: "https://github.com/multimediaFor/ViLocal",
   },
   presentation_attack_detection: {
     title: "Detecção de Ataques de Apresentação",
@@ -274,12 +296,60 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
     license: "MIT",
     repoUrl: "https://github.com/LoveSiameseCat/MoE-FFD",
   },
+  audio_spectrogram: {
+    title: "Análise Forense de Áudio",
+    citation: "",
+    cardSubtitle: "Espectrograma, ENF, LTAS, níveis e DC local",
+    detail:
+      "Hub unificado de análises forenses de áudio. Oferece espectrograma interativo (comparação de evidências, " +
+      "escalas de cor e decimação), análise ENF (frequência nominal da rede elétrica), LTAS (Long-Term Average Spectrum), " +
+      "histograma de níveis de quantização e variação DC local por janela temporal.",
+  },
+  audio_enf: {
+    title: "Análise ENF",
+    citation:
+      "GRIGORAS, C. et al. ENF-based forensic authentication of digital audio recordings. In: AUDIO ENGINEERING SOCIETY CONVENTION. AES, 2005.",
+    cardSubtitle: "Frequência nominal da rede · 50/60 Hz",
+    detail:
+      "Extrai a componente de frequência nominal da rede elétrica (ENF) do sinal de áudio via filtragem FIR passa-faixa " +
+      "e demodulação de Hilbert. Permite comparar múltiplas evidências sobrepostas para verificar consistência temporal ou geográfica.",
+  },
+  audio_ltas: {
+    title: "LTAS — Long-Term Average Spectrum",
+    citation:
+      "Baken, R. J.; Orlikoff, R. F. Clinical Measurement of Speech and Voice. 2. ed. San Diego: Singular, 2000.",
+    cardSubtitle: "Espectro médio de longo prazo · Welch",
+    detail:
+      "Calcula o espectro médio de longo prazo (LTAS) via método de Welch em quatro condições: normal, " +
+      "compensação 6 dB/oitava, ordenado por frequência e derivada ordenada. Útil para caracterizar " +
+      "perfis espectrais e detectar inconsistências entre gravações.",
+  },
+  audio_levels: {
+    title: "Histograma de Níveis de Quantização",
+    citation:
+      "Rec. ITU-R BS.468-4. Measurement of audio-frequency noise voltage level in sound broadcasting.",
+    cardSubtitle: "Distribuição de amplitudes PCM · 8/16/24/32 bits",
+    detail:
+      "Exibe o histograma dos níveis de quantização PCM da evidência de áudio. " +
+      "Anomalias no histograma (picos, lacunas ou repetibilidade) podem indicar processamento, " +
+      "conversão de bit-depth ou sinais sintéticos.",
+  },
+  audio_dc_local: {
+    title: "Nível DC Local",
+    citation:
+      "Pohlmann, K. C. Principles of Digital Audio. 6. ed. New York: McGraw-Hill, 2010.",
+    cardSubtitle: "Média DC por janela temporal",
+    detail:
+      "Calcula a média do nível DC em janelas deslizantes ao longo do tempo. " +
+      "Variações abruptas ou padrões inesperados de offset DC podem revelar edições, " +
+      "cortes ou concatenação de trechos de origens distintas.",
+  },
   audio_spoofing_detection: {
     title: "Detecção de Spoofing de Áudio",
     citation:
       "SPEECH-ARENA-2025. DF Arena 1B V1 — antispoofing com Wav2Vec2 XLS-R-1B + Conformer. Modelo HuggingFace: Speech-Arena-2025/DF_Arena_1B_V_1. Disponível em: <https://huggingface.co/Speech-Arena-2025/DF_Arena_1B_V_1>. Acesso em: 4 jul. 2026.\n\n" +
-      "KULKARNI, Ajinkya; DOWERAH, Sandipana; KULKARNI, Atharva; ALUMÄE, Tanel; MAGIMAI DOSS, Mathew. Audio Deepfake Detection with Self-supervised XLS-R and SLS classifier. In: ACM MULTIMEDIA (ACM MM), 2024. Repositório: <https://github.com/Speech-Arena-2025/SLSforASVspoof-2021-DF>. Acesso em: 4 jul. 2026.\n\n" +
-      "JYP2024. WeDefense ASV2025 — WavLM Base pruning + MHFA para detecção de spoofing. Repositório HuggingFace: JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning. Disponível em: <https://huggingface.co/JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning>. Acesso em: 4 jul. 2026.\n\n" +
+      "KULKARNI, Ajinkya; DOWERAH, Sandipana; KULKARNI, Atharva; ALUMÄE, Tanel; MAGIMAI DOSS, Mathew. Audio Deepfake Detection with Self-supervised XLS-R and SLS classifier. In: ACM MULTIMEDIA (ACM MM), 2024. Repositório: <https://github.com/QiShanZhang/SLSforASVspoof-2021-DF>. Acesso em: 4 jul. 2026.\n\n" +
+      "ZHANG, Lin et al. WeDefense: A Toolkit to Defend Against Fake Audio. arXiv:2601.15240, 2025. Disponível em: <https://arxiv.org/abs/2601.15240>. Checkpoint ASVspoof 2025: <https://huggingface.co/JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning>. Acesso em: 29 jul. 2026.\n\n" +
       "KULKARNI, Ajinkya; DOWERAH, Sandipana; KULKARNI, Atharva; ALUMÄE, Tanel; MAGIMAI DOSS, Mathew. Do Compact SSL Backbones Matter for Audio Deepfake Detection? A Controlled Study with RAPTOR. arXiv:2603.06164, 2026.",
     cardSubtitle: "DF Arena 1B + SLS XLS-R + WeDefense · meta-classificador LR",
     detail:
@@ -295,6 +365,72 @@ export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
     license: "Non-commercial (ver LICENSE.txt de cada modelo)",
     repoUrl: "https://huggingface.co/Speech-Arena-2025/DF_Arena_1B_V_1",
   },
+  mp3_parser: {
+    title: "Parser MP3",
+    citation:
+      "ISO/IEC 11172-3 / 13818-3. Coding of moving pictures and associated audio — Part 3: Audio. " +
+      "ID3v2 Informal Standard. Disponível em: <https://id3.org/>.",
+    cardSubtitle: "Frames MPEG · ID3 · Xing/VBRI · encoder",
+    detail:
+      "Análise estrutural binária de arquivos MP3: headers de frame, tags ID3v1/ID3v2, headers VBR (Xing/VBRI), " +
+      "assinatura de encoder e inconsistências (bitrate misto, versões MPEG misturadas, ausência de tags).",
+  },
+  opus_parser: {
+    title: "Parser Ogg/Opus",
+    citation:
+      "RFC 6716. Definition of the Opus Audio Codec. IETF, 2012. " +
+      "RFC 7845. Ogg Encapsulation for the Opus Audio Codec. IETF, 2016.",
+    cardSubtitle: "Páginas Ogg · OpusHead/Tags · TOC · origem",
+    detail:
+      "Análise forense de containers Ogg/Opus: estrutura de páginas, OpusHead/OpusTags, TOC do bitstream, " +
+      "serial number e pistas de plataforma/origem (ex.: pre-skip típico de apps de mensagem).",
+  },
+  audio_metadata: {
+    title: "Metadados de Áudio",
+    citation:
+      "Harvey, Phil. ExifTool — Read, Write and Edit Meta Information. Disponível em: <https://exiftool.org/>. " +
+      "ID3v2 Informal Standard. Disponível em: <https://id3.org/>.",
+    cardSubtitle: "ExifTool · ID3 · Vorbis · RIFF · QuickTime · XMP · C2PA",
+    detail:
+      "Extração unificada de metadados de áudio via ExifTool (ID3, Vorbis/Opus/FLAC, RIFF/WAV, QuickTime/M4A, XMP), " +
+      "Content Credentials (C2PA) via c2pa-python com validação criptográfica, " +
+      "e probe técnico complementar (codec, taxa, canais, duração).",
+  },
+  video_metadata: {
+    title: "Metadados de Vídeo",
+    citation:
+      "Harvey, Phil. ExifTool — Read, Write and Edit Meta Information. Disponível em: <https://exiftool.org/>. " +
+      "FFmpeg / ffprobe. Disponível em: <https://ffmpeg.org/>. " +
+      "ISO/IEC 14496-12. ISO base media file format.",
+    cardSubtitle: "ExifTool -ee · ffprobe · ISO BMFF · GPS · MakerNotes",
+    detail:
+      "Extração profunda de metadados de vídeo: ExifTool com grupos, tags desconhecidas e embutidos (-ee); " +
+      "ffprobe (format/streams/capítulos); resumo estrutural ISO BMFF (timestamps, trilhas). " +
+      "Famílias QuickTime, GPS, câmera/MakerNotes, codec, XMP e container — com insights forenses automáticos.",
+  },
+  synthetic_image_detection: {
+    title: "Detecção de Imagens Sintéticas",
+    citation:
+      "CORVI, Riccardo et al. On The Detection of Synthetic Images Generated by Diffusion Models. In: IEEE ICASSP, 2023. Disponível em: <https://arxiv.org/abs/2211.00680>. Código: <https://github.com/grip-unina/DMimageDetection>.\n\n" +
+      "GUILLARO, Fabrizio et al. A Bias-Free Training Paradigm for More General AI-generated Image Detection. In: IEEE/CVF CVPR, 2025. Disponível em: <https://arxiv.org/abs/2412.17671>. Código: <https://github.com/grip-unina/B-Free>.\n\n" +
+      "LI, Ouxiang et al. Improving Synthetic Image Detection Towards Generalization: An Image Transformation Perspective. In: ACM KDD, 2025. Disponível em: <https://arxiv.org/abs/2408.06741>. Código: <https://github.com/Ouxiang-Li/SAFE>.\n\n" +
+      "Modelos Hugging Face do ensemble: haywoodsloan/ai-image-detector-deploy; cmckinle/sdxl-flux-detector_v1.1.",
+    cardSubtitle: "Ensemble HF + B-Free + Corvi2023 + SAFE · calibração LR",
+    detail:
+      "Hub multi-detector para classificação real vs sintético com calibração LR por população de referência. " +
+      "Inclui dois classificadores Hugging Face (ai-image-detector-deploy e sdxl-flux-detector v1.1), " +
+      "B-Free (CVPR 2025), DMImageDetection/Corvi2023 (ICASSP 2023, tiles 1024px) e SAFE (KDD 2025). " +
+      "Scores alimentam meta-classificador (logistic/XGBoost) e LR; tipicidade latente opcional via embeddings.",
+    summary:
+      "Selecione detectores e subgrupos de calibração na UI. Artefatos: scores individuais, gráficos Tippett/distribuição LR e resíduos forenses opcionais.",
+    license: "Ver LICENSE de cada detector / vendor",
+    repoUrl: "https://github.com/grip-unina/B-Free",
+  },
+};
+
+export const FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
+  ..._BASE_FORENSIC_TECHNIQUE_META,
+  ...SCAFFOLDED_TECHNIQUE_META,
 };
 
 export function getForensicTechniqueMeta(techniqueId: string): ForensicTechniqueMeta | undefined {
@@ -309,12 +445,14 @@ export function getTechniqueCardSubtitle(techniqueId: string): string | undefine
   return FORENSIC_TECHNIQUE_META[techniqueId]?.cardSubtitle;
 }
 
-/** Rótulos legados para técnicas sem entrada em FORENSIC_TECHNIQUE_META. */
+/** Rótulos de fallback para técnicas sem entrada em FORENSIC_TECHNIQUE_META. */
 export const LEGACY_TECHNIQUE_LABELS: Record<string, string> = {
-  metadata: "Metadados e estrutura JPEG",
+  metadata: "Metadados",
   synthetic_image_detection: "Detecção de Imagens Sintéticas",
-  mp3_parser: "Áudio forense (hub)",
-  opus_parser: "Áudio forense (hub)",
+  mp3_parser: "Parser MP3",
+  opus_parser: "Parser Opus",
+  audio_metadata: "Metadados",
+  video_metadata: "Metadados de vídeo",
   audio_forensics: "Análise forense de Áudio",
   __audio_hub__: "Análise forense de Áudio",
   __audio_spectral__: "Análise espectral (áudio)",
@@ -334,6 +472,8 @@ export const LEGACY_TECHNIQUE_LABELS: Record<string, string> = {
   videofact: "Vídeo — VideoFACT (edições/deepfake)",
   stil_video_detection: "Vídeo — STIL deepfake",
   lowres_fake_video: "Vídeo — Low-Res fake video (TUM)",
+  truvil: "Vídeo — TruVIL (inpainting localization)",
+  vilocal: "Vídeo — ViLocal (inpainting localization)",
 };
 
 export function resolveTechniqueLabel(techniqueId: string): string {

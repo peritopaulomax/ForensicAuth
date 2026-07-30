@@ -8,11 +8,11 @@ from typing import Any, Dict, Tuple
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.videofact.videofact_pipeline import (
+from forensics.videofact.videofact_pipeline import (
     run_videofact_analysis,
     write_videofact_report,
 )
-from core.legacy.videofact.videofact_runtime import videofact_runtime_status
+from forensics.videofact.videofact_runtime import videofact_runtime_status
 from core.progress import pop_progress_callback, report_progress
 
 

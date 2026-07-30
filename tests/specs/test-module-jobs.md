@@ -75,5 +75,5 @@
 ## Mocks/Stubs
 
 - Mock Celery broker (memoria) para testes unitarios
-- Mock plugins em `tests/mocks/plugins/`
+- Mock plugins em `LIXEIRA/tests/mocks/plugins/`
 - Mock GPU lock (semaforo em memoria)

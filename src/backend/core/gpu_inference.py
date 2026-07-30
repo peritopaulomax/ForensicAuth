@@ -15,13 +15,14 @@ logger = logging.getLogger(__name__)
 ML_GPU_TECHNIQUES = frozenset(
     {
         "synthetic_image_detection",
-        # "deepfake_similarity" is currently in standby; do not queue as GPU.
+        "audio_spoofing_detection",
         "safire",
-        "noiseprint",
         "imdlbenco",
         "videofact",
         "stil_video_detection",
         "lowres_fake_video",
+        "truvil",
+        "vilocal",
         "presentation_attack_detection",
         "moe_ffd",
     }
@@ -135,45 +136,45 @@ def ml_gpu_job_slot(technique: str):
 
 
 def prepare_vram_for_heavy_model(*, log: bool = True) -> dict[str, dict[str, int | None]]:
-    """Libera caches GPU estrangeiros antes de carregar modelos grandes (FakeVLM, ClipBased, etc.)."""
+    """Libera caches GPU estrangeiros antes de carregar modelos grandes."""
     snap_before = cuda_memory_snapshot()
     try:
-        from core.legacy.effort.effort_pipeline import clear_effort_model_cache
+        from forensics.effort.effort_pipeline import clear_effort_model_cache
 
         clear_effort_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.safe.safe_pipeline import clear_safe_model_cache
+        from forensics.safe.safe_pipeline import clear_safe_model_cache
 
         clear_safe_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.camo.camo_pipeline import clear_camo_model_cache
+        from forensics.camo.camo_pipeline import clear_camo_model_cache
 
         clear_camo_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.deeclip.deeclip_pipeline import clear_deeclip_model_cache
+        from forensics.deeclip.deeclip_pipeline import clear_deeclip_model_cache
 
         clear_deeclip_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.clide.clide_pipeline import clear_clide_model_cache
+        from forensics.clide.clide_pipeline import clear_clide_model_cache
 
         clear_clide_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.synthetic_image_detection.pipeline import release_gpu_memory
+        from forensics.synthetic_image_detection.pipeline import release_gpu_memory
 
         release_gpu_memory()
     except Exception:
@@ -195,49 +196,49 @@ def prepare_vram_for_iapl(*, log: bool = True) -> dict[str, dict[str, int | None
     """Libera VRAM de modelos ja inferidos antes do IAPL (CLIP ViT-L + TTA batch 32)."""
     snap_before = cuda_memory_snapshot()
     try:
-        from core.legacy.effort.effort_pipeline import clear_effort_model_cache
+        from forensics.effort.effort_pipeline import clear_effort_model_cache
 
         clear_effort_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.safe.safe_pipeline import clear_safe_model_cache
+        from forensics.safe.safe_pipeline import clear_safe_model_cache
 
         clear_safe_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.camo.camo_pipeline import clear_camo_model_cache
+        from forensics.camo.camo_pipeline import clear_camo_model_cache
 
         clear_camo_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.deeclip.deeclip_pipeline import clear_deeclip_model_cache
+        from forensics.deeclip.deeclip_pipeline import clear_deeclip_model_cache
 
         clear_deeclip_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.clide.clide_pipeline import clear_clide_model_cache
+        from forensics.clide.clide_pipeline import clear_clide_model_cache
 
         clear_clide_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.iapl.iapl_pipeline import clear_iapl_model_cache
+        from forensics.iapl.iapl_pipeline import clear_iapl_model_cache
 
         clear_iapl_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.synthetic_image_detection.pipeline import release_gpu_memory
+        from forensics.synthetic_image_detection.pipeline import release_gpu_memory
 
         release_gpu_memory()
     except Exception:
@@ -258,21 +259,21 @@ def prepare_vram_for_iapl(*, log: bool = True) -> dict[str, dict[str, int | None
 def purge_foreign_gpu_model_caches(*, include_trufor: bool = True) -> None:
     """Release VRAM from other ML plugins before heavy full-res inference."""
     try:
-        from core.legacy.safire.safire_pipeline import clear_predictor_cache
+        from forensics.safire.safire_pipeline import clear_predictor_cache
 
         clear_predictor_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.imdlbenco import imdlbenco_pipeline as imdl_pipeline
+        from forensics.imdlbenco import imdlbenco_pipeline as imdl_pipeline
 
         imdl_pipeline._clear_gpu_model_cache()
     except Exception:
         pass
 
     try:
-        from core.legacy.iml_vit import iml_vit_pipeline as iml_vit
+        from forensics.iml_vit import iml_vit_pipeline as iml_vit
 
         evict_cache_keys_on_device(iml_vit._model_cache)
         iml_vit._model_cache.clear()
@@ -280,7 +281,7 @@ def purge_foreign_gpu_model_caches(*, include_trufor: bool = True) -> None:
         pass
 
     try:
-        from core.legacy.synthetic_image_detection.pipeline import release_gpu_memory
+        from forensics.synthetic_image_detection.pipeline import release_gpu_memory
 
         release_gpu_memory()
     except Exception:
@@ -288,7 +289,7 @@ def purge_foreign_gpu_model_caches(*, include_trufor: bool = True) -> None:
 
     if include_trufor:
         try:
-            from core.legacy.imdlbenco import trufor_official_pipeline as trufor
+            from forensics.imdlbenco import trufor_official_pipeline as trufor
 
             evict_cache_keys_on_device(getattr(trufor._load_model, "_cache", {}))
         except Exception:

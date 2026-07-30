@@ -1,0 +1,59 @@
+# Exemplo — template medium (heatmap + overlay) com bibliografia
+id: demo_medium_heatmap
+template: medium
+media: imagem
+title: "Demo Medium (scaffold)"
+subtitle: "Exemplo heatmap/overlay gerado pelo scaffold"
+description: >
+  Técnica de demonstração do scaffold (template medium).
+  Implemente a lógica em forensics/demo_medium_heatmap/pipeline.py.
+citation: >
+  AUTOR, Nome. Título do artigo de referência. Venue, ano.
+
+  Segundo parágrafo ABNT (opcional).
+license: "Exemplo — substituir"
+repo_url: "https://example.com/repo"
+paper:
+  title: "Título do paper (PDF)"
+  venue: "Venue 2020"
+  sources:
+    - "https://doi.org/10.0000/exemplo"
+  # PDF esperado em docs/references/papers/imdl/<local_file>
+  local_file: "demo_medium_heatmap/demo_medium_heatmap_paper.pdf"
+gpu: false
+disabled: true
+admin_only: true
+card:
+  mode: existing
+  group_id: classicas-compressao
+parameters:
+  - name: gain
+    type: float
+    widget: slider
+    label: Ganho
+    default: 1.0
+    min: 0.1
+    max: 10.0
+    step: 0.1
+  - name: channel
+    type: enum
+    widget: radio
+    label: Canal
+    default: rgb
+    options: [rgb, y, r, g, b]
+artifacts:
+  - key: original_crop_path
+    filename: original.png
+    role: original
+    label: Original
+    savable: false
+  - key: heatmap_path
+    filename: heatmap.png
+    role: heatmap
+    label: Heatmap
+    savable: true
+  - key: overlay_image_path
+    filename: overlay.png
+    role: overlay
+    label: Overlay
+    savable: true

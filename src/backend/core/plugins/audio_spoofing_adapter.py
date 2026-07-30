@@ -14,19 +14,20 @@ import numpy as np
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.audio_spoofing.pipeline import run_audio_spoofing_analysis
-from core.legacy.audio_spoofing.runtime import (
+from forensics.audio_spoofing.pipeline import run_audio_spoofing_analysis
+from forensics.audio_spoofing.runtime import (
     VALID_AUDIO_SPOOFING_ANALYSES,
     runtime_status,
 )
 from core.progress import pop_progress_callback, report_progress
 from core.audio_spoofing_lr_reference import (
     AUGMENTATION_MULTIPLIER,
-    DEFAULT_AUGMENTED_SCORE_MATRIX,
-    DEFAULT_REPRESENTATIONS_MATRIX,
-    DEFAULT_SCORE_MATRIX,
     META_CLASSIFIERS,
     compute_reference_lr,
+    default_augmented_score_matrix,
+    default_representations_matrix,
+    default_score_matrix,
+    normalize_meta_classifier,
 )
 from core.latent_typicality.representations_utils import representations_matrix_available
 from core.technique_ids import AUDIO_SPOOFING_DETECTION
@@ -132,7 +133,7 @@ class AudioSpoofingAdapter(ForensicPlugin):
             invalid = sorted(normalized - VALID_AUDIO_SPOOFING_ANALYSES)
             if invalid:
                 return False, "Detectores invalidos: " + ", ".join(invalid)
-            from core.legacy.audio_spoofing.runtime import detector_runtime_status
+            from forensics.audio_spoofing.runtime import detector_runtime_status
 
             missing: list[str] = []
             for detector_id in sorted(normalized):
@@ -143,8 +144,11 @@ class AudioSpoofingAdapter(ForensicPlugin):
                 return False, "Detectores indisponiveis: " + "; ".join(missing)
 
         classifier = parameters.get("meta_classifier")
-        if classifier is not None and str(classifier).lower().strip() not in META_CLASSIFIERS:
-            return False, "meta_classifier deve ser um de: " + ", ".join(META_CLASSIFIERS)
+        if classifier is not None:
+            try:
+                normalize_meta_classifier(str(classifier))
+            except RuntimeError:
+                return False, "meta_classifier deve ser um de: " + ", ".join(META_CLASSIFIERS)
 
         use_aug = parameters.get("use_augmented_reference")
         if use_aug is not None and not isinstance(use_aug, bool):
@@ -153,7 +157,7 @@ class AudioSpoofingAdapter(ForensicPlugin):
         use_latent = parameters.get("use_latent_typicality")
         if use_latent is not None and not isinstance(use_latent, bool):
             return False, "use_latent_typicality deve ser booleano"
-        rep_available = representations_matrix_available(DEFAULT_REPRESENTATIONS_MATRIX)
+        rep_available = representations_matrix_available(default_representations_matrix())
 
         if use_latent and not rep_available:
             return (
@@ -162,7 +166,12 @@ class AudioSpoofingAdapter(ForensicPlugin):
                 "execute o pipeline de tipicidade latente primeiro.",
             )
 
-        if use_aug and not use_latent and not DEFAULT_AUGMENTED_SCORE_MATRIX.is_file() and not rep_available:
+        if (
+            use_aug
+            and not use_latent
+            and not default_augmented_score_matrix().is_file()
+            and not rep_available
+        ):
             return (
                 False,
                 "Populacao aumentada indisponivel: gere representations.csv ou o score matrix aumentado.",
@@ -290,13 +299,14 @@ class AudioSpoofingAdapter(ForensicPlugin):
 
                 try:
                     use_augmented = bool(parameters.get("use_augmented_reference"))
-                    rep_available = representations_matrix_available(DEFAULT_REPRESENTATIONS_MATRIX)
+                    reps = default_representations_matrix()
+                    rep_available = representations_matrix_available(reps)
                     if use_latent_typicality or (use_augmented and rep_available):
-                        score_matrix = DEFAULT_REPRESENTATIONS_MATRIX
+                        score_matrix = reps
                     elif use_augmented:
-                        score_matrix = DEFAULT_AUGMENTED_SCORE_MATRIX
+                        score_matrix = default_augmented_score_matrix()
                     else:
-                        score_matrix = DEFAULT_SCORE_MATRIX
+                        score_matrix = default_score_matrix()
                     sample_multiplier = AUGMENTATION_MULTIPLIER if use_augmented else 1
                     lr_report = compute_reference_lr(
                         detector_scores=analysis.get("detector_scores", {}),

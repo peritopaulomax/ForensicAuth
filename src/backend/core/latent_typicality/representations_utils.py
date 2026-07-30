@@ -69,13 +69,21 @@ def parse_sample_id(sample_id: str) -> dict[str, str]:
     }
 
 
+def resolve_embedding_path(path: str | Path) -> Path:
+    """Return ``path`` if the embedding file exists on disk."""
+    return Path(str(path))
+
+
 def load_embeddings_row(row: pd.Series, detectors: tuple[str, ...] = DETECTORS) -> dict[str, np.ndarray]:
     out: dict[str, np.ndarray] = {}
     for detector in detectors:
         path = row.get(f"{detector}_embedding_path")
         if not path or (isinstance(path, float) and np.isnan(path)):
             raise RuntimeError(f"Embedding ausente para detector {detector}")
-        out[detector] = np.load(str(path))
+        resolved = resolve_embedding_path(path)
+        if not resolved.is_file():
+            raise RuntimeError(f"Embedding ausente para detector {detector}: {path}")
+        out[detector] = np.load(str(resolved))
     return out
 
 
@@ -84,7 +92,7 @@ def row_has_embeddings(row: pd.Series, detectors: tuple[str, ...] = DETECTORS) -
         path = row.get(f"{detector}_embedding_path")
         if not path or (isinstance(path, float) and np.isnan(path)):
             return False
-        if not Path(str(path)).is_file():
+        if not resolve_embedding_path(path).is_file():
             return False
     return True
 

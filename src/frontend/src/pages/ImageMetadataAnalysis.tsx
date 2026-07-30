@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useParams } from "react-router-dom";
-import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
+import TechniquePageShell from "@/components/TechniquePageShell";
+import { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
 import Matrix8x8 from "@/components/metadata/Matrix8x8";
 import ForensicInsightsPanel, { type ForensicInsight } from "@/components/metadata/ForensicInsightsPanel";
 import MetadataSectionHeader from "@/components/metadata/MetadataSectionHeader";
@@ -11,9 +11,12 @@ import { METADATA_TABS, tabDefById } from "@/components/metadata/metadataTabConf
 import { metadataSectionDescription, metadataSectionMeta } from "@/components/metadata/metadataSectionCopy";
 import MetadataTagTable, { type MetadataTag } from "@/components/metadata/MetadataTagTable";
 import XmpViewer, { type XmpStructured } from "@/components/metadata/XmpViewer";
+import C2paViewer, { type C2paStructured } from "@/components/metadata/C2paViewer";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
-import { saveDerivative } from "@/services/evidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
+import type { ForensicTechniqueMeta } from "@/config/forensicTechniqueMeta";
 
 type TabId = MetadataTabId;
 
@@ -24,6 +27,7 @@ interface MetadataFamilies {
   icc?: MetadataTag[];
   makernotes?: MetadataTag[];
   adobe?: MetadataTag[];
+  c2pa?: MetadataTag[];
   other?: MetadataTag[];
 }
 
@@ -57,11 +61,19 @@ function familiesFromResult(result: Record<string, unknown> | null): MetadataFam
   return meta?.families || {};
 }
 
+const METADATA_META: ForensicTechniqueMeta = {
+  title: "Metadados",
+  citation: "",
+  cardSubtitle:
+    "EXIF, IPTC, XMP, ICC, MakerNotes, C2PA/Content Credentials, flags Adobe e tabelas JPEG.",
+  detail:
+    "EXIF, IPTC, XMP, perfil ICC, MakerNotes, Content Credentials (C2PA/JUMBF com validação criptográfica via c2pa-python), flags Adobe e tabelas de quantização / Huffman (jpegio + ExifTool quando disponível).",
+};
+
 export default function ImageMetadataAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
   const {
     running,
     currentJobId,
@@ -73,12 +85,15 @@ export default function ImageMetadataAnalysis() {
     reset,
   } = useForensicJob();
 
+  const { status: runtimeStatus } = useTechniqueRuntime("metadata");
+  const runtimeOk = runtimeStatus?.available ?? null;
+
   const applyEvidence = useCallback(
     (_id: string, _source: "original" | "derivative") => {
       reset();
-      setSaveMessage(null);
+      clearMessage();
     },
-    [reset],
+    [reset, clearMessage],
   );
 
   const { embedded, showEvidencePicker, evidenceId, onSelectEvidence } = useGroupAwareEvidence(
@@ -97,6 +112,9 @@ export default function ImageMetadataAnalysis() {
   const xmpStructured = ((result?.xmp_structured ||
     (result?.metadata as { xmp_structured?: XmpStructured })?.xmp_structured) ??
     {}) as XmpStructured;
+  const c2paStructured = ((result?.c2pa_structured ||
+    (result?.metadata as { c2pa_structured?: C2paStructured })?.c2pa_structured) ??
+    {}) as C2paStructured;
   const forensicInsights = (result?.forensic_insights || []) as ForensicInsight[];
 
   const tabCounts: Record<TabId, number> = useMemo(
@@ -108,10 +126,11 @@ export default function ImageMetadataAnalysis() {
       icc: (families.icc?.length || 0) + (iccProfile.available ? 1 : 0),
       makernotes: families.makernotes?.length || 0,
       adobe: families.adobe?.length || 0,
+      c2pa: families.c2pa?.length || (c2paStructured.available ? 1 : 0),
       jpeg: jpeg.available ? 1 : 0,
       other: families.other?.length || 0,
     }),
-    [families, highlights, iccProfile, jpeg]
+    [families, highlights, iccProfile, jpeg, c2paStructured.available]
   );
 
   const visibleTabs = useMemo(() => {
@@ -124,12 +143,29 @@ export default function ImageMetadataAnalysis() {
         if (jpeg.available) items.push({ id: "jpeg", count: (jpeg.marker_count as number) || 1 });
         continue;
       }
+      if (tab.id === "c2pa") {
+        if (c2paStructured.available) {
+          items.push({
+            id: "c2pa",
+            count: families.c2pa?.length || (c2paStructured.present ? 1 : 0),
+          });
+        }
+        continue;
+      }
       if (tabCounts[tab.id] > 0) {
         items.push({ id: tab.id, count: tabCounts[tab.id] });
       }
     }
     return items;
-  }, [tabCounts, jpeg.available, jpeg.marker_count, forensicInsights.length]);
+  }, [
+    tabCounts,
+    jpeg.available,
+    jpeg.marker_count,
+    forensicInsights.length,
+    c2paStructured.available,
+    c2paStructured.present,
+    families.c2pa?.length,
+  ]);
 
   const sectionMetaLine = useMemo(
     () =>
@@ -149,152 +185,115 @@ export default function ImageMetadataAnalysis() {
   }, [result, visibleTabs, activeTab]);
 
   async function process() {
-    if (!evidenceId) return;
+    if (!evidenceId || runtimeOk === false) return;
     setActiveTab("overview");
-    setSaveMessage(null);
+    clearMessage();
     try {
       await runAnalysis(evidenceId, "metadata", {});
     } catch {
-      /* hook */
     }
   }
 
   async function registerInCustody() {
     if (!currentJobId) return;
-    setSaving(true);
-    setSaveMessage(null);
-    try {
-      const res = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: "metadata_report.json",
-        label: "Relatorio de metadados",
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `Registrado na cadeia de custodia como derivado «${res.evidence.original_filename}». Baixe em Derivados (aba do caso). SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-        "Erro ao registrar derivado";
-      setSaveMessage({ type: "err", text: msg });
-    } finally {
-      setSaving(false);
-    }
+    await save(currentJobId, "metadata_report.json", "Relatorio de metadados");
   }
 
   if (!caseId) return null;
 
-  return (
-    <AnalysisPageShell
-      caseId={caseId}
-      title="Metadados e estrutura JPEG"
-      subtitle="EXIF, IPTC, XMP, perfil ICC, MakerNotes, flags Adobe e tabelas de quantização / Huffman (jpegio + ExifTool quando disponível)."
-      embedded={embedded}
-    >
-      <AnalysisPanel title="Evidência">
-        {showEvidencePicker && (
-          <>
-            <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#6b7280" }}>
-              Escolha uma evidência original do caso. O relatório JSON gerado é registrado em Derivados, não
-              aparece aqui para nova extração.
+  const parametersPanel = (
+    <>
+      <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#6b7280" }}>
+        Escolha uma evidência.
+      </p>
+      <div style={{ marginTop: "1rem" }}>
+        <ProcessButton
+          onClick={process}
+          disabled={!evidenceId || runtimeOk === false}
+          running={running}
+          progress={progress}
+          progressLabel={progressLabel}
+          label="Extrair metadados"
+        />
+      </div>
+      {error && <MessageBox type="err" text={error} />}
+    </>
+  );
+
+  const resultPanel = result && (
+    <>
+      {warnings.length > 0 && (
+        <div
+          style={{
+            background: "#fffbeb",
+            border: "1px solid #fcd34d",
+            borderRadius: 8,
+            padding: "0.75rem 1rem",
+            marginBottom: "1rem",
+            fontSize: "0.85rem",
+            color: "#92400e",
+          }}
+        >
+          {warnings.map((w, i) => (
+            <p key={i} style={{ margin: i ? "0.5rem 0 0" : 0 }}>
+              {w}
             </p>
-            <ImageEvidenceSelector
-              caseId={caseId}
-              selectedId={evidenceId}
-              selectionSource="original"
-              excludeDerivatives
-              onSelect={onSelectEvidence}
-            />
-          </>
-        )}
-        <div style={{ marginTop: "1rem" }}>
-          <ProcessButton
-            onClick={process}
-            disabled={!evidenceId}
-            running={running}
-            progress={progress}
-            progressLabel={progressLabel}
-            label="Extrair metadados"
-          />
+          ))}
         </div>
-        {error && <MessageBox type="err" text={error} />}
-      </AnalysisPanel>
+      )}
 
-      {result && (
-        <>
-          {warnings.length > 0 && (
-            <div
-              style={{
-                background: "#fffbeb",
-                border: "1px solid #fcd34d",
-                borderRadius: 8,
-                padding: "0.75rem 1rem",
-                marginBottom: "1rem",
-                fontSize: "0.85rem",
-                color: "#92400e",
-              }}
-            >
-              {warnings.map((w, i) => (
-                <p key={i} style={{ margin: i ? "0.5rem 0 0" : 0 }}>
-                  {w}
-                </p>
-              ))}
-            </div>
-          )}
+      <SummaryCards
+        summary={summary}
+        file={file}
+        tabCounts={tabCounts}
+        activeTab={activeTab}
+        onNavigate={setActiveTab}
+        visibleTabIds={visibleTabs.map((t) => t.id)}
+      />
 
-          <SummaryCards
-            summary={summary}
-            file={file}
-            tabCounts={tabCounts}
-            activeTab={activeTab}
-            onNavigate={setActiveTab}
-            visibleTabIds={visibleTabs.map((t) => t.id)}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.75rem",
+          flexWrap: "wrap",
+          marginBottom: "1rem",
+        }}
+      >
+        <button
+          type="button"
+          onClick={registerInCustody}
+          disabled={!currentJobId || saving}
+          style={{
+            padding: "0.55rem 1.1rem",
+            background: "#1a1a2e",
+            color: "#fff",
+            border: "none",
+            borderRadius: 6,
+            cursor: saving || !currentJobId ? "wait" : "pointer",
+            fontSize: "0.88rem",
+            fontWeight: 600,
+            opacity: !currentJobId ? 0.55 : 1,
+          }}
+        >
+          {saving ? "Registrando…" : "Registrar relatorio na cadeia (derivado JSON)"}
+        </button>
+        <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+          O arquivo fica em <strong>Derivados</strong>; o download e feito la, com registro na custodia.
+        </span>
+      </div>
+      {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
+
+      <div className="metadata-results-shell">
+        <MetadataTabBar visibleTabs={visibleTabs} activeId={activeTab} onChange={setActiveTab} />
+
+        <AnalysisPanel className="metadata-results-panel">
+          <MetadataSectionHeader
+            tabId={activeTab}
+            description={metadataSectionDescription(activeTab)}
+            meta={sectionMetaLine}
           />
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.75rem",
-              flexWrap: "wrap",
-              marginBottom: "1rem",
-            }}
-          >
-            <button
-              type="button"
-              onClick={registerInCustody}
-              disabled={!currentJobId || saving}
-              style={{
-                padding: "0.55rem 1.1rem",
-                background: "#1a1a2e",
-                color: "#fff",
-                border: "none",
-                borderRadius: 6,
-                cursor: saving || !currentJobId ? "wait" : "pointer",
-                fontSize: "0.88rem",
-                fontWeight: 600,
-                opacity: !currentJobId ? 0.55 : 1,
-              }}
-            >
-              {saving ? "Registrando…" : "Registrar relatorio na cadeia (derivado JSON)"}
-            </button>
-            <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-              O arquivo fica em <strong>Derivados</strong>; o download e feito la, com registro na custodia.
-            </span>
-          </div>
-          {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
-
-          <div className="metadata-results-shell">
-            <MetadataTabBar visibleTabs={visibleTabs} activeId={activeTab} onChange={setActiveTab} />
-
-            <AnalysisPanel className="metadata-results-panel">
-              <MetadataSectionHeader
-                tabId={activeTab}
-                description={metadataSectionDescription(activeTab)}
-                meta={sectionMetaLine}
-              />
-              <div role="tabpanel" id={`metadata-panel-${activeTab}`} aria-labelledby={`metadata-tab-${activeTab}`}>
+          <div role="tabpanel" id={`metadata-panel-${activeTab}`} aria-labelledby={`metadata-tab-${activeTab}`}>
             {activeTab === "overview" && (
               <OverviewTab
                 highlights={highlights}
@@ -314,9 +313,7 @@ export default function ImageMetadataAnalysis() {
                 hintLayout="stacked"
               />
             )}
-            {activeTab === "xmp" && (
-              <XmpViewer structured={xmpStructured} />
-            )}
+            {activeTab === "xmp" && <XmpViewer structured={xmpStructured} />}
             {activeTab === "icc" && <IccTab entries={families.icc || []} profile={iccProfile} />}
             {activeTab === "makernotes" && (
               <MetadataTagTable
@@ -334,14 +331,32 @@ export default function ImageMetadataAnalysis() {
                 hintLayout="stacked"
               />
             )}
+            {activeTab === "c2pa" && (
+              <C2paViewer structured={c2paStructured} entries={families.c2pa || []} />
+            )}
             {activeTab === "jpeg" && <JpegStructureTab jpeg={jpeg} />}
             {activeTab === "other" && <MetadataTagTable entries={families.other || []} hintLayout="stacked" />}
-              </div>
-            </AnalysisPanel>
           </div>
-        </>
-      )}
-    </AnalysisPageShell>
+        </AnalysisPanel>
+      </div>
+    </>
+  );
+
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="metadata"
+      mediaType="imagem"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      runtimeOk={runtimeOk}
+      evidenceSelectorProps={{ excludeDerivatives: true }}
+      parametersPanel={parametersPanel}
+      resultPanel={resultPanel || undefined}
+      meta={METADATA_META}
+    />
   );
 }
 
@@ -383,6 +398,17 @@ function SummaryCards({
     });
   if (visibleTabIds.includes("adobe"))
     navigable.push({ tabId: "adobe", label: "Adobe", value: String(tabCounts.adobe) });
+  if (visibleTabIds.includes("c2pa"))
+    navigable.push({
+      tabId: "c2pa",
+      label: "C2PA",
+      value: summary.has_c2pa
+        ? String(summary.c2pa_validation_state || (summary.c2pa_valid ? "Valid" : "presente"))
+        : summary.c2pa_available
+          ? "ausente"
+          : "N/A",
+      hint: summary.has_c2pa ? "Content Credentials" : undefined,
+    });
   if (visibleTabIds.includes("makernotes"))
     navigable.push({ tabId: "makernotes", label: "MakerNotes", value: String(tabCounts.makernotes) });
   if (visibleTabIds.includes("icc"))
@@ -455,7 +481,12 @@ function OverviewTab({
       <ForensicInsightsPanel insights={forensicInsights} />
       <p style={{ fontSize: "0.85rem", color: "#6b7280", marginTop: 0 }}>
         GPS: {summary.has_gps ? "detectado" : "não"} · ICC: {summary.has_icc ? "sim" : "não"} · MakerNotes:{" "}
-        {summary.has_makernotes ? "sim" : "não"} · Tags Adobe: {summary.has_adobe_tags ? "sim" : "não"}
+        {summary.has_makernotes ? "sim" : "não"} · Tags Adobe: {summary.has_adobe_tags ? "sim" : "não"} · C2PA:{" "}
+        {summary.has_c2pa
+          ? String(summary.c2pa_validation_state || (summary.c2pa_valid ? "válido" : "presente"))
+          : summary.c2pa_available
+            ? "ausente"
+            : "N/A"}
       </p>
       <h4 style={{ fontSize: "0.9rem", margin: "1rem 0 0.5rem" }}>Campos forenses frequentes</h4>
       <MetadataTagTable entries={highlights} emptyMessage="Nenhum campo em destaque." showHints hintLayout="stacked" />

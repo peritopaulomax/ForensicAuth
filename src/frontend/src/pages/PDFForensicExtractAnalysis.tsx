@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
+import TechniquePageShell from "@/components/TechniquePageShell";
+import { AnalysisPanel, ProcessButton } from "@/components/AnalysisPageShell";
 import JobArtifactImageThumb from "@/components/JobArtifactImageThumb";
 import PdfExtractImageGrid from "@/components/PdfExtractImageGrid";
 import EvidenceFileGrid from "@/components/EvidenceFileGrid";
 import FileListViewHeader from "@/components/FileListViewHeader";
+import MarkdownReportView from "@/components/MarkdownReportView";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
-import MediaEvidenceSelector from "@/components/MediaEvidenceSelector";
 import { useForensicJob } from "@/hooks/useForensicJob";
-import { saveDerivative } from "@/services/evidence";
+import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 import api from "@/services/api";
 import { imageSelectorListMaxHeight, scrollableListStyle } from "@/styles/listHeights";
 
@@ -27,14 +30,20 @@ interface ExtractedVersion {
 }
 
 type MetaTab = "metadata_report.txt" | "metadata.json";
+/** UI view for signatures panel (maps to on-disk artifacts). */
+type SigView = "relatorio" | "fonte" | "json";
 
 const METADATA_SCROLL_HEIGHT = 380;
 const INCREMENTAL_REPORT_HEIGHT = 220;
+const SIGNATURES_SCROLL_HEIGHT = 520;
+
+function sigArtifactFilename(view: SigView): "signatures_report.txt" | "signatures.json" {
+  return view === "json" ? "signatures.json" : "signatures_report.txt";
+}
 
 export default function PDFForensicExtractAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
   const navigate = useNavigate();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [images, setImages] = useState<ExtractedImage[]>([]);
   const [versions, setVersions] = useState<ExtractedVersion[]>([]);
@@ -44,22 +53,36 @@ export default function PDFForensicExtractAnalysis() {
   const [previewImageId, setPreviewImageId] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [metaTab, setMetaTab] = useState<MetaTab>("metadata_report.txt");
+  const [sigView, setSigView] = useState<SigView>("relatorio");
 
   const [imageViewMode, setImageViewMode] = useFileListViewMode();
   const [versionViewMode, setVersionViewMode] = useFileListViewMode();
 
   const [metaContent, setMetaContent] = useState("");
   const [metaLoading, setMetaLoading] = useState(false);
+  const [sigContent, setSigContent] = useState("");
+  const [sigLoading, setSigLoading] = useState(false);
   const [incrementalReport, setIncrementalReport] = useState("");
   const [incMessage, setIncMessage] = useState("");
+  const [sigMessage, setSigMessage] = useState("");
+  const [signatureCount, setSignatureCount] = useState(0);
+  const [pdfSigned, setPdfSigned] = useState(false);
+  const [sigHeadline, setSigHeadline] = useState("");
+  const [sigPadesLevel, setSigPadesLevel] = useState("");
+  const [sigDssPresent, setSigDssPresent] = useState(false);
+  const [sigVerdict, setSigVerdict] = useState<Record<string, string> | null>(null);
+  const [sigFindingsSummary, setSigFindingsSummary] = useState<Record<string, number> | null>(null);
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [versionPreviewUrl, setVersionPreviewUrl] = useState<string | null>(null);
-  const [savingDerivative, setSavingDerivative] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const { running, currentJobId, result, error, progress, progressLabel, runAnalysis, fetchImage, reset } =
     useForensicJob();
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
+  const { status: runtimeStatus } = useTechniqueRuntime("pdf_forensic_extract");
+
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
 
   useEffect(
     () => () => {
@@ -78,15 +101,25 @@ export default function PDFForensicExtractAnalysis() {
     setPreviewImageId(null);
     setSelectedVersionId(null);
     setMetaTab("metadata_report.txt");
+    setSigView("relatorio");
     setMetaContent("");
+    setSigContent("");
     setIncrementalReport("");
     setIncMessage("");
-    setSaveMessage(null);
+    setSigMessage("");
+    setSignatureCount(0);
+    setPdfSigned(false);
+    setSigHeadline("");
+    setSigPadesLevel("");
+    setSigDssPresent(false);
+    setSigVerdict(null);
+    setSigFindingsSummary(null);
+    clearMessage();
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
     if (versionPreviewUrl) URL.revokeObjectURL(versionPreviewUrl);
     setVersionPreviewUrl(null);
-  }, [reset, previewUrl, versionPreviewUrl]);
+  }, [reset, clearMessage, previewUrl, versionPreviewUrl]);
 
   const loadMetaFile = useCallback(async (jobId: string, filename: MetaTab) => {
     setMetaLoading(true);
@@ -100,6 +133,22 @@ export default function PDFForensicExtractAnalysis() {
       setMetaContent("(Nao foi possivel carregar este artefato.)");
     } finally {
       setMetaLoading(false);
+    }
+  }, []);
+
+  const loadSigFile = useCallback(async (jobId: string, view: SigView) => {
+    setSigLoading(true);
+    try {
+      const filename = sigArtifactFilename(view);
+      const isJson = filename.endsWith(".json");
+      const res = await api.get(`/analysis/${jobId}/result/file?filename=${filename}`, {
+        responseType: isJson ? "json" : "text",
+      });
+      setSigContent(isJson ? JSON.stringify(res.data, null, 2) : String(res.data));
+    } catch {
+      setSigContent("(Nao foi possivel carregar este artefato.)");
+    } finally {
+      setSigLoading(false);
     }
   }, []);
 
@@ -130,6 +179,23 @@ export default function PDFForensicExtractAnalysis() {
     setImages(imageList);
     setVersions(versionList);
     setIncMessage(String(jobResult.incremental_message || ""));
+    setSigMessage(String(jobResult.signatures_message || ""));
+    setSignatureCount(Number(jobResult.signature_count || 0));
+    setPdfSigned(Boolean(jobResult.pdf_signed));
+    setSigHeadline(String(jobResult.signatures_headline || ""));
+    setSigPadesLevel(String(jobResult.signatures_pades_level || ""));
+    setSigDssPresent(Boolean(jobResult.signatures_dss_present));
+    setSigVerdict(
+      jobResult.signatures_verdict && typeof jobResult.signatures_verdict === "object"
+        ? (jobResult.signatures_verdict as Record<string, string>)
+        : null
+    );
+    setSigFindingsSummary(
+      jobResult.signatures_findings_summary &&
+        typeof jobResult.signatures_findings_summary === "object"
+        ? (jobResult.signatures_findings_summary as Record<string, number>)
+        : null
+    );
 
     if (imageList.length > 0) {
       setSelectedImageIds(new Set(imageList.map((img) => img.id)));
@@ -157,46 +223,45 @@ export default function PDFForensicExtractAnalysis() {
     loadMetaFile(currentJobId, metaTab);
   }, [currentJobId, metaTab, extractionReady, loadMetaFile]);
 
+  useEffect(() => {
+    if (!currentJobId || !extractionReady) return;
+    loadSigFile(currentJobId, sigView);
+  }, [currentJobId, sigView, extractionReady, loadSigFile]);
+
+  const applyEvidence = useCallback(
+    (_id: string) => {
+      clearAll();
+    },
+    [clearAll]
+  );
+
+  const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
+    useGroupAwareEvidence(caseId!, applyEvidence);
+
   async function process() {
-    if (!selectedId) return;
+    if (!evidenceId || !runtimeOk) return;
     clearAll();
     try {
-      await runAnalysis(selectedId, "pdf_forensic_extract", {}, {
+      await runAnalysis(evidenceId, "pdf_forensic_extract", {}, {
         onArtifactsLoaded: async (jobId, jobResult) => {
           await loadManifest(jobId, jobResult);
         },
       });
     } catch {
-      /* hook */
     }
   }
 
   async function handleSaveSelectedImages() {
     if (!currentJobId || selectedImageIds.size === 0) return;
     const toSave = images.filter((img) => selectedImageIds.has(img.id));
-    setSavingDerivative("__batch__");
-    setSaveMessage(null);
     let ok = 0;
     for (const img of toSave) {
-      try {
-        await saveDerivative({
-          job_id: currentJobId,
-          artifact_filename: img.filename,
-          label: `pdf_extract_image_${img.filename}`,
-        });
-        ok += 1;
-      } catch {
-        /* continue */
-      }
+      const stem = img.filename.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, "") || img.id;
+      const done = await save(currentJobId, img.filename, `pdf_extract_${stem}`);
+      if (done) ok += 1;
     }
-    setSavingDerivative(null);
     if (ok > 0) {
-      setSaveMessage({
-        type: "ok",
-        text: `${ok} imagem(ns) salva(s) nos derivados do caso.`,
-      });
-    } else {
-      setSaveMessage({ type: "err", text: "Nao foi possivel salvar as imagens selecionadas." });
+      
     }
   }
 
@@ -207,31 +272,6 @@ export default function PDFForensicExtractAnalysis() {
       else next.add(id);
       return next;
     });
-  }
-
-  async function handleSaveDerivative(artifactFilename: string, label: string) {
-    if (!currentJobId) return;
-    setSavingDerivative(artifactFilename);
-    setSaveMessage(null);
-    try {
-      const res = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: artifactFilename,
-        label,
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${res.message} «${res.evidence.original_filename}». SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined;
-      setSaveMessage({ type: "err", text: detail || "Erro ao salvar derivado" });
-    } finally {
-      setSavingDerivative(null);
-    }
   }
 
   const previewImage = useMemo(
@@ -288,48 +328,62 @@ export default function PDFForensicExtractAnalysis() {
 
   if (!caseId) return null;
 
-  return (
-    <AnalysisPageShell
-      caseId={caseId}
-      title="PDF — Extracao forense"
-      subtitle="Imagens (JPEG stream bruto quando possivel), metadados completos e deteccao de versoes incrementais por %%EOF."
-    >
-      <AnalysisPanel title="Evidencia PDF">
-        <MediaEvidenceSelector
-          caseId={caseId}
-          fileType="pdf"
-          selectedId={selectedId}
-          onSelect={(id) => {
-            setSelectedId(id);
-            clearAll();
-          }}
-          radioName="pdf-forensic-extract"
+  const parametersPanel = (
+    <>
+      <div style={{ marginTop: "1rem" }}>
+        <ProcessButton
+          onClick={process}
+          disabled={!evidenceId || runtimeOk === false}
+          running={running}
+          progress={progress}
+          progressLabel={progressLabel}
+          label="Extrair conteudo"
         />
-        <div style={{ marginTop: "1rem" }}>
-          <ProcessButton
-            onClick={process}
-            disabled={!selectedId}
-            running={running}
-            progress={progress}
-            progressLabel={progressLabel}
-            label="Extrair conteudo"
-          />
-        </div>
-        {error && <MessageBox type="err" text={error} />}
-      </AnalysisPanel>
+      </div>
+    </>
+  );
 
+  const resultPanel = (
+    <>
       {result && (
-        <AnalysisPanel title="Resumo">
+        <>
           <p style={{ margin: 0, fontSize: "0.88rem" }}>
             Imagens extraidas: {Number(result.image_count)} · Versoes incrementais:{" "}
-            {Number(result.incremental_version_count)}
+            {Number(result.incremental_version_count)} · Assinaturas:{" "}
+            {Number(result.signature_count)}
+            {result.pdf_signed ? " (PDF assinado)" : ""}
           </p>
           {incMessage && (
             <p style={{ margin: "0.5rem 0 0", fontSize: "0.82rem", color: "#6b7280" }}>{incMessage}</p>
           )}
-        </AnalysisPanel>
+          {sigMessage && (
+            <p style={{ margin: "0.35rem 0 0", fontSize: "0.82rem", color: "#6b7280" }}>{sigMessage}</p>
+          )}
+        </>
       )}
+    </>
+  );
 
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="pdf_forensic_extract"
+      mediaType="pdf"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      parametersPanel={parametersPanel}
+      resultPanel={resultPanel || undefined}
+    >
       {hasExtracted && images.length > 0 && (
         <AnalysisPanel title="Imagens extraidas">
           <p style={hintStyle}>
@@ -436,18 +490,112 @@ export default function PDFForensicExtractAnalysis() {
               <button
                 type="button"
                 style={btnPrimary}
-                disabled={!!savingDerivative}
+                disabled={!!saving}
                 onClick={handleSaveSelectedImages}
               >
-                {savingDerivative === "__batch__"
-                  ? "Salvando…"
-                  : `Salvar ${selectedImageIds.size} selecionada(s) em derivados`}
+                {saving ? "Salvando…" : `Salvar ${selectedImageIds.size} selecionada(s) em derivados`}
               </button>
               <button type="button" style={btnSecondary} onClick={() => navigate(`/cases/${caseId}?tab=derivados`)}>
                 Abrir derivados
               </button>
             </div>
           )}
+        </AnalysisPanel>
+      )}
+
+      {hasExtracted && (
+        <AnalysisPanel title="Assinaturas digitais">
+          <p style={hintStyle}>
+            {pdfSigned
+              ? `${signatureCount} assinatura(s) analisada(s) com pdfsig_forense (PAdES/ICP). Relatório abaixo, não substitui validar.iti.gov.br.`
+              : "Nenhuma assinatura digital embutida neste PDF."}
+          </p>
+          {sigMessage && (
+            <p style={{ margin: "0 0 0.75rem", fontSize: "0.82rem", color: "#6b7280" }}>{sigMessage}</p>
+          )}
+          {pdfSigned && sigHeadline && (
+            <div
+              style={{
+                marginBottom: "0.85rem",
+                padding: "0.75rem 0.9rem",
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: 6,
+                fontSize: "0.88rem",
+                lineHeight: 1.45,
+                color: "#1e293b",
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: "0.35rem" }}>Leitura rapida</div>
+              <div>{sigHeadline}</div>
+              <div style={{ marginTop: "0.55rem", display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                {sigPadesLevel && (
+                  <span style={sigChipStyle}>PAdES: {sigPadesLevel}</span>
+                )}
+                <span style={sigChipStyle}>DSS: {sigDssPresent ? "presente" : "ausente"}</span>
+                {sigFindingsSummary && (
+                  <span style={sigChipStyle}>
+                    Achados: {sigFindingsSummary.CRITICO || sigFindingsSummary.error || 0} crítico(s),{" "}
+                    {sigFindingsSummary.ALERTA || sigFindingsSummary.warning || 0} alerta(s),{" "}
+                    {sigFindingsSummary.ATENCAO || 0} atencao
+                  </span>
+                )}
+              </div>
+              {sigVerdict && (
+                <ul style={{ margin: "0.65rem 0 0", paddingLeft: "1.1rem", color: "#334155" }}>
+                  {sigVerdict.integrity_label && (
+                    <li>Integridade: {sigVerdict.integrity_label}</li>
+                  )}
+                  {sigVerdict.crypto_label && (
+                    <li>Assinatura matematica: {sigVerdict.crypto_label}</li>
+                  )}
+                  {sigVerdict.timestamp_label && (
+                    <li>Carimbo de tempo: {sigVerdict.timestamp_label}</li>
+                  )}
+                  {sigVerdict.revocation_label && (
+                    <li>Revogacao: {sigVerdict.revocation_label}</li>
+                  )}
+                </ul>
+              )}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+            <MetaTabButton
+              active={sigView === "relatorio"}
+              onClick={() => setSigView("relatorio")}
+              label="Relatório (renderizado)"
+            />
+            <MetaTabButton
+              active={sigView === "fonte"}
+              onClick={() => setSigView("fonte")}
+              label="Fonte Markdown"
+            />
+            <MetaTabButton
+              active={sigView === "json"}
+              onClick={() => setSigView("json")}
+              label="JSON estruturado"
+            />
+          </div>
+          {sigView === "relatorio" ? (
+            <MarkdownReportView
+              content={sigContent}
+              loading={sigLoading}
+              maxHeight={SIGNATURES_SCROLL_HEIGHT}
+            />
+          ) : (
+            <div style={{ ...metadataScrollBoxStyle, maxHeight: SIGNATURES_SCROLL_HEIGHT }}>
+              <pre style={metadataPreStyle}>
+                {sigLoading ? "Carregando…" : sigContent || "(sem conteudo)"}
+              </pre>
+            </div>
+          )}
+          <DerivativeActions
+            artifactFilename={sigArtifactFilename(sigView)}
+            label={`pdf_extract_${sigView === "json" ? "signatures_json" : "signatures_txt"}`}
+            saving={saving}
+            onSave={(filename, label) => currentJobId && save(currentJobId, filename, label)}
+            onOpenDerivatives={() => navigate(`/cases/${caseId}?tab=derivados`)}
+          />
         </AnalysisPanel>
       )}
 
@@ -473,8 +621,8 @@ export default function PDFForensicExtractAnalysis() {
           <DerivativeActions
             artifactFilename={metaTab}
             label={`pdf_extract_${metaTab === "metadata.json" ? "metadata_json" : "metadata_txt"}`}
-            saving={savingDerivative}
-            onSave={handleSaveDerivative}
+            saving={saving}
+            onSave={(filename, label) => currentJobId && save(currentJobId, filename, label)}
             onOpenDerivatives={() => navigate(`/cases/${caseId}?tab=derivados`)}
           />
         </AnalysisPanel>
@@ -538,9 +686,9 @@ export default function PDFForensicExtractAnalysis() {
                   </p>
                   <DerivativeActions
                     artifactFilename={selectedVersion.filename}
-                    label={`pdf_extract_version_${selectedVersion.filename}`}
-                    saving={savingDerivative}
-                    onSave={handleSaveDerivative}
+                    label={`pdf_extract_${selectedVersion.filename.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, "") || "version"}`}
+                    saving={saving}
+                    onSave={(filename, label) => currentJobId && save(currentJobId, filename, label)}
                     onOpenDerivatives={() => navigate(`/cases/${caseId}?tab=derivados`)}
                   />
                 </div>
@@ -559,8 +707,8 @@ export default function PDFForensicExtractAnalysis() {
               <DerivativeActions
                 artifactFilename="incremental_report.txt"
                 label="pdf_extract_incremental_report"
-                saving={savingDerivative}
-                onSave={handleSaveDerivative}
+                saving={saving}
+                onSave={(filename, label) => currentJobId && save(currentJobId, filename, label)}
                 onOpenDerivatives={() => navigate(`/cases/${caseId}?tab=derivados`)}
               />
             </div>
@@ -575,9 +723,7 @@ export default function PDFForensicExtractAnalysis() {
           </p>
         </AnalysisPanel>
       )}
-
-      {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
-    </AnalysisPageShell>
+    </TechniquePageShell>
   );
 }
 
@@ -619,7 +765,7 @@ function DerivativeActions({
 }: {
   artifactFilename: string;
   label: string;
-  saving: string | null;
+  saving: boolean;
   onSave: (filename: string, label: string) => void;
   onOpenDerivatives: () => void;
 }) {
@@ -631,7 +777,7 @@ function DerivativeActions({
         disabled={!!saving}
         onClick={() => onSave(artifactFilename, label)}
       >
-        {saving === artifactFilename ? "Salvando…" : "Salvar em derivados"}
+        {saving ? "Salvando…" : "Salvar em derivados"}
       </button>
       <button type="button" style={btnSecondary} onClick={onOpenDerivatives}>
         Abrir derivados
@@ -641,6 +787,15 @@ function DerivativeActions({
 }
 
 const hintStyle = { fontSize: "0.82rem", color: "#6b7280", marginTop: 0, marginBottom: "0.5rem" } as const;
+
+const sigChipStyle: CSSProperties = {
+  display: "inline-block",
+  padding: "0.15rem 0.5rem",
+  background: "#e2e8f0",
+  borderRadius: 4,
+  fontSize: "0.75rem",
+  color: "#334155",
+};
 
 const metadataScrollBoxStyle: CSSProperties = {
   ...scrollableListStyle,

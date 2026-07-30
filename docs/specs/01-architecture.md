@@ -16,8 +16,8 @@
             +--------------+  +--------------+  +---------------+
                     |                                    |
             +-------v-------+                    +-------v-------+
-            |  Audit Log    |                    |  Legados/     |
-            |  (Imutavel)   |                    |  (Adapters)   |
+            |  Audit Log    |                    | forensics/ +  |
+            |  (Imutavel)   |                    | vendor/       |
             +---------------+                    +---------------+
 ```
 
@@ -46,7 +46,7 @@
 - username: str UNIQUE NOT NULL
 - email: str UNIQUE NOT NULL
 - hashed_password: str NOT NULL
-- role: enum [admin, perito, analista] NOT NULL
+- role: enum [admin, perito] NOT NULL
 - is_active: bool DEFAULT true
 - created_at: datetime
 - updated_at: datetime
@@ -57,7 +57,7 @@
 - title: str NOT NULL
 - description: text
 - created_by: UUID FK -> User
-- assigned_to: UUID FK -> User (nullable, para analistas)
+- assigned_to: UUID FK -> User (nullable)
 - status: enum [aberto, fechamento_pendente, fechado]
 - created_at: datetime
 - updated_at: datetime
@@ -134,15 +134,6 @@
 - system_signature: str
 - signed_at: datetime
 
-### Report
-- id: UUID PK
-- case_id: UUID FK -> Case
-- title: str NOT NULL
-- file_path: str NOT NULL
-- sha256: str NOT NULL
-- generated_by: UUID FK -> User
-- created_at: datetime
-
 ## APIs / Contratos (Endpoints Principais)
 
 ### Auth
@@ -167,10 +158,7 @@
 - `GET /api/v1/analysis/{job_id}/result` → Response: JSON/imagens/artefatos do resultado
 - `GET /api/v1/analysis/techniques` → Response: List[technique_info] (tecnicas disponiveis por tipo de evidencia)
 
-### Reports
-- `POST /api/v1/reports` → Body: {case_id, title, job_ids[]} → Response: Report (job assincrono)
-- `GET /api/v1/reports/{id}` → Response: Report
-- `GET /api/v1/reports/{id}/download` → Response: PDF
+> **Fora de escopo:** nao ha API de laudo PDF oficial (`/api/v1/reports`). Artefatos por tecnica + VCP cobrem entrega e transferencia.
 
 ### Audit
 - `GET /api/v1/audit` → Query: ?case_id=&user_id=&from=&to= → Response: List[CustodyRecord]
@@ -184,17 +172,17 @@
 
 ## Fluxo de Dados
 
-1. **Upload de Evidencia**: Frontend → FastAPI → salva arquivo em disco → calcula SHA-256 → insere Evidence → insere CustodyRecord → retorna Evidence
+1. **Upload de Evidencia**: Frontend → FastAPI → salva arquivo em disco → calcula SHA-256 → insere Evidence → insere CustodyRecord (`evidence_upload`) → retorna Evidence
 2. **Submissao de Analise**: Frontend → FastAPI → cria AnalysisJob (status=pending) → publica Celery task → Redis → retorna job_id
-3. **Execucao de Job**: Celery Worker consome task → atualiza job (status=running) → executa adapter forense → salva resultado → calcula SHA-256 do resultado → atualiza job (status=completed) → insere CustodyRecord
+3. **Execucao de Job**: Celery Worker consome task → atualiza job (status=running) → executa plugin forense → salva resultado → calcula SHA-256 do resultado → atualiza job (status=completed). **Nao** cria CustodyRecord automaticamente.
 4. **Consulta de Resultado**: Frontend → FastAPI → busca AnalysisJob → se completed, le resultado do disco → retorna
-5. **Geracao de Laudo**: Frontend → FastAPI → cria Report (async) → Celery gera PDF com WeasyPrint → calcula SHA-256 → insere CustodyRecord → notifica frontend
+5. **Derivado / lifecycle / VCP**: promocao a derivado, share, fechamento ou transferencia geram os elos de custodia correspondentes
 
 ## Decisoes Arquiteturais (ADRs)
 
 ### ADR-001: Monolito Modular vs Microservicos
 **Decisao**: Monolito modular (FastAPI monolitico com pacotes internos bem definidos).
-**Justificativa**: Ambiente local/servidor unico. Microservicos adicionariam overhead de rede e complexidade desnecessaria. Isolamento e feito via pacotes Python (auth, core, adapters, services).
+**Justificativa**: Ambiente local/servidor unico. Microservicos adicionariam overhead de rede e complexidade desnecessaria. Isolamento e feito via pacotes Python (auth, core, plugins, services).
 
 ### ADR-002: PostgreSQL com JSONB para Parametros Flexiveis
 **Decisao**: PostgreSQL relacional com colunas JSONB para parametros de jobs e registros de auditoria.
@@ -204,16 +192,21 @@
 **Decisao**: Celery com broker Redis e backend de resultados em Redis (ou PostgreSQL para persistencia).
 **Justificativa**: Padrao de mercado para Python. Permite serializacao de jobs GPU, retry, prioridade e monitoramento via Flower.
 
-### ADR-004: Preservacao de Bibliotecas Legadas via Adapters
-**Decisao**: Bibliotecas forenses especificas dos notebooks legados sao preservadas intactas e encapsuladas em adapters.
-**Justificativa**: Algoritmos forenses exigem exatidao. Adaptadores padronizam I/O sem alterar processamento interno. Testes de regressao garantem equivalencia.
+### ADR-004: Preservacao de Bibliotecas Legadas via Plugins
+**Decisao**: Bibliotecas e motores forenses em `forensics/` e `vendor/` sao preservados intactos e encapsulados em plugins (`core/plugins/`).
+**Justificativa**: Algoritmos forenses exigem exatidao. Plugins padronizam I/O sem alterar processamento interno. Testes de regressao garantem equivalencia.
 
 ### ADR-005: React SPA para Frontend
 **Decisao**: Single Page Application com React 18 e TypeScript.
 **Justificativa**: Melhor UX para dashboards, visualizacao de resultados forenses (imagens, graficos) e status de jobs em tempo real. Comunicacao via REST API.
+
+### ADR-006: Sem modulo de laudo PDF unificado
+**Decisao**: Nao ha (e nao ha compromisso de haver) geracao de laudo PDF oficial no produto.
+**Justificativa**: Entrega por tecnica (artefatos) e transferencia entre instancias via VCP bastam para o escopo atual; um gerador de laudo institucional nao esta no roadmap.
 
 ## Estrategia de Deploy
 
 - **Desenvolvimento**: Docker Compose com hot-reload (backend e frontend).
 - **Producao**: Docker Compose no servidor corporativo da instituicao. Volumes montados para upload de evidencias e resultados.
 - **Backup**: Dump diario do PostgreSQL + sincronizacao do volume de evidencias para OneDrive corporativo (excecao autorizada de nuvem).
+- **Calibracao LR / typicality**: populacoes e features publicadas em `reference_data/` (nao em `config/` YAML de protocolo).

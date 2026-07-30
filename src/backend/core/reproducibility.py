@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover (Windows / non-Unix)
 
 
 def reproducibility_spec(technique: str) -> dict[str, Any]:
-    """Spec de reprodutibilidade (aceita aliases legados de técnica)."""
+    """Spec de reprodutibilidade (aceita aliases historicos de tecnica)."""
     canonical = resolve_technique_id(technique)
     return REPRODUCIBILITY_REGISTRY.get(canonical, {})
 
@@ -41,6 +41,8 @@ PROMOTED_REPRO_SCHEMA_VERSION = "1"
 REPRODUCIBILITY_REGISTRY: dict[str, dict[str, Any]] = {
     "ela": {"primary": "heatmap.png", "profile": "strict"},
     "metadata": {"primary": "metadata_report.json", "profile": "strict"},
+    "audio_metadata": {"primary": "metadata_report.json", "profile": "strict"},
+    "video_metadata": {"primary": "metadata_report.json", "profile": "strict"},
     "prnu": {"primary": "correlation_surface.html", "profile": "parallel"},
     "dct_quantization": {"primary": "artifacts_upscaled.png", "profile": "numeric"},
     "jpeg_ghosts": {"primary": "ghost_map.png", "profile": "numeric"},
@@ -50,12 +52,9 @@ REPRODUCIBILITY_REGISTRY: dict[str, dict[str, Any]] = {
     "wavelet_noise_residue": {"primary": "overlay.png", "profile": "deterministic"},
     "double_compression": {"primary": "interactive.html", "profile": "numeric"},
     "bag_extraction": {"primary": "bag_map.png", "profile": "strict"},
-    "zero_grid": {"primary": "votes_colored.png", "profile": "strict"},
     "synthetic_image_detection": {"primary": "model_scores.txt", "profile": "gpu_ml"},
     "safire": {"mode": "canonical_result", "profile": "gpu_ml"},
-    "noiseprint": {"mode": "canonical_result", "profile": "gpu_ml"},
     "imdlbenco": {"mode": "canonical_result", "profile": "gpu_ml"},
-    "deepfake_similarity": {"mode": "canonical_result", "profile": "gpu_ml"},
     "mp3_parser": {"mode": "canonical_result", "profile": "strict"},
     "opus_parser": {"mode": "canonical_result", "profile": "strict"},
     "wav_ima_adpcm": {"mode": "canonical_result", "profile": "strict"},
@@ -74,6 +73,8 @@ REPRODUCIBILITY_REGISTRY: dict[str, dict[str, Any]] = {
     "videofact": {"primary": "videofact_report.json", "profile": "gpu_ml"},
     "stil_video_detection": {"primary": "stil_report.json", "profile": "gpu_ml"},
     "lowres_fake_video": {"primary": "lfv_report.json", "profile": "gpu_ml"},
+    "truvil": {"primary": "truvil_report.json", "profile": "gpu_ml"},
+    "vilocal": {"primary": "vilocal_report.json", "profile": "gpu_ml"},
     "jpeg_structure_compare": {
         "primary": "jpeg_structure_matrix.json",
         "profile": "strict",
@@ -331,13 +332,13 @@ def _model_file_hashes(models_dir: str) -> dict[str, str]:
 ML_MODEL_HASH_TECHNIQUES = frozenset(
     {
         "synthetic_image_detection",
-        "deepfake_similarity",
         "safire",
-        "noiseprint",
         "imdlbenco",
         "videofact",
         "stil_video_detection",
         "lowres_fake_video",
+        "truvil",
+        "vilocal",
         "sepael",
         "prnu",
     }

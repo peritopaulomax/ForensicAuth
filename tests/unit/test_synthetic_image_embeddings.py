@@ -12,6 +12,9 @@ import torch
 from PIL import Image
 
 
+
+pytestmark = pytest.mark.weights
+
 @pytest.fixture
 def sample_image() -> Image.Image:
     fixture = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "images" / "copymove.jpg"
@@ -22,12 +25,12 @@ def sample_image() -> Image.Image:
 
 class TestSafeEmbedding:
     def test_safe_score_equivalence_with_embedding_hook(self, sample_image: Image.Image):
-        from core.legacy.safe.safe_pipeline import (
+        from forensics.safe.safe_pipeline import (
             infer_safe_from_pil,
             resolve_inference_device,
             safe_runtime_status,
         )
-        from core.legacy.synthetic_image_detection.embedding_utils import extract_safe_embedding
+        from forensics.synthetic_image_detection.embedding_utils import extract_safe_embedding
 
         ok, reason = safe_runtime_status()
         if not ok:
@@ -49,12 +52,12 @@ class TestSdxlFluxEmbedding:
     def test_sdxl_flux_score_equivalence_with_embedding_hook(self, sample_image: Image.Image):
         from transformers import AutoImageProcessor, AutoModelForImageClassification
 
-        from core.legacy.synthetic_image_detection.pipeline import (
+        from forensics.synthetic_image_detection.pipeline import (
             MODEL_PATHS,
             _as_rgb,
             _hf_local_path,
         )
-        from core.legacy.synthetic_image_detection.embedding_utils import extract_sdxl_flux_embedding
+        from forensics.synthetic_image_detection.embedding_utils import extract_sdxl_flux_embedding
 
         try:
             local_path = _hf_local_path(MODEL_PATHS["model_4"])
@@ -89,12 +92,12 @@ class TestAiImageDetectorEmbedding:
     def test_ai_image_detector_score_equivalence_with_embedding_hook(self, sample_image: Image.Image):
         from transformers import AutoImageProcessor, AutoModelForImageClassification
 
-        from core.legacy.synthetic_image_detection.pipeline import (
+        from forensics.synthetic_image_detection.pipeline import (
             MODEL_PATHS,
             _as_rgb,
             _hf_local_path,
         )
-        from core.legacy.synthetic_image_detection.embedding_utils import extract_ai_image_detector_embedding
+        from forensics.synthetic_image_detection.embedding_utils import extract_ai_image_detector_embedding
 
         try:
             local_path = _hf_local_path(MODEL_PATHS["model_1"])
@@ -127,12 +130,12 @@ class TestAiImageDetectorEmbedding:
 
 class TestBFreeEmbedding:
     def test_bfree_score_equivalence_with_embedding_hook(self, sample_image: Image.Image):
-        from core.legacy.bfree.bfree_pipeline import (
+        from forensics.bfree.bfree_pipeline import (
             bfree_runtime_status,
             infer_bfree_from_pil,
             resolve_inference_device,
         )
-        from core.legacy.synthetic_image_detection.embedding_utils import extract_bfree_embedding
+        from forensics.synthetic_image_detection.embedding_utils import extract_bfree_embedding
 
         ok, reason = bfree_runtime_status()
         if not ok:
@@ -152,13 +155,13 @@ class TestBFreeEmbedding:
 
 class TestClipdEmbedding:
     def test_clipd_score_equivalence_with_embedding_hook(self, sample_image: Image.Image):
-        from core.legacy.truebees_clip_d.clipd_pipeline import (
+        from forensics.truebees_clip_d.clipd_pipeline import (
             MODEL_NAME,
             clipd_runtime_status,
             infer_clipd_from_pil,
             resolve_inference_device,
         )
-        from core.legacy.synthetic_image_detection.embedding_utils import extract_clipd_embedding
+        from forensics.synthetic_image_detection.embedding_utils import extract_clipd_embedding
 
         ok, reason = clipd_runtime_status(MODEL_NAME)
         if not ok:
@@ -178,13 +181,13 @@ class TestClipdEmbedding:
 
 class TestCorvi2023Embedding:
     def test_corvi2023_score_equivalence_with_embedding_hook(self, sample_image: Image.Image):
-        from core.legacy.truebees_clip_d.clipd_pipeline import (
+        from forensics.truebees_clip_d.clipd_pipeline import (
             CORVI2023_MODEL_NAME,
             clipd_runtime_status,
             infer_corvi2023_from_pil,
             resolve_inference_device,
         )
-        from core.legacy.synthetic_image_detection.embedding_utils import extract_corvi2023_embedding
+        from forensics.synthetic_image_detection.embedding_utils import extract_corvi2023_embedding
 
         ok, reason = clipd_runtime_status(CORVI2023_MODEL_NAME)
         if not ok:
@@ -204,7 +207,7 @@ class TestCorvi2023Embedding:
 
 class TestCorvi2023UnifiedForward:
     def test_corvi2023_unified_forward_matches_score_only(self, sample_image: Image.Image):
-        from core.legacy.truebees_clip_d.clipd_pipeline import (
+        from forensics.truebees_clip_d.clipd_pipeline import (
             CORVI2023_MODEL_NAME,
             clipd_runtime_status,
             infer_corvi2023_from_pil,
@@ -226,8 +229,8 @@ class TestCorvi2023UnifiedForward:
 
 class TestPipelineReturnEmbedding:
     def test_run_synthetic_image_detection_analysis_returns_embeddings(self, sample_image: Image.Image):
-        from core.legacy.safe.safe_pipeline import safe_runtime_status
-        from core.legacy.synthetic_image_detection.pipeline import run_synthetic_image_detection_analysis
+        from forensics.safe.safe_pipeline import safe_runtime_status
+        from forensics.synthetic_image_detection.pipeline import run_synthetic_image_detection_analysis
 
         ok, reason = safe_runtime_status()
         if not ok:

@@ -26,6 +26,7 @@ describe("authStore", () => {
     localStorage.clear();
     useAuthStore.setState({
       token: null,
+      refreshToken: null,
       user: null,
       isAuthenticated: false,
     });
@@ -35,10 +36,11 @@ describe("authStore", () => {
     const state = useAuthStore.getState();
     expect(state.isAuthenticated).toBe(false);
     expect(state.token).toBeNull();
+    expect(state.refreshToken).toBeNull();
     expect(state.user).toBeNull();
   });
 
-  it("setAuth stores token and user", () => {
+  it("setAuth stores access, refresh and user", () => {
     const mockUser = {
       id: "1",
       username: "perito01",
@@ -47,17 +49,19 @@ describe("authStore", () => {
       is_active: true,
       password_set: true,
     };
-    useAuthStore.getState().setAuth("fake-token", mockUser);
+    useAuthStore.getState().setAuth("fake-access", "fake-refresh", mockUser);
 
     const state = useAuthStore.getState();
     expect(state.isAuthenticated).toBe(true);
-    expect(state.token).toBe("fake-token");
+    expect(state.token).toBe("fake-access");
+    expect(state.refreshToken).toBe("fake-refresh");
     expect(state.user).toEqual(mockUser);
-    expect(localStorage.getItem("va_access_token")).toBe("fake-token");
+    expect(localStorage.getItem("va_access_token")).toBe("fake-access");
+    expect(localStorage.getItem("va_refresh_token")).toBe("fake-refresh");
   });
 
   it("logout clears state and storage", () => {
-    useAuthStore.getState().setAuth("token", {
+    useAuthStore.getState().setAuth("token", "refresh", {
       id: "1",
       username: "u",
       email: "u@pf.gov.br",
@@ -70,6 +74,8 @@ describe("authStore", () => {
     const state = useAuthStore.getState();
     expect(state.isAuthenticated).toBe(false);
     expect(state.token).toBeNull();
+    expect(state.refreshToken).toBeNull();
     expect(localStorage.getItem("va_access_token")).toBeNull();
+    expect(localStorage.getItem("va_refresh_token")).toBeNull();
   });
 });

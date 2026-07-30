@@ -5,12 +5,12 @@ import pytest
 
 class TestSafireRuntime:
     def test_repo_present(self):
-        from core.legacy.safire.safire_runtime import safire_repo_dir
+        from forensics.safire.safire_runtime import safire_repo_dir
 
         assert safire_repo_dir().is_dir()
 
     def test_runtime_status(self):
-        from core.legacy.safire.safire_runtime import safire_runtime_status
+        from forensics.safire.safire_runtime import safire_runtime_status
 
         ok, reason = safire_runtime_status()
         if ok:
@@ -22,7 +22,7 @@ class TestSafireRuntime:
         import sys
         import types
 
-        from core.legacy.safire.safire_pipeline import _safire_vendor_context
+        from forensics.safire.safire_pipeline import _safire_vendor_context
 
         fake_networks = types.ModuleType("networks")
         fake_networks.__path__ = []
@@ -38,7 +38,7 @@ class TestSafireRuntime:
     def test_vendor_import_context_prefers_safire_networks_over_sys_path_collision(
         self, monkeypatch, tmp_path
     ):
-        from core.legacy.safire.safire_pipeline import _safire_vendor_context
+        from forensics.safire.safire_pipeline import _safire_vendor_context
 
         competing_vendor = tmp_path / "competing_vendor"
         competing_networks = competing_vendor / "networks"

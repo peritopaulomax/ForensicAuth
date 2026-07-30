@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
+import TechniquePageShell from "@/components/TechniquePageShell";
+import { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
 import EvidenceDropZone from "@/components/EvidenceDropZone";
 import EvidenceFileGrid from "@/components/EvidenceFileGrid";
 import EvidenceFilePreview from "@/components/EvidenceFilePreview";
@@ -8,10 +9,12 @@ import FileListViewHeader from "@/components/FileListViewHeader";
 import PeritusMultiFilePicker from "@/components/PeritusMultiFilePicker";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
 import { useForensicJob } from "@/hooks/useForensicJob";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
+import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
 import {
   listCaseEvidences,
   listCaseReferences,
-  saveDerivative,
   uploadPdfStructureReference,
   type ReferenceGroup,
 } from "@/services/evidence";
@@ -43,11 +46,16 @@ export default function PDFStructureSimilarityAnalysis() {
 
   const [jaccardUrl, setJaccardUrl] = useState<string | null>(null);
   const [wlUrl, setWlUrl] = useState<string | null>(null);
-  const [savingDerivative, setSavingDerivative] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const { running, currentJobId, result, error, progress, progressLabel, runAnalysis, fetchImage, reset } =
     useForensicJob();
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
+  const { status: runtimeStatus } = useTechniqueRuntime("pdf_structure_similarity");
+
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
+
+  const { embedded } = useGroupAwareEvidence(caseId || "", () => {});
 
   const rotuloOptions = useMemo(() => refGroups.map((g) => g.group_label), [refGroups]);
 
@@ -127,32 +135,12 @@ export default function PDFStructureSimilarityAnalysis() {
     if (wlUrl) URL.revokeObjectURL(wlUrl);
     setJaccardUrl(null);
     setWlUrl(null);
-    setSaveMessage(null);
+    clearMessage();
   }
 
   async function handleSaveDerivative(artifactFilename: string, label: string) {
     if (!currentJobId) return;
-    setSavingDerivative(artifactFilename);
-    setSaveMessage(null);
-    try {
-      const res = await saveDerivative({
-        job_id: currentJobId,
-        artifact_filename: artifactFilename,
-        label,
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${res.message} «${res.evidence.original_filename}». SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined;
-      setSaveMessage({ type: "err", text: detail || "Erro ao salvar derivado" });
-    } finally {
-      setSavingDerivative(null);
-    }
+    await save(currentJobId, artifactFilename, label);
   }
 
   function renderDerivativeActions(
@@ -166,10 +154,10 @@ export default function PDFStructureSimilarityAnalysis() {
         <button
           type="button"
           onClick={() => handleSaveDerivative(artifactFilename, label)}
-          disabled={!!savingDerivative}
+          disabled={!!saving}
           style={btnPrimary}
         >
-          {savingDerivative === artifactFilename ? "Salvando…" : buttonLabel}
+          {saving ? "Salvando…" : buttonLabel}
         </button>
         <button type="button" onClick={() => navigate(`/cases/${caseId}?tab=derivados`)} style={btnSecondary}>
           Abrir derivados
@@ -254,57 +242,56 @@ export default function PDFStructureSimilarityAnalysis() {
 
   async function process() {
     clearResults();
-    setSaveMessage(null);
+    setRefUploadMessage(null);
     const questIds = [...selectedQuestIds];
     try {
-    if (tab === "with_reference") {
-      const refIds = [...selectedRefIds];
-      if (refIds.length === 0 || questIds.length === 0) return;
-      const anchor = questIds[0];
-      await runAnalysis(
-        anchor,
-        "pdf_structure_similarity",
-        {
-          mode: "with_reference",
-          case_id: caseId,
-          reference_evidence_ids: refIds,
-          questioned_evidence_ids: questIds,
-        },
-        {
-          onArtifactsLoaded: async (jobId) => {
-            const j = await fetchImage(jobId, "similarity_jaccard.png");
-            const w = await fetchImage(jobId, "similarity_wl_kernel.png");
-            if (jaccardUrl) URL.revokeObjectURL(jaccardUrl);
-            if (wlUrl) URL.revokeObjectURL(wlUrl);
-            setJaccardUrl(j);
-            setWlUrl(w);
+      if (tab === "with_reference") {
+        const refIds = [...selectedRefIds];
+        if (refIds.length === 0 || questIds.length === 0) return;
+        const anchor = questIds[0];
+        await runAnalysis(
+          anchor,
+          "pdf_structure_similarity",
+          {
+            mode: "with_reference",
+            case_id: caseId,
+            reference_evidence_ids: refIds,
+            questioned_evidence_ids: questIds,
           },
-        }
-      );
-    } else {
-      if (questIds.length < 2) return;
-      await runAnalysis(
-        questIds[0],
-        "pdf_structure_similarity",
-        {
-          mode: "all_pairs",
-          case_id: caseId,
-          questioned_evidence_ids: questIds,
-        },
-        {
-          onArtifactsLoaded: async (jobId) => {
-            const j = await fetchImage(jobId, "similarity_jaccard.png");
-            const w = await fetchImage(jobId, "similarity_wl_kernel.png");
-            if (jaccardUrl) URL.revokeObjectURL(jaccardUrl);
-            if (wlUrl) URL.revokeObjectURL(wlUrl);
-            setJaccardUrl(j);
-            setWlUrl(w);
+          {
+            onArtifactsLoaded: async (jobId) => {
+              const j = await fetchImage(jobId, "similarity_jaccard.png");
+              const w = await fetchImage(jobId, "similarity_wl_kernel.png");
+              if (jaccardUrl) URL.revokeObjectURL(jaccardUrl);
+              if (wlUrl) URL.revokeObjectURL(wlUrl);
+              setJaccardUrl(j);
+              setWlUrl(w);
+            },
+          }
+        );
+      } else {
+        if (questIds.length < 2) return;
+        await runAnalysis(
+          questIds[0],
+          "pdf_structure_similarity",
+          {
+            mode: "all_pairs",
+            case_id: caseId,
+            questioned_evidence_ids: questIds,
           },
-        }
-      );
-    }
+          {
+            onArtifactsLoaded: async (jobId) => {
+              const j = await fetchImage(jobId, "similarity_jaccard.png");
+              const w = await fetchImage(jobId, "similarity_wl_kernel.png");
+              if (jaccardUrl) URL.revokeObjectURL(jaccardUrl);
+              if (wlUrl) URL.revokeObjectURL(wlUrl);
+              setJaccardUrl(j);
+              setWlUrl(w);
+            },
+          }
+        );
+      }
     } catch {
-      /* hook */
     }
   }
 
@@ -316,10 +303,19 @@ export default function PDFStructureSimilarityAnalysis() {
   if (!caseId) return null;
 
   return (
-    <AnalysisPageShell
+    <TechniquePageShell
       caseId={caseId}
-      title="PDF — Similaridade estrutural (grafos)"
-      subtitle="Matriz de similaridade Jaccard e kernel WL entre estruturas de objetos PDF."
+      techniqueId="pdf_structure_similarity"
+      mediaType="pdf"
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      showEvidencePicker={false}
+      embedded={embedded}
     >
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", flexWrap: "wrap" }}>
         <button
@@ -419,7 +415,7 @@ export default function PDFStructureSimilarityAnalysis() {
         <div style={{ marginTop: "1rem" }}>
           <ProcessButton
             onClick={process}
-            disabled={!canProcess}
+            disabled={!canProcess || runtimeOk === false}
             running={running}
             progress={progress}
             progressLabel={progressLabel}
@@ -460,7 +456,7 @@ export default function PDFStructureSimilarityAnalysis() {
       )}
 
       {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
-    </AnalysisPageShell>
+    </TechniquePageShell>
   );
 }
 

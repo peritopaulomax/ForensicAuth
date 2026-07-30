@@ -83,7 +83,7 @@ def materialize_wavelet_noise_residue(
     effective_parameters: dict[str, Any],
 ) -> None:
     """Re-aggregate HH and apply threshold before promoting WNR artifacts."""
-    from core.legacy.wavelet_noise_residue import reprocess_wavelet_noise_residue_from_npz
+    from forensics.wavelet_noise_residue import reprocess_wavelet_noise_residue_from_npz
 
     npz_path = result_dir / "wnr_dwt_coefficients.npz"
     if not npz_path.is_file():

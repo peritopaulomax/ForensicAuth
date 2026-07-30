@@ -10,8 +10,8 @@ import numpy as np
 from app.config import get_settings
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.zero.libzero_loader import zero_runtime_status
-from core.legacy.zero.zero_pipeline import run_zero_analysis
+from forensics.zero.libzero_loader import zero_runtime_status
+from forensics.zero.zero_pipeline import run_zero_analysis
 from core.progress import pop_progress_callback, report_progress
 
 
@@ -26,9 +26,58 @@ class ZeroGridPlugin(ForensicPlugin):
     def supported_types(self) -> list[str]:
         return ["imagem"]
 
-    @classmethod
-    def is_runtime_available(cls) -> Tuple[bool, str]:
-        return zero_runtime_status()
+    @property
+    def description(self) -> str | None:
+        return "Deteccao de grade JPEG e regioes forjadas (algoritmo ZERO / libzero)."
+
+    @property
+    def parameters_schema(self) -> dict[str, Any] | None:
+        return {
+            "type": "object",
+            "properties": {
+                "include_simulation": {"type": "boolean", "default": False},
+                "simulation_quality": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 99,
+                },
+            },
+        }
+
+    @property
+    def result_schema(self) -> dict[str, Any] | None:
+        return {
+            "artifacts": [
+                {"key": "votes_colored_image_path", "filename": "votes_colored.png", "role": "heatmap"},
+                {"key": "forgery_image_path", "filename": "forgery.png", "role": "mask"},
+                {"key": "overlay_image_path", "filename": "overlay.png", "role": "overlay"},
+                {"key": "original_crop_path", "filename": "original.png", "role": "original"},
+            ]
+        }
+
+    @property
+    def runtime_manifest(self) -> dict[str, Any] | None:
+        return {"requires": ["libzero"], "gpu": False}
+
+    @property
+    def reproducibility_manifest(self) -> dict[str, Any] | None:
+        return {"primary": "votes_colored.png", "profile": "strict"}
+
+    @property
+    def provenance_contract(self) -> dict[str, Any] | None:
+        return {
+            "parent_roles": ["questioned"],
+            "savable_artifacts": [
+                "votes_colored_image_path",
+                "forgery_image_path",
+                "overlay_image_path",
+            ],
+        }
+
+    def is_runtime_available(self) -> Tuple[bool, str | None]:
+        ok, reason = zero_runtime_status()
+        return ok, reason or None
 
     def validate_parameters(self, parameters: Dict[str, Any]) -> Tuple[bool, str]:
         ok, reason = zero_runtime_status()

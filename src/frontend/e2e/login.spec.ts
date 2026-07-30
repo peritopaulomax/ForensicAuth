@@ -7,7 +7,9 @@ async function mockAuthRoutes(page: any) {
       contentType: "application/json",
       body: JSON.stringify({
         access_token: "mock-token",
+        refresh_token: "mock-refresh",
         token_type: "bearer",
+        expires_in: 900,
         user: {
           id: "1",
           username: "e2euser",

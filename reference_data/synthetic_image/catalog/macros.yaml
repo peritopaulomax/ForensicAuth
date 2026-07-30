@@ -1,0 +1,227 @@
+version: 1
+domain: synthetic_image
+updated: '2026-07-21'
+macros:
+  gan_older:
+    label: GANs (older)
+    year_range: 2014–2019
+    description: 'Generative Adversarial Networks classicos: ProGAN, StyleGAN, BigGAN,
+      CycleGAN, StarGAN, GauGAN, WhichFaceIsReal.'
+    items:
+    - base_group: AIGCDetectBenchmark
+      subgroup: ProGAN
+    - base_group: AIGCDetectBenchmark
+      subgroup: StyleGAN
+    - base_group: AIGCDetectBenchmark
+      subgroup: StyleGAN2
+    - base_group: AIGCDetectBenchmark
+      subgroup: BigGAN
+    - base_group: AIGCDetectBenchmark
+      subgroup: CycleGAN
+    - base_group: AIGCDetectBenchmark
+      subgroup: StarGAN
+    - base_group: AIGCDetectBenchmark
+      subgroup: GauGAN
+    - base_group: AIGCDetectBenchmark
+      subgroup: WhichFaceIsReal
+    - base_group: GenImage
+      subgroup: BigGAN
+  diffusion_cnn_early:
+    label: Difusao CNN (antiga)
+    year_range: 2021–2022
+    description: 'Modelos de difusao baseados em U-Net/CNN do inicio da era de difusao:
+      ADM, GLIDE, DALLE2, VQDM, latent-diffusion, Stable Diffusion 1.x/2.x, Wukong.'
+    items:
+    - base_group: GenImage
+      subgroup: ADM
+    - base_group: GenImage
+      subgroup: VQDM
+    - base_group: GenImage
+      subgroup: glide
+    - base_group: GenImage
+      subgroup: stable_diffusion_v_1_4
+    - base_group: GenImage
+      subgroup: stable_diffusion_v_1_5
+    - base_group: GenImage
+      subgroup: wukong
+    - base_group: AIGCDetectBenchmark
+      subgroup: ADM
+    - base_group: AIGCDetectBenchmark
+      subgroup: GLIDE
+    - base_group: AIGCDetectBenchmark
+      subgroup: DALLE2
+    - base_group: AIGCDetectBenchmark
+      subgroup: VQDM
+    - base_group: AIGCDetectBenchmark
+      subgroup: SD14
+    - base_group: AIGCDetectBenchmark
+      subgroup: SD15
+    - base_group: AIGCDetectBenchmark
+      subgroup: Wukong
+    - base_group: Defactify
+      subgroup: SD2.1
+    - base_group: Synthbuster
+      subgroup: GLIDE
+    - base_group: Synthbuster
+      subgroup: Stable_Diffusion_1.3
+    - base_group: Synthbuster
+      subgroup: Stable_Diffusion_1.4
+    - base_group: Synthbuster
+      subgroup: Stable_Diffusion_2
+    - base_group: BFree_extended_synthbuster
+      subgroup: latent-diffusion
+  diffusion_cnn_modern:
+    label: Difusao CNN (moderna)
+    year_range: 2022–2024
+    description: 'Difusao U-Net/CNN de alta resolucao e modelos proprietarios modernos:
+      SDXL, Stable Diffusion XL, Midjourney.'
+    items:
+    - base_group: GenImage
+      subgroup: Midjourney
+    - base_group: AIGCDetectBenchmark
+      subgroup: Midjourney
+    - base_group: AIGCDetectBenchmark
+      subgroup: SDXL
+    - base_group: Defactify
+      subgroup: SDXL
+    - base_group: Defactify
+      subgroup: Midjourney_v6
+    - base_group: Synthbuster
+      subgroup: Stable_Diffusion_XL
+    - base_group: Synthbuster
+      subgroup: Midjourney_v5
+  diffusion_transformer:
+    label: Difusao Transformer
+    year_range: 2023–2025
+    description: 'Modelos de difusao com backbone Transformer/DiT: SD3, FLUX, DALLE-3,
+      Adobe Firefly.'
+    items:
+    - base_group: AIGIBench_no_SocialRF
+      subgroup: SD3
+    - base_group: AIGIBench_no_SocialRF
+      subgroup: FLUX1-dev
+    - base_group: AIGIBench_no_SocialRF
+      subgroup: DALLE-3
+    - base_group: OpenSDI
+      subgroup: sd3
+    - base_group: OpenSDI
+      subgroup: flux
+    - base_group: Defactify
+      subgroup: SD3
+    - base_group: Defactify
+      subgroup: DALL-E_3
+    - base_group: Synthbuster
+      subgroup: Adobe_Firefly
+    - base_group: Synthbuster
+      subgroup: DALL-E_2
+    - base_group: Synthbuster
+      subgroup: DALL-E_3
+    - base_group: BFree_extended_synthbuster
+      subgroup: FLUX
+  other_neural:
+    label: Misto / outras arquiteturas
+    year_range: —
+    description: 'Arquiteturas nao enquadradas nos grupos anteriores: SocialRF (NeRF/3D),
+      CommunityAI (API/mista).'
+    items:
+    - base_group: AIGIBench_SocialRF
+      subgroup: SocialRF
+    - base_group: AIGIBench_no_SocialRF
+      subgroup: CommunityAI
+    - base_group: MLLMGenerated
+      subgroup: gpt_image2
+    - base_group: MLLMGenerated
+      subgroup: nano_banana2
+    - base_group: MeiGenTrending
+      subgroup: gptimage
+    - base_group: MeiGenTrending
+      subgroup: nanobanana
+bases:
+  GenImage:
+    label: GenImage
+    generators:
+    - ADM
+    - BigGAN
+    - Midjourney
+    - VQDM
+    - glide
+    - stable_diffusion_v_1_4
+    - stable_diffusion_v_1_5
+    - wukong
+  Defactify:
+    label: Defactify
+    generators:
+    - DALL-E_3
+    - Midjourney_v6
+    - SD2.1
+    - SD3
+    - SDXL
+  AIGCDetectBenchmark:
+    label: AIGCDetectBenchmark
+    generators:
+    - ADM
+    - BigGAN
+    - CycleGAN
+    - DALLE2
+    - GLIDE
+    - GauGAN
+    - Midjourney
+    - ProGAN
+    - SD14
+    - SD15
+    - SDXL
+    - StarGAN
+    - StyleGAN
+    - StyleGAN2
+    - VQDM
+    - WhichFaceIsReal
+    - Wukong
+  OpenSDI:
+    label: OpenSDI
+    generators:
+    - flux
+    - sd3
+  AIGIBench_no_SocialRF:
+    label: AIGIBench_no_SocialRF
+    generators:
+    - CommunityAI
+    - DALLE-3
+    - FLUX1-dev
+    - SD3
+  AIGIBench_SocialRF:
+    label: AIGIBench_SocialRF
+    generators:
+    - SocialRF
+  Synthbuster:
+    label: Synthbuster
+    generators:
+    - Adobe_Firefly
+    - DALL-E_2
+    - DALL-E_3
+    - GLIDE
+    - Midjourney_v5
+    - Stable_Diffusion_1.3
+    - Stable_Diffusion_1.4
+    - Stable_Diffusion_2
+    - Stable_Diffusion_XL
+  BFree_extended_synthbuster:
+    label: BFree_extended_synthbuster
+    generators:
+    - FLUX
+    - latent-diffusion
+  MLLMGenerated:
+    label: MLLM Generated (GPT-Image-2 / Nano-Banana-2)
+    description: Base ingerida via protocol CSV (dataset=MLLMGenerated, folder=mllm_generated).
+    paper_title: null
+    paper_url: null
+    generators:
+    - gpt_image2
+    - nano_banana2
+  MeiGenTrending:
+    label: MeiGen Trending Photography (NanoBanana / GPT Image)
+    description: Base ingerida via protocol CSV (dataset=MeiGenTrending, folder=meigentrending).
+    paper_title: null
+    paper_url: null
+    generators:
+    - gptimage
+    - nanobanana

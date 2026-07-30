@@ -1,5 +1,7 @@
 /** Técnicas com PDF local em docs/references/papers/imdl/ (manifest.json). */
 
+import { SCAFFOLDED_TECHNIQUE_PAPER_IDS } from "@/config/scaffoldedTechniquePapers";
+
 export const TECHNIQUE_PAPER_IDS = new Set([
   "jpeg_structure_compare",
   "jpeg_ghosts",
@@ -13,7 +15,6 @@ export const TECHNIQUE_PAPER_IDS = new Set([
   "copy_move_pca",
   "wavelet_noise_residue",
   "prnu",
-  "noiseprint",
   "presentation_attack_detection",
   "safire",
   "trufor",
@@ -22,6 +23,8 @@ export const TECHNIQUE_PAPER_IDS = new Set([
   "mesorch",
   "dinov3_iml",
   "co_transformers",
+  "miml_apscnet",
+  ...SCAFFOLDED_TECHNIQUE_PAPER_IDS,
 ]);
 
 export function hasTechniquePaper(techniqueId: string | undefined): boolean {

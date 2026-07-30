@@ -1,0 +1,5 @@
+image_path,base_id,subgroup,y_fake,source_id,purpose
+/absolute/or/relative/path/to/fake_001.png,my_new_bench,GeneratorA,1,fake_001,calibration_train
+/absolute/or/relative/path/to/real_001.png,my_new_bench,GeneratorA,0,real_001,calibration_train
+/absolute/or/relative/path/to/fake_002.png,my_new_bench,GeneratorB,fake,fake_002,calibration_train
+/absolute/or/relative/path/to/real_002.png,my_new_bench,GeneratorB,real,real_002,calibration_train

@@ -12,10 +12,11 @@ import numpy as np
 import pytest
 
 WORKSPACE = Path(__file__).resolve().parents[2]
-PERITUS_DWT = WORKSPACE / "Legados" / "Peritus" / "waveletnoiseresidue" / "dwt.c"
-REF_BIN = WORKSPACE / "tools" / "wavelet_noise_residue_ref"
+PERITUS_DWT = WORKSPACE / "tests" / "fixtures" / "native" / "peritus_wavelet" / "dwt.c"
+NATIVE_FIXTURES = WORKSPACE / "tests" / "fixtures" / "native"
+REF_BIN = NATIVE_FIXTURES / "wavelet_noise_residue_ref"
 GOLDEN = WORKSPACE / "tests" / "fixtures" / "images" / "wavelet_noise_residue_golden.png"
-EXEMPLO3_26JPG = WORKSPACE / "uploads-dev" / "73508d40-a644-4429-8c81-73c348ae98d5.jpg"
+EXEMPLO3_26JPG = WORKSPACE / "tests" / "fixtures" / "images" / "exemplo3_26.jpg"
 
 
 def _synthetic_gray(h: int = 256, w: int = 256) -> np.ndarray:
@@ -35,14 +36,14 @@ def sample_gray() -> np.ndarray:
 
 class TestWaveletDwt:
     def test_scaling_orders(self):
-        from core.legacy.wavelet_noise_residue.dwt import scaling_coefficients
+        from forensics.wavelet_noise_residue.dwt import scaling_coefficients
 
         for order in (2, 4, 6, 8, 10):
             h = scaling_coefficients(order)
             assert h.shape[0] == order
 
     def test_dwt_produces_finite_output(self, sample_gray):
-        from core.legacy.wavelet_noise_residue.dwt import dwt_x, scaling_coefficients
+        from forensics.wavelet_noise_residue.dwt import dwt_x, scaling_coefficients
 
         x = sample_gray.astype(np.float64)
         y = dwt_x(x, scaling_coefficients(8), 1)
@@ -52,14 +53,14 @@ class TestWaveletDwt:
 
 class TestWaveletNoiseResiduePipeline:
     def test_smoke_defaults(self, sample_gray):
-        from core.legacy.wavelet_noise_residue import run_wavelet_noise_residue
+        from forensics.wavelet_noise_residue import run_wavelet_noise_residue
 
         result = run_wavelet_noise_residue(sample_gray)
         assert result["colored_bgr"].shape[:2] == sample_gray.shape
         assert result["overlay_bgr"].shape == result["colored_bgr"].shape
 
     def test_deterministic(self, sample_gray):
-        from core.legacy.wavelet_noise_residue import run_wavelet_noise_residue
+        from forensics.wavelet_noise_residue import run_wavelet_noise_residue
 
         params = {"order": 8, "blocksize": 40, "thr": 255, "post": True}
         r1 = run_wavelet_noise_residue(sample_gray, params)
@@ -69,7 +70,7 @@ class TestWaveletNoiseResiduePipeline:
         assert h1 == h2
 
     def test_peritus_default_params(self, sample_gray):
-        from core.legacy.wavelet_noise_residue import run_wavelet_noise_residue
+        from forensics.wavelet_noise_residue import run_wavelet_noise_residue
 
         result = run_wavelet_noise_residue(
             sample_gray,
@@ -78,7 +79,7 @@ class TestWaveletNoiseResiduePipeline:
         assert result["parameters"]["order"] == 8
 
     def test_roi(self, sample_gray):
-        from core.legacy.wavelet_noise_residue import run_wavelet_noise_residue
+        from forensics.wavelet_noise_residue import run_wavelet_noise_residue
 
         full = run_wavelet_noise_residue(sample_gray)
         roi = run_wavelet_noise_residue(sample_gray, {"region": [64, 64, 128, 128]})
@@ -88,7 +89,7 @@ class TestWaveletNoiseResiduePipeline:
     @pytest.mark.skipif(not EXEMPLO3_26JPG.is_file(), reason="26.jpg do caso Exemplo3 ausente")
     def test_exemplo3_26jpg_odd_dimensions(self):
         """Regressao: 26.jpg (343x585) falhava com index out of bounds no DWT."""
-        from core.legacy.wavelet_noise_residue import run_wavelet_noise_residue
+        from forensics.wavelet_noise_residue import run_wavelet_noise_residue
 
         gray = cv2.imread(str(EXEMPLO3_26JPG), cv2.IMREAD_GRAYSCALE)
         assert gray is not None
@@ -99,7 +100,7 @@ class TestWaveletNoiseResiduePipeline:
         assert result["overlay_bgr"].shape == result["colored_bgr"].shape
 
     def test_odd_dimension_dwt_convolution(self):
-        from core.legacy.wavelet_noise_residue.dwt import dwt_coefficients, dwt_convolution, scaling_coefficients
+        from forensics.wavelet_noise_residue.dwt import dwt_coefficients, dwt_convolution, scaling_coefficients
 
         coeff_low, coeff_high = dwt_coefficients(scaling_coefficients(8))
         x_in = np.arange(585, dtype=np.float64)
@@ -108,7 +109,7 @@ class TestWaveletNoiseResiduePipeline:
         assert high.shape == low.shape
 
     def test_reprocess_from_npz_without_redwt(self, sample_gray, tmp_path):
-        from core.legacy.wavelet_noise_residue import (
+        from forensics.wavelet_noise_residue import (
             reprocess_wavelet_noise_residue_from_npz,
             run_wavelet_noise_residue,
         )
@@ -128,7 +129,7 @@ class TestWaveletNoiseResiduePipeline:
 
     def test_threshold_preview_uses_aggregate_cache(self, sample_gray, tmp_path):
         import time
-        from core.legacy.wavelet_noise_residue import reprocess_wavelet_noise_residue_from_npz, run_wavelet_noise_residue
+        from forensics.wavelet_noise_residue import reprocess_wavelet_noise_residue_from_npz, run_wavelet_noise_residue
 
         npz_path = tmp_path / "wnr_dwt_coefficients.npz"
         run_wavelet_noise_residue(sample_gray, {"order": 8, "blocksize": 3}, dwt_coefficients_path=npz_path)
@@ -142,7 +143,7 @@ class TestWaveletNoiseResiduePipeline:
 
     @pytest.mark.slow
     def test_golden_regression(self, sample_gray):
-        from core.legacy.wavelet_noise_residue import wavelets_noise_residue
+        from forensics.wavelet_noise_residue import wavelets_noise_residue
 
         out = wavelets_noise_residue(sample_gray, order=8, blocksize=40, thr=255, post=True)
         if not GOLDEN.is_file():
@@ -175,7 +176,8 @@ class TestWaveletNoiseResiduePlugin:
         assert not ok
 
 
-@pytest.mark.skipif(not PERITUS_DWT.is_file(), reason="Legado Peritus dwt.c ausente")
+@pytest.mark.skipif(not PERITUS_DWT.is_file(), reason="Fixture Peritus dwt.c ausente em tests/fixtures/native/peritus_wavelet")
+@pytest.mark.slow
 class TestPeritusCppEquivalence:
     """Compare Python port vs compilacao do dwt.c + logica filter.cpp."""
 
@@ -183,9 +185,9 @@ class TestPeritusCppEquivalence:
     def _ensure_ref_binary() -> Path:
         if REF_BIN.is_file():
             return REF_BIN
-        src = WORKSPACE / "tools" / "wavelet_noise_residue_ref.c"
+        src = NATIVE_FIXTURES / "wavelet_noise_residue_ref.c"
         if not src.is_file():
-            pytest.skip("tools/wavelet_noise_residue_ref.c ausente")
+            pytest.skip("tests/fixtures/native/wavelet_noise_residue_ref.c ausente")
         try:
             subprocess.run(
                 [
@@ -208,7 +210,7 @@ class TestPeritusCppEquivalence:
         return REF_BIN
 
     def test_cpp_reference_matches_python(self, sample_gray):
-        from core.legacy.wavelet_noise_residue import wavelets_noise_residue
+        from forensics.wavelet_noise_residue import wavelets_noise_residue
 
         ref = self._ensure_ref_binary()
         h, w = sample_gray.shape
@@ -248,8 +250,8 @@ class TestPrnuDenoisingDistinct:
     """PRNU usa Wiener db4 L=4; Peritus WNR usa DWT db8 L=1 + mediana HH — algoritmos distintos."""
 
     def test_not_same_as_prnu_noise_extract(self, sample_gray):
-        from core.legacy.prnu.Filter import NoiseExtractFromImage
-        from core.legacy.wavelet_noise_residue import wavelets_noise_residue
+        from forensics.prnu.Filter import NoiseExtractFromImage
+        from forensics.wavelet_noise_residue import wavelets_noise_residue
 
         gray3 = cv2.cvtColor(sample_gray, cv2.COLOR_GRAY2BGR)
         prnu = NoiseExtractFromImage(gray3, sigma=2.0)

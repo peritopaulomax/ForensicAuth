@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useImageGroupSession } from "@/context/ImageGroupSessionContext";
 
 /**
- * Evidência local (página dedicada) ou compartilhada (aba dentro do grupo de imagem).
- * Quando embutido, chama `applyEvidence` sempre que a evidência do grupo mudar.
+ * Evidência local (página dedicada) ou compartilhada (aba dentro do grupo de análise).
+ * Quando embutido (ImageGroupSession / media-group), chama `applyEvidence` sempre que a evidência do grupo mudar.
  */
 export function useGroupAwareEvidence(
   caseId: string,

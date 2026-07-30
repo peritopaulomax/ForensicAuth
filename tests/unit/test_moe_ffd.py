@@ -21,7 +21,7 @@ class TestMoeFfdRuntime:
         assert plugin.supported_types == ["imagem"]
 
     def test_runtime_missing_weights(self, tmp_path, monkeypatch):
-        from core.legacy.moe_ffd import runtime as rt
+        from forensics.moe_ffd import runtime as rt
 
         monkeypatch.setattr(rt, "moe_ffd_vendor_dir", lambda: tmp_path / "missing_vendor")
         monkeypatch.setattr(rt, "moe_ffd_checkpoint_path", lambda: tmp_path / "missing.tar")
@@ -30,7 +30,7 @@ class TestMoeFfdRuntime:
         assert "Vendor" in reason or "Checkpoint" in reason
 
     def test_runtime_ok_when_paths_exist(self, tmp_path, monkeypatch):
-        from core.legacy.moe_ffd import runtime as rt
+        from forensics.moe_ffd import runtime as rt
 
         vendor = tmp_path / "MoE-FFD"
         vendor.mkdir()
@@ -41,7 +41,7 @@ class TestMoeFfdRuntime:
         monkeypatch.setattr(rt, "moe_ffd_vendor_dir", lambda: vendor)
         monkeypatch.setattr(rt, "moe_ffd_checkpoint_path", lambda: ckpt)
         monkeypatch.setattr(
-            "core.legacy.moe_ffd.face_crop.retinaface_available",
+            "forensics.moe_ffd.face_crop.retinaface_available",
             lambda: (True, ""),
         )
         monkeypatch.setattr(
@@ -56,7 +56,7 @@ class TestMoeFfdRuntime:
     def test_checkpoint_health_rejects_zero_gates(self, tmp_path):
         import torch
 
-        from core.legacy.moe_ffd.runtime import clear_checkpoint_inspect_cache, inspect_moe_ffd_checkpoint
+        from forensics.moe_ffd.runtime import clear_checkpoint_inspect_cache, inspect_moe_ffd_checkpoint
 
         # Minimal fake training checkpoint with zero MoE gates (mirrors HF defect).
         sd = {
@@ -78,7 +78,7 @@ class TestMoeFfdRuntime:
     def test_checkpoint_health_accepts_trained_gates(self, tmp_path):
         import torch
 
-        from core.legacy.moe_ffd.runtime import clear_checkpoint_inspect_cache, inspect_moe_ffd_checkpoint
+        from forensics.moe_ffd.runtime import clear_checkpoint_inspect_cache, inspect_moe_ffd_checkpoint
 
         sd = {
             "blocks.0.attn.LoRA_MoE.w_gate": torch.randn(8, 2) * 0.05,
@@ -112,7 +112,7 @@ class TestMoeFfdRuntime:
 
 class TestMoeFfdPipelineContract:
     def test_softmax_class1_is_fake(self):
-        from core.legacy.moe_ffd.moe_ffd_pipeline import classify_probs
+        from forensics.moe_ffd.moe_ffd_pipeline import classify_probs
 
         # logits favour class 1
         logits = torch.tensor([[0.1, 2.0]])
@@ -133,7 +133,7 @@ class TestMoeFfdPipelineContract:
         import numpy as np
         from albumentations.pytorch.transforms import ToTensorV2
 
-        from core.legacy.moe_ffd.moe_ffd_pipeline import preprocess_image
+        from forensics.moe_ffd.moe_ffd_pipeline import preprocess_image
 
         rng = np.random.default_rng(0)
         rgb = rng.integers(0, 255, size=(180, 140, 3), dtype=np.uint8)
@@ -185,7 +185,7 @@ class TestMoeFfdPipelineContract:
             }
 
         monkeypatch.setattr(
-            "core.legacy.moe_ffd.moe_ffd_pipeline.infer",
+            "forensics.moe_ffd.moe_ffd_pipeline.infer",
             fake_infer,
         )
 
@@ -202,7 +202,7 @@ class TestMoeFfdPipelineContract:
     def test_face_crop_square_with_margin(self, monkeypatch):
         import numpy as np
 
-        from core.legacy.moe_ffd import face_crop as fc
+        from forensics.moe_ffd import face_crop as fc
 
         rgb = np.full((400, 600, 3), 40, dtype=np.uint8)
         # paint a bright face-like blob (detector will be mocked)

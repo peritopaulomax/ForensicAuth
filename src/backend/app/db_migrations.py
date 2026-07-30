@@ -193,6 +193,20 @@ def ensure_custody_lifecycle_tables(engine: Engine) -> None:
     )
 
 
+def ensure_refresh_tokens_table(engine: Engine) -> None:
+    """Create refresh_tokens table if missing (access+refresh auth)."""
+    from app.database import Base
+    import models.refresh_token  # noqa: F401 — register model
+
+    inspector = inspect(engine)
+    if "refresh_tokens" in inspector.get_table_names():
+        return
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[Base.metadata.tables["refresh_tokens"]],
+    )
+
+
 def ensure_analysis_job_progress_columns(engine: Engine) -> None:
     """Add analysis_jobs.progress / progress_message for real-time UI updates."""
     inspector = inspect(engine)
@@ -292,7 +306,7 @@ def ensure_case_custody_seal_values(engine: Engine) -> None:
 
 
 def ensure_migrate_analista_to_perito(engine: Engine) -> None:
-    """Remove legacy analista role — migrate existing users to perito."""
+    """Normalize historic role value ``analista`` to ``perito``."""
     inspector = inspect(engine)
     if "users" not in inspector.get_table_names():
         return
@@ -302,7 +316,7 @@ def ensure_migrate_analista_to_perito(engine: Engine) -> None:
 
 
 def ensure_migrate_em_andamento_to_aberto(engine: Engine) -> None:
-    """Caso aberto engloba em andamento — normaliza registros legados."""
+    """Caso aberto engloba em andamento — normaliza registros historicos."""
     inspector = inspect(engine)
     if "cases" not in inspector.get_table_names():
         return

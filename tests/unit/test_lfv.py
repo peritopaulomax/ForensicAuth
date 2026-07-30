@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
@@ -10,34 +9,9 @@ import pytest
 WORKSPACE = Path(__file__).resolve().parents[2]
 
 
-def test_lfv_vendor_isolation_after_distildire():
-    """LFV deve importar networks/xception mesmo apos DistilDIRE carregar networks."""
-    distildire = WORKSPACE / "vendor" / "distildire"
-    if not distildire.is_dir():
-        pytest.skip("vendor/distildire ausente")
-
-    # O processo de testes carrega varios vendors com `networks`; isolamento por
-    # sys.path/sys.modules nao e confiavel. Verifica em subprocesso limpo.
-    import subprocess
-
-    script = """
-import sys
-sys.path.insert(0, 'src/backend')
-from core.legacy.distildire.distildire_vendor import distildire_vendor_context
-with distildire_vendor_context():
-    import networks.distill_model as dm
-    print(dm.__file__)
-"""
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=WORKSPACE,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "distildire" in result.stdout
-
-    from core.legacy.lowres_fake_video.lfv_vendor import lfv_vendor_context
+def test_lfv_vendor_isolation():
+    """LFV vendor context deve expor networks/xception do vendor LFV."""
+    from forensics.lowres_fake_video.lfv_vendor import lfv_vendor_context
 
     vendor = WORKSPACE / "vendor" / "fake-video-detection"
     if not vendor.is_dir():
@@ -47,12 +21,12 @@ with distildire_vendor_context():
         from networks import xception as xception_mod
         from networks.baseline import BaselineModel
 
-    assert "xception" in xception_mod.__file__
+    assert "fake-video-detection" in xception_mod.__file__.replace("\\", "/")
     assert BaselineModel.__module__ == "networks.baseline"
 
 
 def test_lfv_runtime_status():
-    from core.legacy.lowres_fake_video.lfv_runtime import lfv_runtime_status
+    from forensics.lowres_fake_video.lfv_runtime import lfv_runtime_status
 
     ok, reason = lfv_runtime_status()
     assert isinstance(ok, bool)
@@ -62,12 +36,13 @@ def test_lfv_runtime_status():
         assert ok, reason
 
 
+@pytest.mark.weights
 def test_lfv_checkpoint_maps_deepfakebench_weights():
     import torch
     import torch.nn as nn
 
-    from core.legacy.lowres_fake_video.lfv_pipeline import _map_checkpoint_to_baseline, clear_lfv_model_cache
-    from core.legacy.lowres_fake_video.lfv_runtime import weight_path
+    from forensics.lowres_fake_video.lfv_pipeline import _map_checkpoint_to_baseline, clear_lfv_model_cache
+    from forensics.lowres_fake_video.lfv_runtime import weight_path
 
     clear_lfv_model_cache()
     wp = weight_path()
@@ -80,7 +55,7 @@ def test_lfv_checkpoint_maps_deepfakebench_weights():
     assert mapped["model.conv1.weight"] is not None
     assert mapped["model.last_linear.weight"].shape == (2, 2048)
 
-    from core.legacy.lowres_fake_video.lfv_vendor import lfv_vendor_context
+    from forensics.lowres_fake_video.lfv_vendor import lfv_vendor_context
 
     vendor = WORKSPACE / "vendor" / "fake-video-detection"
     if not vendor.is_dir():
@@ -100,6 +75,7 @@ def test_lfv_checkpoint_maps_deepfakebench_weights():
         assert not msg.missing_keys
 
 
+@pytest.mark.weights
 def test_lfv_scores_vary_across_frames():
     """Com pesos carregados corretamente, frames distintos nao devem colapsar em ~0.495."""
     import tempfile
@@ -107,8 +83,8 @@ def test_lfv_scores_vary_across_frames():
     import cv2
     import numpy as np
 
-    from core.legacy.lowres_fake_video.lfv_pipeline import clear_lfv_model_cache, run_lfv_analysis
-    from core.legacy.lowres_fake_video.lfv_runtime import lfv_runtime_status
+    from forensics.lowres_fake_video.lfv_pipeline import clear_lfv_model_cache, run_lfv_analysis
+    from forensics.lowres_fake_video.lfv_runtime import lfv_runtime_status
 
     ok, reason = lfv_runtime_status()
     if not ok:
@@ -135,7 +111,7 @@ def test_lfv_scores_vary_across_frames():
 
 
 def test_lfv_plugin_simulated(monkeypatch, tmp_path):
-    from core.legacy.lowres_fake_video.lfv_pipeline import FrameScore, LfvAnalysis
+    from forensics.lowres_fake_video.lfv_pipeline import FrameScore, LfvAnalysis
     from core.plugins.lowres_fake_video_plugin import LowResFakeVideoPlugin
 
     monkeypatch.setattr(

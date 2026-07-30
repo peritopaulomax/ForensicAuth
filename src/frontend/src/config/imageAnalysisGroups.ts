@@ -1,6 +1,8 @@
 /** Agrupamento visual dos cards na aba Imagem (Análises do caso). */
 
-import { FORENSIC_TECHNIQUE_META } from "./forensicTechniqueMeta";
+import { FORENSIC_TECHNIQUE_META, resolveTechniqueLabel } from "./forensicTechniqueMeta";
+import { applyScaffoldedMediaGroups } from "./scaffoldedMediaGroups";
+import { applyScaffoldedImageGroups } from "./scaffoldedImageGroups";
 
 export type ImageTechniqueEntry =
   | { kind: "plugin"; id: string; adminOnly?: boolean; disabled?: boolean }
@@ -11,16 +13,16 @@ export interface ImageAnalysisGroup {
   title: string;
   description: string;
   techniques: ImageTechniqueEntry[];
-  /** Aba extra "executar todas" (somente DL manipulação por enquanto). */
+  /** Aba batch restrita ao grupo DL manipulação. */
   batchTab?: boolean;
 }
 
-export const IMAGE_ANALYSIS_GROUPS: ImageAnalysisGroup[] = [
+const _IMAGE_ANALYSIS_GROUPS_BASE: ImageAnalysisGroup[] = [
   {
     id: "estrutura-arquivo",
     title: "Estrutura de arquivo",
     description:
-      "Metadados incorporados, estrutura de contêiner e comparação estrutural entre evidências JPEG — útil para rastrear origem, software e consistência interna do arquivo.",
+      "Metadados incorporados, estrutura de contêiner e comparação estrutural entre evidências JPEG.",
     techniques: [
       { kind: "plugin", id: "metadata" },
       { kind: "plugin", id: "jpeg_structure_compare" },
@@ -30,7 +32,7 @@ export const IMAGE_ANALYSIS_GROUPS: ImageAnalysisGroup[] = [
     id: "classicas-compressao",
     title: "Clássicas: Artefatos de compressão",
     description:
-      "Técnicas baseadas em artefatos JPEG e DCT: ghosts, dupla compressão, ELA, grade de blocos (BAG), origem de grade (ZERO) e inconsistências de quantização.",
+      "Técnicas baseadas em artefatos JPEG e DCT.",
     techniques: [
       { kind: "plugin", id: "jpeg_ghosts" },
       { kind: "plugin", id: "dct_quantization" },
@@ -44,7 +46,7 @@ export const IMAGE_ANALYSIS_GROUPS: ImageAnalysisGroup[] = [
     id: "classicas-correlacao",
     title: "Clássicas: Correlações entre pixels",
     description:
-      "Detecção de reamostragem, copy-move (PatchMatch e PCA), e resíduo de ruído wavelet — exploram inconsistências espaciais e estatísticas entre pixels vizinhos.",
+      "Detecção de reamostragem, copy-move (PatchMatch e PCA), e resíduo de ruído wavelet.",
     techniques: [
       { kind: "plugin", id: "resampling" },
       { kind: "plugin", id: "patchmatch" },
@@ -55,27 +57,23 @@ export const IMAGE_ANALYSIS_GROUPS: ImageAnalysisGroup[] = [
   {
     id: "classicas-aquisicao",
     title: "Clássicas: Características de aquisição",
-    description:
-      "PRNU (pegada do sensor) e Noiseprint (resíduo de câmera/modelo) — comparam padrões de ruído de aquisição entre imagens e referências.",
-    techniques: [
-      { kind: "plugin", id: "prnu" },
-      { kind: "plugin", id: "noiseprint" },
-    ],
+    description: "PRNU: característica robusta do sensor.",
+    techniques: [{ kind: "plugin", id: "prnu" }],
   },
   {
     id: "dl-manipulacao",
     title: "Deep Learning: Detecção e Localização de Manipulações em Imagens",
     description:
-      "Localizadores baseados em deep learning (SAFIRE, TruFor, CAT-Net, Mesorch, Sparse-ViT e ecossistema IMDL-BenCo) — mapas de suspeita, overlays e máscaras por pixel.",
+      "Localizadores baseados em deep learning.",
     techniques: [
       { kind: "imdl", id: "cat_net" },
       { kind: "imdl", id: "trufor" },
-      { kind: "plugin", id: "safire" },
-      { kind: "imdl", id: "sparse_vit" },
-      { kind: "imdl", id: "mesorch" },
-      { kind: "imdl", id: "dinov3_iml" },
-      { kind: "imdl", id: "co_transformers" },
       { kind: "imdl", id: "miml_apscnet" },
+      { kind: "plugin", id: "safire", adminOnly: true },
+      { kind: "imdl", id: "sparse_vit", adminOnly: true },
+      { kind: "imdl", id: "mesorch", adminOnly: true },
+      { kind: "imdl", id: "dinov3_iml", adminOnly: true },
+      { kind: "imdl", id: "co_transformers", adminOnly: true },
       { kind: "imdl", id: "nfa_vit", adminOnly: true, disabled: true },
     ],
     batchTab: true,
@@ -84,7 +82,7 @@ export const IMAGE_ANALYSIS_GROUPS: ImageAnalysisGroup[] = [
     id: "dl-sintetico",
     title: "Deep Learning: Detecção de Imagens Sintéticas",
     description:
-      "Detectores selecionados de imagens geradas por IA: ai-image-detector-deploy, sdxl-flux-detector v1.1, B-Free/Bias-free e Corvi2023.",
+      "Detectores de imagens sintéticas.",
     techniques: [
       { kind: "plugin", id: "synthetic_image_detection" },
     ],
@@ -101,7 +99,12 @@ export const IMAGE_ANALYSIS_GROUPS: ImageAnalysisGroup[] = [
   },
 ];
 
-/** IDs legados de grupo → id canônico (bookmarks / URLs antigas). */
+export const IMAGE_ANALYSIS_GROUPS: ImageAnalysisGroup[] = applyScaffoldedMediaGroups(
+  "imagem",
+  applyScaffoldedImageGroups(_IMAGE_ANALYSIS_GROUPS_BASE),
+);
+
+/** Aliases de id de grupo → id canônico (bookmarks / URLs). */
 export const IMAGE_GROUP_ID_ALIASES: Record<string, string> = {
   "biometria-facial": "dl-facial-spoofing",
 };
@@ -145,7 +148,7 @@ export const DL_MANIPULATION_TAB_LABELS: Record<string, { name: string; year: nu
   mesorch: { name: "Mesorch", year: 2025 },
   dinov3_iml: { name: "DINOv3-IML", year: 2026 },
   co_transformers: { name: "Co-Transformers", year: 2026 },
-  miml_apscnet: { name: "MIML APSC-Net", year: 2026 },
+  miml_apscnet: { name: "MIML APSC-Net", year: 2024 },
 };
 
 export function resolveTechniqueTabLabel(entry: ImageTechniqueEntry): string {
@@ -157,9 +160,7 @@ export function resolveTechniqueTabLabel(entry: ImageTechniqueEntry): string {
   if (entry.kind === "imdl") {
     return IMDL_METHOD_LABELS[entry.id] || entry.id;
   }
-  const meta = FORENSIC_TECHNIQUE_META[entry.id];
-  if (meta?.title) return meta.title;
-  return entry.id;
+  return resolveTechniqueLabel(entry.id);
 }
 
 /** Métodos IMDL com página dedicada (fora do hub). */
@@ -174,8 +175,17 @@ export const IMDL_DEDICATED_METHOD_IDS = new Set([
   "miml_apscnet",
 ]);
 
-/** Métodos IMDL visíveis apenas para administradores (ex.: pesos ainda pendentes). */
-export const IMDL_ADMIN_ONLY_METHOD_IDS = new Set(["nfa_vit"]);
+/** Métodos IMDL restritos a administradores (UI + submit). Perito: CAT-Net, TruFor, MIML APSC-Net. */
+export const IMDL_ADMIN_ONLY_METHOD_IDS = new Set([
+  "sparse_vit",
+  "mesorch",
+  "dinov3_iml",
+  "co_transformers",
+  "nfa_vit",
+  "objectformer",
+  "forensic_hub",
+  "opensdi",
+]);
 
 export function isImageTechniqueVisible(
   entry: ImageTechniqueEntry,
@@ -191,7 +201,7 @@ export function isImageTechniqueDisabled(entry: ImageTechniqueEntry): boolean {
   return Boolean(entry.disabled);
 }
 
-/** Técnicas elegíveis para a aba "Executar todas" (exclui incompletas/desabilitadas). */
+/** Técnicas elegíveis para a aba "Executar todas" (exclui desabilitadas). */
 export function isImageTechniqueBatchEligible(entry: ImageTechniqueEntry): boolean {
   return !isImageTechniqueDisabled(entry);
 }
@@ -229,5 +239,5 @@ export const IMDL_METHOD_SUBTITLES: Record<string, string> = {
   nfa_vit: "Noise-guided forgery amplification (BR-Gen)",
   dinov3_iml: "ViT-L + LoRA r=32 · foundation model forense",
   co_transformers: "Dual-Transformer · atenção forense multi-nível (AAAI'26)",
-  miml_apscnet: "APSC-Net oficial MIML · localização single-image",
+  miml_apscnet: "CVPR 2024 · APSC-Net · Adaptive Perception + Self-Calibration",
 };

@@ -17,7 +17,6 @@ imdl/
 ├── copy_move_pca/*.pdf
 ├── wavelet_noise_residue/*.pdf
 ├── prnu/*.pdf
-├── noiseprint/*.pdf
 ├── safire/paper.pdf
 ├── trufor/paper.pdf
 ├── cat_net/paper.pdf
@@ -25,7 +24,8 @@ imdl/
 ├── sparse_vit/paper.pdf
 ├── mesorch/paper.pdf
 ├── dinov3_iml/paper.pdf
-└── co_transformers/paper.pdf
+├── co_transformers/paper.pdf
+└── miml_apscnet/paper.pdf
 ```
 
 ## Re-download
@@ -49,7 +49,6 @@ python scripts/download_imdl_papers.py
 | `copy_move_pca` | TR 2004 | Popescu & Farid |
 | `wavelet_noise_residue` | IVC 2009 | Mahdian & Saic |
 | `prnu` | Sensor noise / SPIE | Fridrich; Goljan et al.; Goljan & Fridrich |
-| `noiseprint` | TIFS 2020 | Cozzolino & Verdoliva |
 | `safire` | AAAI 2025 | [arXiv:2412.08197](https://arxiv.org/pdf/2412.08197.pdf) |
 | `trufor` | CVPR 2023 | [CVF Open Access](https://openaccess.thecvf.com/content/CVPR2023/papers/Guillaro_TruFor_Leveraging_All-Round_Clues_for_Trustworthy_Image_Forgery_Detection_and_CVPR_2023_paper.pdf) |
 | `cat_net` | IJCV 2022 (v2) | [arXiv:2108.12947](https://arxiv.org/pdf/2108.12947.pdf) |
@@ -58,6 +57,7 @@ python scripts/download_imdl_papers.py
 | `mesorch` | AAAI 2025 | [arXiv:2412.13753](https://arxiv.org/pdf/2412.13753.pdf) |
 | `dinov3_iml` | arXiv 2026 | [arXiv:2604.16083](https://arxiv.org/pdf/2604.16083.pdf) |
 | `co_transformers` | AAAI 2026 | [AAAI OJS](https://ojs.aaai.org/index.php/AAAI/article/download/38250/42212) |
+| `miml_apscnet` | CVPR 2024 | [CVF Open Access](https://openaccess.thecvf.com/content/CVPR2024/papers/Qu_Towards_Modern_Image_Manipulation_Localization_A_Large-Scale_Dataset_and_Novel_CVPR_2024_paper.pdf) |
 
 ## Uso futuro
 

@@ -14,11 +14,20 @@ export interface FirstAccessCredentials {
 
 export async function login(credentials: LoginCredentials): Promise<{ tokens: AuthTokens; user: User }> {
   try {
-    const response = await api.post<AuthTokens & { user: User }>("/auth/login", credentials);
+    const response = await api.post<AuthTokens & { user: User }>("/auth/login", credentials, {
+      skipAuthRedirect: true,
+    });
+    const access_token = response.data.access_token;
+    const refresh_token = response.data.refresh_token;
+    if (!access_token || !refresh_token) {
+      throw new Error("Resposta de login incompleta do servidor");
+    }
     return {
       tokens: {
-        access_token: response.data.access_token,
+        access_token,
+        refresh_token,
         token_type: response.data.token_type,
+        expires_in: response.data.expires_in,
       },
       user: response.data.user,
     };
@@ -28,9 +37,34 @@ export async function login(credentials: LoginCredentials): Promise<{ tokens: Au
   }
 }
 
+export async function refreshSession(refreshToken: string): Promise<AuthTokens> {
+  const response = await api.post<AuthTokens>(
+    "/auth/refresh",
+    { refresh_token: refreshToken },
+    { skipAuthRedirect: true }
+  );
+  return {
+    access_token: response.data.access_token,
+    refresh_token: response.data.refresh_token,
+    token_type: response.data.token_type,
+    expires_in: response.data.expires_in,
+  };
+}
+
+export async function logoutRemote(refreshToken: string | null): Promise<void> {
+  if (!refreshToken) return;
+  try {
+    await api.post("/auth/logout", { refresh_token: refreshToken }, { skipAuthRedirect: true });
+  } catch {
+    // Best-effort revocation; local session is cleared regardless.
+  }
+}
+
 export async function firstAccess(credentials: FirstAccessCredentials): Promise<User> {
   try {
-    const response = await api.post<User>("/auth/first-access", credentials);
+    const response = await api.post<User>("/auth/first-access", credentials, {
+      skipAuthRedirect: true,
+    });
     return response.data;
   } catch (err: unknown) {
     const message = extractErrorMessage(err);

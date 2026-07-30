@@ -1,21 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
-import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
-import AnalysisPageShell, {
-  AnalysisPanel,
-  MessageBox,
-  ProcessButton,
-  formatInferenceDevice,
-  parseDeviceFromProgress,
-} from "@/components/AnalysisPageShell";
-import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
-import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
+import { formatInferenceDevice, parseDeviceFromProgress } from "@/components/AnalysisPageShell";
+import TechniquePageShell from "@/components/TechniquePageShell";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
-import { saveDerivative } from "@/services/evidence";
-import api from "@/services/api";
-
-const META = FORENSIC_TECHNIQUE_META.moe_ffd;
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 
 type MoeFfdReport = {
   label: string;
@@ -38,12 +28,9 @@ function decisionColor(label: string) {
 export default function MoeFfdAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
   const [threshold, setThreshold] = useState(0.5);
-  const [runtimeOk, setRuntimeOk] = useState<boolean | null>(null);
-  const [runtimeReason, setRuntimeReason] = useState("");
   const [report, setReport] = useState<MoeFfdReport | null>(null);
   const [inputUrl, setInputUrl] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
 
   const {
     running,
@@ -57,30 +44,20 @@ export default function MoeFfdAnalysis() {
     reset,
   } = useForensicJob();
 
-  const inferenceDevice = parseDeviceFromProgress(progressLabel);
+  const { status: runtimeStatus } = useTechniqueRuntime("moe_ffd");
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
 
-  useEffect(() => {
-    api
-      .get<{ name: string; available?: boolean; unavailable_reason?: string | null }[]>("/analysis/techniques")
-      .then((res) => {
-        const t = res.data.find((x) => x.name === "moe_ffd");
-        setRuntimeOk(t ? t.available !== false : false);
-        setRuntimeReason(t?.unavailable_reason || "MoE-FFD nao registrado.");
-      })
-      .catch(() => {
-        setRuntimeOk(false);
-        setRuntimeReason("Falha ao verificar MoE-FFD.");
-      });
-  }, []);
+  const inferenceDevice = parseDeviceFromProgress(progressLabel);
 
   const applyEvidence = useCallback(
     (id: string, _source: "original" | "derivative") => {
       reset();
       setReport(null);
       setInputUrl(`/api/v1/evidences/${id}/file`);
-      setSaveMessage(null);
+      clearMessage();
     },
-    [reset],
+    [reset, clearMessage],
   );
 
   const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
@@ -88,7 +65,7 @@ export default function MoeFfdAnalysis() {
 
   async function process() {
     if (!evidenceId || !runtimeOk) return;
-    setSaveMessage(null);
+    clearMessage();
     try {
       await runAnalysis(
         evidenceId,
@@ -118,138 +95,101 @@ export default function MoeFfdAnalysis() {
         },
       );
     } catch {
-      /* hook sets error */
     }
   }
 
   async function handleSave() {
     if (!currentJobId) return;
-    setSaving(true);
-    setSaveMessage(null);
-    try {
-      const res = await saveDerivative({ job_id: currentJobId, artifact_filename: "moe_ffd_result.json" });
-      setSaveMessage({
-        type: "ok",
-        text: `Relatorio salvo. SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Erro ao salvar";
-      setSaveMessage({ type: "err", text: String(msg) });
-    } finally {
-      setSaving(false);
-    }
+    await save(currentJobId, "moe_ffd_result.json", "Relatorio MoE-FFD");
   }
 
   const pctFake = report ? Math.round(report.fake_prob * 100) : 0;
 
-  return (
-    <AnalysisPageShell
-      caseId={caseId!}
-      title={META.title}
-      intro={<TechniqueReferenceIntro meta={META} techniqueId="moe_ffd" />}
-      embedded={embedded}
-    >
-      {runtimeOk === false && (
-        <MessageBox
-          type="err"
-          text={
-            runtimeReason ||
-            "MoE-FFD indisponivel neste servidor. Se a mensagem citar gates/w_gate, o MoE-FFD.tar do Hugging Face e um checkpoint de treino invalido — nao use estes scores."
-          }
-        />
-      )}
+  if (!caseId) return null;
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) minmax(320px, 1.2fr)", gap: "1rem" }}>
-        <AnalysisPanel title="Evidencia e parametros">
-          {showEvidencePicker && (
-            <ImageEvidenceSelector
-              caseId={caseId!}
-              selectedId={evidenceId}
-              selectionSource={selectionSource}
-              onSelect={onSelectEvidence}
-            />
-          )}
-
-          <div style={{ marginTop: "1rem", display: "grid", gap: "0.65rem" }}>
-            <label style={{ fontSize: "0.82rem", color: "#374151" }}>
-              Limiar fake ({threshold.toFixed(2)})
-              <input
-                type="range"
-                min={0.1}
-                max={0.9}
-                step={0.05}
-                value={threshold}
-                onChange={(e) => setThreshold(Number(e.target.value))}
-                style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
-              />
-            </label>
-            <p style={{ margin: 0, fontSize: "0.78rem", color: "#6b7280" }}>
-              Pré-processamento: <strong>RetinaFace</strong> detecta a face principal, aplica crop
-              quadrado com margem (padrão 1.3×) e só então o resize 224×224 oficial do MoE-FFD.
-              Softmax classe 1 = forgery. Evite mosaicos com várias faces (usa a de maior confiança).
-            </p>
-          </div>
-
-          <div style={{ marginTop: "1rem" }}>
-            <ProcessButton
-              onClick={process}
-              running={running}
-              disabled={!evidenceId || runtimeOk === false}
-              label="Analisar imagem"
-            />
-          </div>
-
-          {running && (
-            <p style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#6b7280" }}>
-              Progresso: {Math.round(progress)}%
-              {inferenceDevice && (
-                <>
-                  {" "}
-                  — {formatInferenceDevice(inferenceDevice)}
-                </>
-              )}
-              {progressLabel ? ` — ${progressLabel}` : ""}
-            </p>
-          )}
-          {error && <MessageBox type="err" text={error} />}
-        </AnalysisPanel>
-
-        <AnalysisPanel title="Visualizacao">
-          {inputUrl ? (
-            <figure style={{ margin: 0 }}>
-              <img
-                src={inputUrl}
-                alt="Preview da evidencia"
-                style={{ maxWidth: "100%", height: "auto", borderRadius: 6, border: "1px solid #e5e7eb" }}
-              />
-              <figcaption style={{ marginTop: "0.35rem", fontSize: "0.78rem", color: "#6b7280" }}>
-                {report?.face_cropped
-                  ? "Crop facial (RetinaFace) enviado ao modelo"
-                  : "Preview da entrada"}
-              </figcaption>
-            </figure>
-          ) : (
-            <div
-              style={{
-                minHeight: 200,
-                background: "#f9fafb",
-                borderRadius: 6,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#9ca3af",
-                fontSize: "0.85rem",
-              }}
-            >
-              —
-            </div>
-          )}
-        </AnalysisPanel>
+  const parametersPanel = (
+    <>
+      <div style={{ display: "grid", gap: "0.65rem" }}>
+        <label style={{ fontSize: "0.82rem", color: "#374151" }}>
+          Limiar fake ({threshold.toFixed(2)})
+          <input
+            type="range"
+            min={0.1}
+            max={0.9}
+            step={0.05}
+            value={threshold}
+            onChange={(e) => setThreshold(Number(e.target.value))}
+            style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
+          />
+        </label>
+        <p style={{ margin: 0, fontSize: "0.78rem", color: "#6b7280" }}>
+          Pré-processamento: <strong>RetinaFace</strong> detecta a face principal, aplica crop
+          quadrado com margem (padrão 1.3×) e só então o resize 224×224 oficial do MoE-FFD.
+          Softmax classe 1 = forgery. Evite mosaicos com várias faces (usa a de maior confiança).
+        </p>
       </div>
 
+      <div style={{ marginTop: "1rem" }}>
+        <button
+          type="button"
+          onClick={process}
+          disabled={!evidenceId || runtimeOk !== true || running}
+          style={btnPrimary}
+        >
+          {running ? "Processando…" : "Analisar imagem"}
+        </button>
+      </div>
+
+      {running && (
+        <p style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#6b7280" }}>
+          Progresso: {Math.round(progress)}%
+          {inferenceDevice && (
+            <>
+              {" "}
+              — {formatInferenceDevice(inferenceDevice)}
+            </>
+          )}
+          {progressLabel ? ` — ${progressLabel}` : ""}
+        </p>
+      )}
+    </>
+  );
+
+  const resultPanel = (
+    <>
+      {inputUrl ? (
+        <figure style={{ margin: 0 }}>
+          <img
+            src={inputUrl}
+            alt="Preview da evidencia"
+            style={{ maxWidth: "100%", height: "auto", borderRadius: 6, border: "1px solid #e5e7eb" }}
+          />
+          <figcaption style={{ marginTop: "0.35rem", fontSize: "0.78rem", color: "#6b7280" }}>
+            {report?.face_cropped
+              ? "Crop facial (RetinaFace) enviado ao modelo"
+              : "Preview da entrada"}
+          </figcaption>
+        </figure>
+      ) : (
+        <div
+          style={{
+            minHeight: 200,
+            background: "#f9fafb",
+            borderRadius: 6,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#9ca3af",
+            fontSize: "0.85rem",
+          }}
+        >
+          —
+        </div>
+      )}
+
       {report && (
-        <AnalysisPanel title="Resultado MoE-FFD">
+        <div style={{ marginTop: "1.5rem" }}>
+          <h4 style={{ fontSize: "0.95rem", margin: "0 0 0.75rem" }}>Resultado MoE-FFD</h4>
           <div
             style={{
               display: "grid",
@@ -338,11 +278,42 @@ export default function MoeFfdAnalysis() {
               >
                 {saving ? "Salvando…" : "Salvar relatorio no caso"}
               </button>
-              {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
             </div>
           )}
-        </AnalysisPanel>
+        </div>
       )}
-    </AnalysisPageShell>
+    </>
+  );
+
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="moe_ffd"
+      mediaType="imagem"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      parametersPanel={parametersPanel}
+      resultPanel={resultPanel}
+    />
   );
 }
+
+const btnPrimary: React.CSSProperties = {
+  padding: "0.5rem 1rem",
+  background: "#0369a1",
+  color: "#fff",
+  border: "none",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: "0.85rem",
+};

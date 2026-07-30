@@ -127,7 +127,7 @@
 
     <section id="o-que-e">
       <h2>1. O que é o ForensicAuth</h2>
-      <p>O <strong>ForensicAuth</strong> (Verificação de Autenticidade) é uma aplicação para peritos e analistas que precisam:</p>
+      <p>O <strong>ForensicAuth</strong> (Verificação de Autenticidade) é uma aplicação para peritos que precisam:</p>
       <ul>
         <li>Organizar investigações em <strong>casos</strong> com número de protocolo;</li>
         <li>Receber <strong>evidências</strong> (imagens, áudio, vídeo, PDF) preservando integridade (SHA-256);</li>
@@ -136,14 +136,14 @@
         <li><strong>Fechar</strong> casos com manifesto assinado e <strong>exportar/importar</strong> pacotes VCP entre instituições.</li>
       </ul>
       <div class="card card-accent">
-        <strong>Princípio central:</strong> explorar parâmetros de análise (preview) <em>não</em> altera a cadeia. Só entram eventos como upload, derivado salvo, laudo, compartilhamento, fechamento e importação/exportação VCP.
+        <strong>Princípio central:</strong> explorar parâmetros de análise (preview) <em>não</em> altera a cadeia. Só entram eventos como upload, derivado salvo, compartilhamento, fechamento e importação/exportação VCP.
       </div>
     </section>
 
     <section id="componentes">
       <h2>2. Componentes do sistema</h2>
       <div class="diagram">┌─────────────────────────────────────────────────────────────┐
-│  Navegador (perito / analista)                              │
+│  Navegador (perito)                                         │
 │  React + TypeScript — casos, análises, custódia, VCP      │
 └───────────────────────────┬─────────────────────────────────┘
                             │ HTTPS  /api/v1/*
@@ -205,7 +205,8 @@
         <li><code>services/</code> — lógica de negócio (custódia, jobs, exportação, lifecycle).</li>
         <li><code>models/</code> — entidades SQLAlchemy (User, Case, Evidence, CustodyRecord, …).</li>
         <li><code>core/plugins/</code> — adaptadores que implementam <code>ForensicPlugin</code>.</li>
-        <li><code>core/legacy/</code> — implementações algorítmicas preservadas (jpegio, PRNU, parsers binários, etc.).</li>
+        <li><code>forensics/</code> — motores forenses de 1º partido (jpegio, PRNU, parsers binários, etc.).</li>
+        <li><code>vendor/</code> — código de terceiros encapsulado (não reescrever sem equivalência).</li>
       </ul>
       <p class="muted">Cada técnica (ex.: <code>jpeg_ghosts</code>, <code>prnu</code>, <code>pdf_structure_metrics</code>) é um plugin registrado no startup. O plugin valida parâmetros, executa o algoritmo e devolve artefatos (imagens, HTML Plotly, JSON).</p>
 

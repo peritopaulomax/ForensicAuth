@@ -5,7 +5,7 @@ import pytest
 
 class TestImdlBencoCatalog:
     def test_registered_methods(self):
-        from core.legacy.imdlbenco.imdlbenco_catalog import IMDLBENCO_METHODS
+        from forensics.imdlbenco.imdlbenco_catalog import IMDLBENCO_METHODS
 
         assert len(IMDLBENCO_METHODS) == 11
         ids = {m.id for m in IMDLBENCO_METHODS}
@@ -20,14 +20,14 @@ class TestImdlBencoCatalog:
 
 class TestImdlBencoRuntime:
     def test_list_method_status(self):
-        from core.legacy.imdlbenco.imdlbenco_runtime import list_method_status
+        from forensics.imdlbenco.imdlbenco_runtime import list_method_status
 
         rows = list_method_status()
         assert len(rows) == 11
         assert all("status" in r and "id" in r for r in rows)
 
     def test_mesorch_checkpoint_names(self):
-        from core.legacy.imdlbenco.imdlbenco_runtime import MESORCH_VARIANTS, list_mesorch_variants
+        from forensics.imdlbenco.imdlbenco_runtime import MESORCH_VARIANTS, list_mesorch_variants
 
         assert MESORCH_VARIANTS["standard"] == "mesorch-98.pth"
         assert MESORCH_VARIANTS["mesorch_p"] == "mesorch_p-118.pth"
@@ -35,7 +35,7 @@ class TestImdlBencoRuntime:
         assert len(variants) == 2
 
     def test_native_checkpoint_names(self):
-        from core.legacy.imdlbenco.imdlbenco_runtime import CHECKPOINT_NAMES, NFA_VIT_CHECKPOINT_NAME
+        from forensics.imdlbenco.imdlbenco_runtime import CHECKPOINT_NAMES, NFA_VIT_CHECKPOINT_NAME
 
         assert CHECKPOINT_NAMES["trufor"] == "trufor_casiav2.pth"
         assert CHECKPOINT_NAMES["cat_net"] == "cat_net_cat_net.pth"
@@ -43,7 +43,7 @@ class TestImdlBencoRuntime:
         assert NFA_VIT_CHECKPOINT_NAME == "nfa_vit_brgen.pth"
 
     def test_nfa_vit_status_when_vendor_present(self):
-        from core.legacy.imdlbenco.imdlbenco_runtime import method_runtime_status, vendor_root
+        from forensics.imdlbenco.imdlbenco_runtime import method_runtime_status, vendor_root
 
         if not (vendor_root() / "BR-Gen-main").is_dir():
             pytest.skip("vendor BR-Gen ausente")
@@ -53,8 +53,8 @@ class TestImdlBencoRuntime:
             assert "NFA-ViT" in reason or "nfa_vit" in reason.lower() or "pesos" in reason.lower()
 
     def test_dinov3_iml_status_when_vendor_present(self):
-        from core.legacy.imdlbenco.dinov3_iml_official_pipeline import official_runtime_ready
-        from core.legacy.imdlbenco.imdlbenco_runtime import (
+        from forensics.imdlbenco.dinov3_iml_official_pipeline import official_runtime_ready
+        from forensics.imdlbenco.imdlbenco_runtime import (
             DINOV3_IML_VENDOR_DIR,
             method_runtime_status,
             vendor_root,
@@ -71,13 +71,13 @@ class TestImdlBencoRuntime:
             assert "peso" in reason.lower() or "checkpoint" in reason.lower() or "peft" in reason.lower()
 
     def test_co_transformers_checkpoint_names(self):
-        from core.legacy.imdlbenco.imdlbenco_runtime import CO_TRANSFORMERS_CHECKPOINT_NAMES
+        from forensics.imdlbenco.imdlbenco_runtime import CO_TRANSFORMERS_CHECKPOINT_NAMES
 
         assert CO_TRANSFORMERS_CHECKPOINT_NAMES[0] == "co_transformers.pth"
 
     def test_co_transformers_preprocess_matches_vendor_scripts(self):
         """Vendor train/test scripts use --if_resizing (not --if_padding)."""
-        from core.legacy.imdlbenco.imdlbenco_catalog import get_method
+        from forensics.imdlbenco.imdlbenco_catalog import get_method
 
         spec = get_method("co_transformers")
         assert spec is not None
@@ -86,8 +86,9 @@ class TestImdlBencoRuntime:
         assert spec.image_size == 512
         assert spec.edge_width == 7
 
+    @pytest.mark.weights
     def test_objectformer_status_when_weights_present(self):
-        from core.legacy.imdlbenco.imdlbenco_runtime import method_runtime_status, resolve_checkpoint
+        from forensics.imdlbenco.imdlbenco_runtime import method_runtime_status, resolve_checkpoint
 
         ckpt = resolve_checkpoint("objectformer")
         if ckpt is None:
@@ -96,8 +97,8 @@ class TestImdlBencoRuntime:
         assert status == "ready"
 
     def test_co_transformers_status_when_vendor_present(self):
-        from core.legacy.imdlbenco.co_transformers_official_pipeline import official_runtime_ready
-        from core.legacy.imdlbenco.imdlbenco_runtime import (
+        from forensics.imdlbenco.co_transformers_official_pipeline import official_runtime_ready
+        from forensics.imdlbenco.imdlbenco_runtime import (
             CO_TRANSFORMERS_VENDOR_DIR,
             method_runtime_status,
             vendor_root,
@@ -114,7 +115,7 @@ class TestImdlBencoRuntime:
             assert "peso" in reason.lower() or "checkpoint" in reason.lower() or "co-transformers" in reason.lower()
 
     def test_miml_paths_and_status(self):
-        from core.legacy.imdlbenco.imdlbenco_runtime import (
+        from forensics.imdlbenco.imdlbenco_runtime import (
             method_runtime_status,
             miml_iml_vendor_root,
             resolve_miml_apsc_checkpoint,

@@ -7,7 +7,7 @@ from typing import Any, Dict
 
 from sqlalchemy.orm import Session
 
-from core.legacy.audio.audio_probe import probe_audio_metadata
+from forensics.audio.audio_probe import probe_audio_metadata
 from models.evidence import Evidence
 
 AUDIO_TECHNICAL_KEY = "audio_technical"

@@ -11,7 +11,7 @@ import numpy as np
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.wavelet_noise_residue import (
+from forensics.wavelet_noise_residue import (
     DWT_COEFFICIENTS_FILENAME,
     WaveletNoiseResidueParams,
     run_wavelet_noise_residue,

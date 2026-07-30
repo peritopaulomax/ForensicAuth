@@ -1,14 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import ImageEvidenceSelector from "@/components/ImageEvidenceSelector";
 import SyncedImagePairViewer, { type SyncedImagePairViewerHandle } from "@/components/SyncedImagePairViewer";
 import ZoomableImageViewer, { type ZoomableImageViewerHandle } from "@/components/ZoomableImageViewer";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
-import TechniqueReferenceIntro from "@/components/TechniqueReferenceIntro";
-import { FORENSIC_TECHNIQUE_META } from "@/config/forensicTechniqueMeta";
+import TechniquePageShell from "@/components/TechniquePageShell";
 import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
-import { saveDerivative } from "@/services/evidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 
 export default function BagExtractionAnalysis() {
   const { caseId } = useParams<{ caseId: string }>();
@@ -17,12 +15,14 @@ export default function BagExtractionAnalysis() {
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [overlayUrl, setOverlayUrl] = useState<string | null>(null);
   const [mapUrl, setMapUrl] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const viewerRef = useRef<SyncedImagePairViewerHandle>(null);
   const mapViewerRef = useRef<ZoomableImageViewerHandle>(null);
   const { running, currentJobId, result, error, progress, progressLabel, runAnalysis, fetchImage, reset } =
     useForensicJob();
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
+  const { status: runtimeStatus } = useTechniqueRuntime("bag_extraction");
+
+  const runtimeOk = runtimeStatus?.available ?? null;
 
   const applyEvidence = useCallback(
     (id: string, _source: "original" | "derivative") => {
@@ -30,11 +30,11 @@ export default function BagExtractionAnalysis() {
       setOriginalUrl(`/api/v1/evidences/${id}/file`);
       setOverlayUrl(null);
       setMapUrl(null);
-      setSaveMessage(null);
+      clearMessage();
       viewerRef.current?.resetZoom();
       mapViewerRef.current?.resetZoom();
     },
-    [reset],
+    [reset, clearMessage]
   );
 
   const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
@@ -42,7 +42,7 @@ export default function BagExtractionAnalysis() {
 
   async function process() {
     if (!evidenceId) return;
-    setSaveMessage(null);
+    clearMessage();
     try {
       await runAnalysis(
         evidenceId,
@@ -62,118 +62,111 @@ export default function BagExtractionAnalysis() {
         }
       );
     } catch {
-      /* erro exibido via hook (error) */
-    }
-  }
-
-  async function handleSave(filename: string, label: string) {
-    if (!currentJobId) return;
-    setSaving(true);
-    try {
-      const res = await saveDerivative({ job_id: currentJobId, artifact_filename: filename });
-      setSaveMessage({
-        type: "ok",
-        text: `${label} na custodia. SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Erro ao salvar";
-      setSaveMessage({ type: "err", text: msg });
-    } finally {
-      setSaving(false);
     }
   }
 
   if (!caseId) return null;
 
-  return (
-    <AnalysisPageShell
-      caseId={caseId}
-      title={FORENSIC_TECHNIQUE_META.bag_extraction.title}
-      intro={<TechniqueReferenceIntro meta={FORENSIC_TECHNIQUE_META.bag_extraction} techniqueId="bag_extraction" />}
-      embedded={embedded}
-    >
-      <AnalysisPanel title="Evidencia">
-        {showEvidencePicker && (
-          <ImageEvidenceSelector
-            caseId={caseId}
-            selectedId={evidenceId}
-            selectionSource={selectionSource}
-            onSelect={onSelectEvidence}
-          />
-        )}
-      </AnalysisPanel>
+  const parametersPanel = (
+    <>
+      <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+        <label style={{ fontSize: "0.85rem" }}>
+          DiffThresh
+          <input type="number" min={1} value={diffThresh} onChange={(e) => setDiffThresh(Number(e.target.value))} style={inputStyle} />
+        </label>
+        <label style={{ fontSize: "0.85rem" }}>
+          AC (janela)
+          <input type="number" min={3} value={ac} onChange={(e) => setAc(Number(e.target.value))} style={inputStyle} />
+        </label>
+      </div>
+      <div style={{ marginTop: "1rem" }}>
+        <button type="button" onClick={process} disabled={!evidenceId || running} style={btnPrimary}>
+          {running ? "Processando…" : "Processar BAG"}
+        </button>
+      </div>
+    </>
+  );
 
-      <AnalysisPanel title="Parametros">
-        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-          <label style={{ fontSize: "0.85rem" }}>
-            DiffThresh
-            <input type="number" min={1} value={diffThresh} onChange={(e) => setDiffThresh(Number(e.target.value))} style={inputStyle} />
-          </label>
-          <label style={{ fontSize: "0.85rem" }}>
-            AC (janela)
-            <input type="number" min={3} value={ac} onChange={(e) => setAc(Number(e.target.value))} style={inputStyle} />
-          </label>
-        </div>
-        <div style={{ marginTop: "1rem" }}>
-          <ProcessButton
-            onClick={process}
-            disabled={!evidenceId}
-            running={running}
-            progress={progress}
-            progressLabel={progressLabel}
-            label="Processar BAG"
-          />
-        </div>
-        {error && <MessageBox type="err" text={error} />}
-      </AnalysisPanel>
+  const resultPanel = result && (
+    <>
+      <p style={{ fontSize: "0.9rem", margin: "0 0 0.75rem 0" }}>
+        Mapa: min {Number(result.map_min).toFixed(2)} · max {Number(result.map_max).toFixed(2)} · media{" "}
+        {Number(result.map_mean).toFixed(2)}
+      </p>
 
-      {result && (
-        <AnalysisPanel title="Resultado">
-          <p style={{ fontSize: "0.9rem", margin: "0 0 0.75rem 0" }}>
-            Mapa: min {Number(result.map_min).toFixed(2)} · max {Number(result.map_max).toFixed(2)} · media{" "}
-            {Number(result.map_mean).toFixed(2)}
-          </p>
-
-          {originalUrl && overlayUrl && (
-            <SyncedImagePairViewer
-              ref={viewerRef}
-              leftSrc={originalUrl}
-              rightSrc={overlayUrl}
-              leftLabel="Original"
-              rightLabel="Overlay BAG"
-            />
-          )}
-
-          {mapUrl && (
-            <ZoomableImageViewer
-              ref={mapViewerRef}
-              title="Mapa de metricas de desalinhamento (BlockDiff)"
-              label="Mapa BAG"
-              src={mapUrl}
-              alt="Mapa BAG"
-              height={420}
-              imageStyle={{ imageRendering: "pixelated" }}
-            />
-          )}
-
-          {currentJobId && (
-            <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem" }}>
-              <button type="button" disabled={saving} onClick={() => handleSave("bag_map.png", "Mapa BAG")} style={btnSecondary}>
-                Salvar mapa na custodia
-              </button>
-              <button type="button" disabled={saving} onClick={() => handleSave("overlay.png", "Overlay")} style={btnSecondary}>
-                Salvar overlay na custodia
-              </button>
-            </div>
-          )}
-          {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
-        </AnalysisPanel>
+      {originalUrl && overlayUrl && (
+        <SyncedImagePairViewer
+          ref={viewerRef}
+          leftSrc={originalUrl}
+          rightSrc={overlayUrl}
+          leftLabel="Original"
+          rightLabel="Overlay BAG"
+        />
       )}
-    </AnalysisPageShell>
+
+      {mapUrl && (
+        <ZoomableImageViewer
+          ref={mapViewerRef}
+          title="Mapa de metricas de desalinhamento (BlockDiff)"
+          label="Mapa BAG"
+          src={mapUrl}
+          alt="Mapa BAG"
+          height={420}
+          imageStyle={{ imageRendering: "pixelated" }}
+        />
+      )}
+
+      {currentJobId && (
+        <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem" }}>
+          <button type="button" disabled={saving} onClick={() => save(currentJobId, "bag_map.png", "Mapa BAG")} style={btnSecondary}>
+            Salvar mapa na custodia
+          </button>
+          <button type="button" disabled={saving} onClick={() => save(currentJobId, "overlay.png", "Overlay")} style={btnSecondary}>
+            Salvar overlay na custodia
+          </button>
+        </div>
+      )}
+    </>
+  );
+
+  return (
+    <TechniquePageShell
+      caseId={caseId}
+      techniqueId="bag_extraction"
+      mediaType="imagem"
+      embedded={embedded}
+      evidenceId={evidenceId}
+      selectionSource={selectionSource}
+      onSelectEvidence={onSelectEvidence}
+      showEvidencePicker={showEvidencePicker}
+      running={running}
+      error={error}
+      progress={progress}
+      progressLabel={progressLabel}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      parametersPanel={parametersPanel}
+      resultPanel={resultPanel || undefined}
+    />
   );
 }
 
-const inputStyle: React.CSSProperties = { display: "block", marginTop: 4, padding: "0.35rem 0.5rem", borderRadius: 4, border: "1px solid #d1d5db" };
+const inputStyle: React.CSSProperties = {
+  display: "block",
+  marginTop: 4,
+  padding: "0.35rem 0.5rem",
+  borderRadius: 4,
+  border: "1px solid #d1d5db",
+};
+const btnPrimary: React.CSSProperties = {
+  padding: "0.5rem 1rem",
+  background: "#0369a1",
+  color: "#fff",
+  border: "none",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: "0.85rem",
+};
 const btnSecondary: React.CSSProperties = {
   padding: "0.45rem 0.9rem",
   background: "#fff",

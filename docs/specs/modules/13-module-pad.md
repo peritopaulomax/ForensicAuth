@@ -14,19 +14,19 @@ Este módulo integra ao ForensicAuth uma técnica forense de **detecção de ata
 - Detecção da face principal (maior bounding box) na imagem.
 - Retorno de: label (`real` / `fake`), score de confiança (0..1), bounding box da face.
 - Dashboard no frontend na aba "Imagens" chamado "Detecção de Ataques de Apresentação".
-- Integração completa com o fluxo de jobs, cadeia de custódia e reproducibilidade.
+- Integração completa com o fluxo de jobs, hashes no `AnalysisJob` e reproducibilidade; custódia oficial nos eventos de lifecycle (upload / derivado / share / close / VCP), não por job.
 
 ### Fora do escopo (v0)
 
 - Suporte a múltiplas faces (v1).
 - Fine-tuning do modelo para dados forenses (v1).
-- Geração de laudo específico de PAD (v1).
+- Geração de PDF institucional dedicado de PAD (fora de escopo do produto).
 - Suporte a vídeo/streaming.
 
 ## 3. Atores
 
 - **Perito**: submete imagem de face e interpreta resultado.
-- **Sistema**: executa o modelo, registra job e cadeia de custódia.
+- **Sistema**: executa o modelo e registra o job (`AnalysisJob` + artefatos/hashes).
 
 ## 4. Requisitos Funcionais
 
@@ -40,7 +40,7 @@ Este módulo integra ao ForensicAuth uma técnica forense de **detecção de ata
 | PAD-RF-06 | O plugin deve suportar execução GPU com fallback para CPU. |
 | PAD-RF-07 | O frontend deve disponibilizar página/dashboard na aba "Imagens" para execução da técnica. |
 | PAD-RF-08 | O frontend deve exibir o resultado com label, score e bounding box sobreposto na imagem. |
-| PAD-RF-09 | O job deve ser rastreável na cadeia de custódia com hashes de entrada/saída. |
+| PAD-RF-09 | O job deve persistir hashes de entrada/saída no `AnalysisJob` (e artefatos no filesystem). Elo de custódia só na promoção a derivado ou em eventos de lifecycle. |
 
 ## 5. Requisitos Não-Funcionais
 
@@ -48,7 +48,7 @@ Este módulo integra ao ForensicAuth uma técnica forense de **detecção de ata
 |---|---|
 | PAD-RNF-01 | Tempo de inferência < 5s por imagem em GPU (modelo leve, ~20-90ms; overhead de I/O é tolerado). |
 | PAD-RNF-02 | O modelo deve operar 100% local (sem chamadas externas). |
-| PAD-RNF-03 | Reprodutibilidade best-effort: usar perfil `gpu_ml` na cadeia de custódia. |
+| PAD-RNF-03 | Reprodutibilidade best-effort: usar perfil `gpu_ml` nos hashes/artefatos do job (reexecução). |
 | PAD-RNF-04 | O código do modelo original deve ser preservado via adapter (Regra Máxima 8). |
 | PAD-RNF-05 | Threshold padrão de classificação deve ser configurável (`PAD_DEFAULT_THRESHOLD=0.5`). |
 
@@ -56,7 +56,7 @@ Este módulo integra ao ForensicAuth uma técnica forense de **detecção de ata
 
 ```text
 src/backend/core/plugins/presentation_attack_detection_adapter.py   # adapter
-src/backend/core/legacy/pad/                                        # código do modelo vendored
+src/backend/forensics/pad/                                        # código do modelo vendored
 src/frontend/src/pages/PresentationAttackDetectionAnalysis.tsx      # página/dashboard
 src/frontend/src/config/imageAnalysisGroups.ts                      # registro da técnica
 ```
@@ -85,9 +85,9 @@ Frontend (dashboard PAD)
       → RetinaFace detecta face
       → MiniFASNetV2 classifica
       → retorna {label, score, bbox}
-  → AnalysisJob atualizado
-  → CustodyRecord criado
+  → AnalysisJob atualizado (status, result_path, result_sha256, parameters)
   → Frontend consulta resultado e exibe
+  → (Opcional) perito promove artefato → CustodyRecord `derivative_saved`
 ```
 
 ## 9. Interface do Plugin
@@ -135,7 +135,7 @@ Frontend (dashboard PAD)
 | PAD-RN-02 | Se nenhuma face for detectada, o job deve falhar com status controlado. |
 | PAD-RN-03 | O threshold padrão é 0.5; score > threshold → `real`, senão → `fake`. |
 | PAD-RN-04 | O bounding box deve ser relativo às dimensões originais da imagem. |
-| PAD-RN-05 | Todo processamento deve gerar registro na cadeia de custódia. |
+| PAD-RN-05 | Todo processamento deve persistir hashes no `AnalysisJob`; não criar `CustodyRecord` só por concluir o job. |
 
 ## 11. Critérios de Aceite
 
@@ -143,8 +143,8 @@ Frontend (dashboard PAD)
 - [ ] Submissão de job retorna `AnalysisJob` com status `pending`.
 - [ ] Worker executa o job e retorna label/score/bbox.
 - [ ] Frontend exibe dashboard e resultado corretamente.
-- [ ] Cadeia de custódia registra o job.
-- [ ] Testes E2E backend, frontend, worker e custódia passam.
+- [ ] Hashes do job gravados no `AnalysisJob` (sem `CustodyRecord` automático ao completar).
+- [ ] Testes E2E backend, frontend e worker passam; custódia coberta nos eventos de lifecycle/derivado.
 
 ## 12. Testabilidade (TDD)
 
@@ -156,7 +156,7 @@ Testes a serem criados:
 - `test_pad_no_face_returns_error` — erro controlado quando não há face.
 - `test_pad_job_submission` — endpoint `/analysis` cria job.
 - `test_pad_worker_execution` — Celery executa job e retorna resultado.
-- `test_pad_custody_record_created` — cadeia de custódia registra o job.
+- `test_pad_job_persists_hashes` — job completed com `result_sha256` / params hash (sem CustodyRecord por job).
 - `test_pad_frontend_dashboard` — Playwright navega e submete análise.
 - `test_pad_regression_vs_original` — saída do adapter vs. `test.py` original.
 

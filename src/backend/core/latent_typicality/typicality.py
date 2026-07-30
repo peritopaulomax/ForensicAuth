@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import joblib
 import numpy as np
@@ -99,6 +99,94 @@ def _kth_neighbor_distances_batch(
     k_col = distances[:, min(k, distances.shape[1] - 1)]
     k_minus_col = distances[:, min(k - 1, distances.shape[1] - 1)]
     return np.where(has_self, k_col, k_minus_col).astype(np.float64, copy=False)
+
+
+def slim_typicality_reference(ref: TypicalityReference) -> dict[str, Any]:
+    """Serialize typicality banks without sklearn k-NN trees (huge on disk)."""
+    return {
+        "format": "typicality_slim_v1",
+        "detector": ref.detector,
+        "distance": ref.distance,
+        "k": int(ref.k),
+        "radii_real": np.asarray(ref.radii_real, dtype=np.float32),
+        "radii_synthetic": np.asarray(ref.radii_synthetic, dtype=np.float32),
+        "real_embeddings": np.asarray(ref.real_embeddings, dtype=np.float32),
+        "synthetic_embeddings": np.asarray(ref.synthetic_embeddings, dtype=np.float32),
+        "real_ids": list(ref.real_ids),
+        "synthetic_ids": list(ref.synthetic_ids),
+        "radii_real_sorted": np.asarray(
+            ref.radii_real_sorted if ref.radii_real_sorted is not None else np.sort(ref.radii_real),
+            dtype=np.float32,
+        ),
+        "radii_synthetic_sorted": np.asarray(
+            ref.radii_synthetic_sorted
+            if ref.radii_synthetic_sorted is not None
+            else np.sort(ref.radii_synthetic),
+            dtype=np.float32,
+        ),
+    }
+
+
+def rehydrate_typicality_reference(payload: TypicalityReference | dict[str, Any]) -> TypicalityReference:
+    """Rebuild k-NN indexes from slim payload (or pass through live refs)."""
+    if isinstance(payload, TypicalityReference):
+        # Legacy caches stored fitted NearestNeighbors — keep as-is.
+        if getattr(payload, "knn_real", None) is not None and getattr(payload, "knn_synthetic", None) is not None:
+            return payload
+        raise TypeError("TypicalityReference sem knn e sem payload slim")
+
+    if not isinstance(payload, dict):
+        raise TypeError(f"Payload de tipicidade invalido: {type(payload)!r}")
+
+    distance: DistanceMetric = "cosine" if payload.get("distance") == "cosine" else "euclidean"
+    metric = "cosine" if distance == "cosine" else "euclidean"
+    x_real = _prepare_embeddings(np.asarray(payload["real_embeddings"]), distance)
+    x_spoof = _prepare_embeddings(np.asarray(payload["synthetic_embeddings"]), distance)
+    knn_real = NearestNeighbors(metric=metric, algorithm="auto")
+    knn_spoof = NearestNeighbors(metric=metric, algorithm="auto")
+    knn_real.fit(x_real)
+    knn_spoof.fit(x_spoof)
+    radii_real = np.asarray(payload["radii_real"], dtype=np.float64)
+    radii_synthetic = np.asarray(payload["radii_synthetic"], dtype=np.float64)
+    return TypicalityReference(
+        detector=str(payload["detector"]),
+        distance=distance,
+        k=int(payload["k"]),
+        knn_real=knn_real,
+        knn_synthetic=knn_spoof,
+        radii_real=radii_real,
+        radii_synthetic=radii_synthetic,
+        real_embeddings=x_real,
+        synthetic_embeddings=x_spoof,
+        real_ids=list(payload.get("real_ids") or []),
+        synthetic_ids=list(payload.get("synthetic_ids") or []),
+        radii_real_sorted=np.asarray(
+            payload.get("radii_real_sorted") if payload.get("radii_real_sorted") is not None else np.sort(radii_real),
+            dtype=np.float64,
+        ),
+        radii_synthetic_sorted=np.asarray(
+            payload.get("radii_synthetic_sorted")
+            if payload.get("radii_synthetic_sorted") is not None
+            else np.sort(radii_synthetic),
+            dtype=np.float64,
+        ),
+    )
+
+
+def slim_typicality_refs(
+    refs: dict[str, TypicalityReference] | None,
+) -> dict[str, dict[str, Any]] | None:
+    if not refs:
+        return None
+    return {key: slim_typicality_reference(ref) for key, ref in refs.items()}
+
+
+def rehydrate_typicality_refs(
+    refs: dict[str, Any] | None,
+) -> dict[str, TypicalityReference] | None:
+    if not refs:
+        return None
+    return {key: rehydrate_typicality_reference(val) for key, val in refs.items()}
 
 
 def build_typicality_reference(

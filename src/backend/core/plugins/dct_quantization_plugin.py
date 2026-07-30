@@ -63,7 +63,7 @@ class DCTQuantizationPlugin(ForensicPlugin):
         return {"success": False, "error": f"Unknown mode: {mode}"}
 
     def _mode_estimate(self, evidence_path: str, result_dir: Path) -> Dict[str, Any]:
-        from core.legacy.dct.estimativaq import estimativaq
+        from forensics.dct.estimativaq import estimativaq
 
         try:
             MatrizQ = estimativaq(evidence_path)
@@ -96,7 +96,7 @@ class DCTQuantizationPlugin(ForensicPlugin):
             return {"success": False, "error": str(exc)}
 
     def _mode_reference(self, evidence_path: str, ref_path: str, result_dir: Path) -> Dict[str, Any]:
-        from core.legacy.dct.estimativaq import estimativaq
+        from forensics.dct.estimativaq import estimativaq
 
         try:
             MatrizQ_ev = estimativaq(evidence_path)
@@ -149,7 +149,7 @@ class DCTQuantizationPlugin(ForensicPlugin):
             return {"success": False, "error": str(exc)}
 
     def _mode_custom(self, evidence_path: str, qm: list, result_dir: Path) -> Dict[str, Any]:
-        from core.legacy.dct.estimativaq import estimativaq
+        from forensics.dct.estimativaq import estimativaq
 
         try:
             # Estimate actual matrix from evidence

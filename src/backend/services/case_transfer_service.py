@@ -23,7 +23,6 @@ from models.case_closure import CaseClosure, CaseClosureSignature
 from models.case_share import CaseShare
 from models.custody_record import CustodyRecord
 from models.evidence import Evidence
-from models.report import Report
 from models.user import User
 from services.case_access import assert_can_create_case, get_accessible_case
 from services.case_lifecycle_service import ForensicManifestBuilder
@@ -714,9 +713,6 @@ class CaseTransferService:
             self.db.query(AnalysisJob).filter(
                 AnalysisJob.evidence_id.in_(evidence_ids)
             ).delete(synchronize_session=False)
-        self.db.query(Report).filter(Report.case_id == case_id).delete(
-            synchronize_session=False
-        )
         self.db.query(Evidence).filter(Evidence.case_id == case_id).delete(
             synchronize_session=False
         )

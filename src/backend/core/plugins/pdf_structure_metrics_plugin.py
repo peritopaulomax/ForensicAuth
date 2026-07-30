@@ -8,7 +8,7 @@ from typing import Any, Dict, Tuple
 
 from core.forensic_plugin import ForensicPlugin
 from core.job_staging import job_artifact_dir
-from core.legacy.pdf.pdf_structure_graph import analyze_pdf_structure
+from forensics.pdf.pdf_structure_graph import analyze_pdf_structure
 
 
 class PDFStructureMetricsPlugin(ForensicPlugin):

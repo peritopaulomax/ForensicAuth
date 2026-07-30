@@ -4,7 +4,7 @@ import pytest
 import fitz
 import networkx as nx
 
-from core.legacy.pdf.pdf_structure_graph import (
+from forensics.pdf.pdf_structure_graph import (
     analyze_pdf_structure,
     compute_graphviz_positions,
     render_graph_html,
@@ -51,7 +51,7 @@ class TestPDFStructureGraphLayout:
         assert (tmp_path / "structure_graph.html").exists()
 
     def test_html_includes_pyvis_configure_panel(self, sample_pdf, tmp_path):
-        from core.legacy.pdf.pdf_structure_graph import parse_pdf_structure
+        from forensics.pdf.pdf_structure_graph import parse_pdf_structure
 
         graph = parse_pdf_structure(sample_pdf)
         pos, _ = compute_graphviz_positions(graph)

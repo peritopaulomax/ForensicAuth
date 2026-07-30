@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import AnalysisPageShell, { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
+import TechniquePageShell from "@/components/TechniquePageShell";
+import { AnalysisPanel, MessageBox, ProcessButton } from "@/components/AnalysisPageShell";
 import MediaEvidenceSelector from "@/components/MediaEvidenceSelector";
 import { useForensicJob } from "@/hooks/useForensicJob";
-import { listCaseEvidences, saveDerivative } from "@/services/evidence";
+import { useDerivativeSave } from "@/hooks/useDerivativeSave";
+import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
+import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
+import { listCaseEvidences } from "@/services/evidence";
 import { filterForensicAuthEvidences } from "@/lib/forensicAuthEvidence";
 import type { Evidence } from "@/types/api";
 import { scrollableListStyle } from "@/styles/listHeights";
@@ -71,8 +75,11 @@ export default function IsoMediaStructureAnalysis() {
   const [viewMode, setViewMode] = useState<ViewMode>("single");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectionSource, setSelectionSource] = useState<"original" | "derivative">("original");
   const [leftId, setLeftId] = useState<string | null>(null);
+  const [leftSource, setLeftSource] = useState<"original" | "derivative">("original");
   const [rightId, setRightId] = useState<string | null>(null);
+  const [rightSource, setRightSource] = useState<"original" | "derivative">("original");
 
   const [parsedSingle, setParsedSingle] = useState<ParsedIsoBmff | null>(null);
   const [parsedLeft, setParsedLeft] = useState<ParsedIsoBmff | null>(null);
@@ -81,15 +88,18 @@ export default function IsoMediaStructureAnalysis() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detailTab, setDetailTab] = useState<DetailTab>("metadata");
 
-  const [savingDerivative, setSavingDerivative] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-
   const leftTreeRef = useRef<HTMLDivElement>(null);
   const rightTreeRef = useRef<HTMLDivElement>(null);
 
   const singleJob = useForensicJob();
   const leftJob = useForensicJob();
   const rightJob = useForensicJob();
+  const { saving, saveMessage, save, clearMessage } = useDerivativeSave();
+  const { status: runtimeStatus } = useTechniqueRuntime("isomedia_parser");
+
+  const runtimeOk = runtimeStatus?.available ?? null;
+  const runtimeReason = runtimeStatus?.reason || "";
+  const { embedded } = useGroupAwareEvidence(caseId || "", () => {});
 
   useEffect(() => {
     if (!caseId) return;
@@ -114,8 +124,8 @@ export default function IsoMediaStructureAnalysis() {
     setParsedLeft(null);
     setParsedRight(null);
     setExpanded(new Set());
-    setSaveMessage(null);
-  }, [singleJob, leftJob, rightJob]);
+    clearMessage();
+  }, [singleJob, leftJob, rightJob, clearMessage]);
 
   function switchViewMode(mode: ViewMode) {
     setViewMode(mode);
@@ -123,7 +133,7 @@ export default function IsoMediaStructureAnalysis() {
   }
 
   async function processSingle() {
-    if (!selectedId) return;
+    if (!selectedId || !runtimeOk) return;
     clearResults();
     try {
       const { jobId, result: jobResult } = await singleJob.runAnalysis(selectedId, "isomedia_parser", {});
@@ -132,7 +142,6 @@ export default function IsoMediaStructureAnalysis() {
       setParsedSingle(parsed);
       setExpanded(new Set(collectRootPaths(parsed.tree)));
     } catch {
-      /* handled by hook */
     }
   }
 
@@ -151,7 +160,6 @@ export default function IsoMediaStructureAnalysis() {
       setParsedRight(right);
       setExpanded(new Set([...collectRootPaths(left.tree), ...collectRootPaths(right.tree)]));
     } catch {
-      /* handled by hooks */
     }
   }
 
@@ -189,30 +197,14 @@ export default function IsoMediaStructureAnalysis() {
       : leftJob.progressLabel || rightJob.progressLabel || "Processando…";
   const compareError = leftJob.error || rightJob.error;
 
-  async function handleSaveDerivative(jobId: string, artifactFilename: string, label: string) {
+  const shellRunning = viewMode === "single" ? singleJob.running : compareRunning;
+  const shellProgress = viewMode === "single" ? singleJob.progress : compareProgress;
+  const shellProgressLabel = viewMode === "single" ? singleJob.progressLabel : compareProgressLabel;
+  const shellError = viewMode === "single" ? singleJob.error : compareError;
+
+  function handleSaveDerivative(jobId: string, artifactFilename: string, label: string) {
     if (!jobId) return;
-    const key = `${jobId}:${artifactFilename}`;
-    setSavingDerivative(key);
-    setSaveMessage(null);
-    try {
-      const res = await saveDerivative({
-        job_id: jobId,
-        artifact_filename: artifactFilename,
-        label,
-      });
-      setSaveMessage({
-        type: "ok",
-        text: `${res.message} «${res.evidence.original_filename}». SHA-256: ${res.evidence.sha256.slice(0, 16)}…`,
-      });
-    } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined;
-      setSaveMessage({ type: "err", text: detail || "Erro ao salvar derivado" });
-    } finally {
-      setSavingDerivative(null);
-    }
+    void save(jobId, artifactFilename, label);
   }
 
   function derivativeActions(
@@ -222,16 +214,15 @@ export default function IsoMediaStructureAnalysis() {
     text = "Salvar em derivados"
   ) {
     if (!jobId) return null;
-    const key = `${jobId}:${artifactFilename}`;
     return (
       <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", flexWrap: "wrap" }}>
         <button
           type="button"
           style={btnPrimary}
-          disabled={!!savingDerivative}
+          disabled={!!saving}
           onClick={() => handleSaveDerivative(jobId, artifactFilename, label)}
         >
-          {savingDerivative === key ? "Salvando…" : text}
+          {saving ? "Salvando…" : text}
         </button>
         <button type="button" style={btnSecondary} onClick={() => navigate(`/cases/${caseId}?tab=derivados`)}>
           Abrir derivados
@@ -243,10 +234,19 @@ export default function IsoMediaStructureAnalysis() {
   if (!caseId) return null;
 
   return (
-    <AnalysisPageShell
+    <TechniquePageShell
       caseId={caseId}
-      title="Video — Parser ISO BMFF"
-      subtitle="Extracao da arvore de atoms/boxes, metadados amplos, udta/meta e comparacao lado a lado."
+      techniqueId="isomedia_parser"
+      mediaType="video"
+      running={shellRunning}
+      progress={shellProgress}
+      progressLabel={shellProgressLabel}
+      error={shellError}
+      saveMessage={saveMessage}
+      runtimeOk={runtimeOk}
+      runtimeReason={runtimeReason}
+      showEvidencePicker={false}
+      embedded={embedded}
     >
       <AnalysisPanel title="Modo de visualizacao">
         <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap", alignItems: "center" }}>
@@ -278,8 +278,10 @@ export default function IsoMediaStructureAnalysis() {
               caseId={caseId}
               fileType="video"
               selectedId={selectedId}
-              onSelect={(id) => {
+              selectionSource={selectionSource}
+              onSelect={(id, source) => {
                 setSelectedId(id);
+                setSelectionSource(source);
                 clearResults();
               }}
               radioName="isomedia-single"
@@ -287,7 +289,7 @@ export default function IsoMediaStructureAnalysis() {
             <div style={{ marginTop: "1rem" }}>
               <ProcessButton
                 onClick={processSingle}
-                disabled={!selectedId}
+                disabled={!selectedId || runtimeOk === false}
                 running={singleJob.running}
                 progress={singleJob.progress}
                 progressLabel={singleJob.progressLabel}
@@ -338,8 +340,10 @@ export default function IsoMediaStructureAnalysis() {
                   caseId={caseId}
                   fileType="video"
                   selectedId={leftId}
-                  onSelect={(id) => {
+                  selectionSource={leftSource}
+                  onSelect={(id, source) => {
                     setLeftId(id);
+                    setLeftSource(source);
                     clearResults();
                   }}
                   radioName="isomedia-left"
@@ -351,8 +355,10 @@ export default function IsoMediaStructureAnalysis() {
                   caseId={caseId}
                   fileType="video"
                   selectedId={rightId}
-                  onSelect={(id) => {
+                  selectionSource={rightSource}
+                  onSelect={(id, source) => {
                     setRightId(id);
+                    setRightSource(source);
                     clearResults();
                   }}
                   radioName="isomedia-right"
@@ -371,7 +377,7 @@ export default function IsoMediaStructureAnalysis() {
             <div style={{ marginTop: "1rem" }}>
               <ProcessButton
                 onClick={processCompare}
-                disabled={!leftId || !rightId}
+                disabled={!leftId || !rightId || runtimeOk === false}
                 running={compareRunning}
                 progress={compareProgress}
                 progressLabel={compareProgressLabel}
@@ -503,7 +509,7 @@ export default function IsoMediaStructureAnalysis() {
       )}
 
       {saveMessage && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
-    </AnalysisPageShell>
+    </TechniquePageShell>
   );
 }
 
