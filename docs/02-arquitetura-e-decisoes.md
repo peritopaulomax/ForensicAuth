@@ -54,7 +54,7 @@ Stack confirmada: FastAPI + SQLAlchemy + Celery + Redis + PostgreSQL + React/Vit
 | Custódia seletiva | Jobs exploratórios não poluem a cadeia | Spec jobs + `JobService` |
 | Plugins + registry | UI/API desacoplados do algoritmo | `core/forensic_plugin.py` |
 | Offline | Conformidade / air-gap institucional | RNF-01 |
-| Standby plugins | Código presente, UI/registro ainda não | `STANDBY_PLUGIN_NAMES` |
+| Standby plugins | Reserva no registry; sem nomes ativos | `STANDBY_PLUGIN_NAMES` (vazio) |
 
 ## Fronteiras
 

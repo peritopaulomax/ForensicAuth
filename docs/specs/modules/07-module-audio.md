@@ -11,7 +11,6 @@ Implementar adaptadores forenses para as tecnicas de analise de audio, encapsula
 | `audio_metadata` | Metadados + probe + C2PA | ExifTool (binario), c2pa-python | Nao |
 | `mp3_parser` | Parser estrutural MP3 | Parser binario puro (struct) | Nao |
 | `opus_parser` | Parser estrutural Ogg/Opus | Parser binario puro (struct) | Nao |
-| `wav_ima_adpcm` | Consistencia de indice WAV IMA ADPCM | numpy + struct | Nao |
 | `audio_enf` | ENF (rede eletrica) | scipy (FIR, Hilbert) | Nao |
 | `audio_quantization` | Analise de quantizacao | numpy + matplotlib | Nao |
 | `audio_dc_local` | DC local | numpy | Nao |

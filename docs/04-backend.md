@@ -109,7 +109,7 @@ Arquivos-chave:
 
 ### Registry
 
-`core/plugin_registry.py` descobre `core/plugins/*.py` e **pula** nomes em `STANDBY_PLUGIN_NAMES` (ex.: `wav_ima_adpcm`, `pdf_touchup`).
+`core/plugin_registry.py` descobre `core/plugins/*.py` e **pula** nomes em `STANDBY_PLUGIN_NAMES` (conjunto reservado; vazio no momento).
 
 ### Camadas
 

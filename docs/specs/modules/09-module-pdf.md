@@ -8,10 +8,9 @@ Implementar adaptadores forenses para analise estrutural de documentos PDF, dete
 
 | Nome | Motor / pipeline | Biblioteca Sensivel | Usa GPU |
 |------|------------------|---------------------|---------|
-| `pdf_structure` | Metricas e grafo estrutural | pypdf + pdfminer.six + networkx | Nao |
-| `pdf_font_overlay` | Overlay por fonte/cor | PyMuPDF (fitz) | Nao |
-| `pdf_touchup_scan` | Varredura TouchUp / content streams | PyMuPDF + tokenizador customizado | Nao |
-| `pdf_forensic_extract` | Extracao forense incremental | PyMuPDF + pypdf + pyHanko | Nao |
+| `pdf_structure_metrics` / `pdf_structure_similarity` | Metricas e grafo estrutural | pypdf + pdfminer.six + networkx | Nao |
+| `pdf_font_color_overlay` | Overlay por fonte/cor | PyMuPDF (fitz) | Nao |
+| `pdf_forensic_extract` | Extracao forense incremental (incl. deteccao TouchUp no scanner) | PyMuPDF + pypdf + pyHanko | Nao |
 
 `pdf_forensic_extract` extrai imagens embutidas, metadados (/Info + XMP), versoes incrementais (`%%EOF`) e assinaturas digitais via motor **pdfsig_forense** (PAdES/CAdES, enfase ICP-Brasil): digest/ByteRange, cadeia matematica (inclusive orfaos), DSS/VRI/LCR/OCSP, carimbos TSA, revisoes incrementais, nivel PAdES e relatório Markdown humanizado. Artefatos: `signatures_report.txt` (relatório), `signatures.json`, PEMs em `signatures/certs/`. Ancora recomendada: raiz oficial do ITI em `models/icpbrasil/` ou `PDF_SIG_TRUST_ANCHORS`; sem isso usa raiz do arquivo e marca circularidade. Nao substitui `validar.iti.gov.br`.
 
@@ -57,57 +56,20 @@ class PDFFontOverlayAdapter(ForensicPlugin):
         pass
 ```
 
-```python
-class PDFTouchUpAdapter(ForensicPlugin):
-    name = "pdf_touchup_scan"
-    supported_types = ["pdf"]
-    
-    def validate_parameters(self, params: dict) -> tuple[bool, str]:
-        return True, ""
-        
-    def analyze(self, evidence_path: str, parameters: dict) -> dict:
-        # 1. Abre PDF com PyMuPDF
-        # 2. Tokeniza content streams: strings (...), hex <...>, arrays, names, numbers, operators, inline images BI..EI
-        # 3. Simula estado grafico: pilha q/Q, matrizes cm, CTM
-        # 4. Simula objetos de texto: BT/ET, Tm, Td, Tj, TJ
-        # 5. Detecta marked content: MP, BDC, BMC, EMC
-        # 6. Identifica blocos TouchUp_TextEdit
-        # 7. Calcula bounding boxes aproximadas dos glifos
-        # 8. Refina geometria com page.search_for em janela expandida
-        # 9. Detecta texto invisivel (Tr=3)
-        # 10. Gera PDF com highlights amarelos
-        # 11. Gera relatorio TXT com: pagina, tipo, coordenadas, texto
-        # Retorna: success, artifacts=[highlighted_pdf.pdf, forensic_report.txt], metrics={touchup_count, invisible_text_count}
-        pass
-```
-
 ## Dependencias de Outros Modulos
 
 - **Core**: `ForensicPlugin` interface
 - **Jobs**: Executado via Celery task
 - **Custody**: Registra inicio/fim de cada analise
 
-## Fluxo Interno (Exemplo: PDF TouchUp Scan)
+## Fluxo Interno (Exemplo: extracao forense + TouchUp no scanner)
 
-1. Worker Celery chama `PDFTouchUpAdapter.analyze(evidence_path, params)`
-2. Abre PDF com `fitz.open(evidence_path)`
-3. Para cada pagina:
-   - Obtem content stream bruto (`page.read_contents()`)
-   - Tokeniza sequencia de bytes em tokens PDF validos
-   - Interpretador `ContentInterpreter` simula:
-     - Pilha de graficos (`q` push, `Q` pop)
-     - Matriz CTM (`cm`)
-     - Texto: `BT`/`ET`, `Tm` (text matrix), `Td` (translate), `Tj`/`TJ` (show text)
-     - Fonte: `/Font` resource, Widths, DW, CID
-     - Marked content: `BDC`/`BMC` ... `EMC`, propriedade `TouchUp_TextEdit`
-   - Para cada bloco TouchUp encontrado:
-     - Calcula bbox aproximada somando avancos de glifos
-     - Refina com `page.search_for(texto)` numa janela expandida (+10 pts)
-     - Agrupa retangulos por linha (baseline clustering) quando area extensa
-   - Detecta texto invisivel: modo de renderizacao `Tr=3`
-4. Gera copia do PDF com anotacoes de highlight amarelo nas regioes detectadas
-5. Gera relatorio TXT formatado
-6. Retorna dict com metrics e artifacts
+1. Worker Celery chama o plugin ativo (ex.: `pdf_forensic_extract`).
+2. O motor `pdf_forensic_scanner` abre o PDF e percorre content streams.
+3. Quando aplicavel, o interpretador detecta marked content `TouchUp_TextEdit`,
+   refina geometria e registra regioes no relatorio da extracao.
+4. Artefatos e metricas voltam pelo contrato `ForensicPlugin` (sem plugin
+   dedicado `pdf_touchup` na superficie atual).
 
 ## Regras de Negocio Especificas
 

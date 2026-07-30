@@ -462,7 +462,6 @@ export const LEGACY_TECHNIQUE_LABELS: Record<string, string> = {
   audio_ltas: "Análise forense de Áudio",
   audio_levels: "Análise forense de Áudio",
   audio_dc_local: "Análise forense de Áudio",
-  wav_ima_adpcm: "WAV IMA ADPCM",
   pdf_font_color_overlay: "PDF — Overlay por fonte",
   pdf_structure_metrics: "PDF — Estrutura e métricas (grafo)",
   pdf_structure_similarity: "PDF — Similaridade estrutural",

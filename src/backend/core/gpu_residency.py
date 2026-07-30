@@ -90,20 +90,6 @@ def maybe_evict_for_job(technique: str) -> None:
     purge_foreign_gpu_model_caches(include_trufor=True)
 
 
-def prepare_vram_for_iapl_if_needed() -> dict:
-    """Clear baseline caches for IAPL only when free VRAM is below threshold."""
-    from core.gpu_inference import cuda_memory_snapshot, prepare_vram_for_iapl
-
-    if not vram_under_pressure():
-        snap = cuda_memory_snapshot()
-        logger.info(
-            "IAPL: VRAM suficiente (livre %s MiB) — mantendo caches residentes",
-            snap.get("free_mb"),
-        )
-        return {"before": snap, "after": snap, "skipped": True}
-    return prepare_vram_for_iapl()
-
-
 def release_synthetic_if_not_resident() -> None:
     if should_keep_resident("synthetic_image_detection"):
         return

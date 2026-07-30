@@ -49,7 +49,7 @@ subtitle: "Detectores + gestão de bases + contrato LR (Wave 2)"
 description: >
   Técnica de demonstração do scaffold ensemble calibrado.
   A UI espelha áudio spoofing (picker de população, tipicidade, aug).
-  Implemente a lógica em forensics/demo_ensemble_scores/pipeline.py.
+  Após o scaffold, implemente a lógica em forensics/<id>/pipeline.py.
 citation: ""
 gpu: false
 disabled: true          # card visível mas desabilitado (útil em demo)

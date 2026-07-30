@@ -57,7 +57,6 @@ REPRODUCIBILITY_REGISTRY: dict[str, dict[str, Any]] = {
     "imdlbenco": {"mode": "canonical_result", "profile": "gpu_ml"},
     "mp3_parser": {"mode": "canonical_result", "profile": "strict"},
     "opus_parser": {"mode": "canonical_result", "profile": "strict"},
-    "wav_ima_adpcm": {"mode": "canonical_result", "profile": "strict"},
     "audio_spectrogram": {"primary": "spectrogram.png", "profile": "numeric"},
     "audio_spoofing_detection": {"primary": "detector_scores.txt", "profile": "gpu_ml"},
     "audio_enf": {"primary": "plot_traces.json", "profile": "numeric"},

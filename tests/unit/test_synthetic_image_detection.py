@@ -81,7 +81,7 @@ class TestSyntheticImageDetectionRuntime:
         expected = models_dir / "synthetic_image_detection" / "huggingface"
         for model_id in HF_MODEL_IDS:
             (expected / _hf_cache_folder(model_id)).mkdir(parents=True)
-        incomplete = tmp_path / "deeclip" / "huggingface"
+        incomplete = tmp_path / "other_hf_cache" / "huggingface"
         incomplete.mkdir(parents=True)
 
         monkeypatch.setenv("MODELS_DIR", str(models_dir))

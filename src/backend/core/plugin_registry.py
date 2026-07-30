@@ -12,11 +12,8 @@ from core.forensic_plugin import ForensicPlugin
 
 logger = logging.getLogger(__name__)
 
-# Tecnicas no codigo sem registro ativo no PluginRegistry (sem card/UI).
-STANDBY_PLUGIN_NAMES = frozenset({
-    "wav_ima_adpcm",
-    "pdf_touchup",
-})
+# Nomes descobertos mas nao registrados (reserva vazia — sem standby ativo).
+STANDBY_PLUGIN_NAMES: frozenset[str] = frozenset()
 
 _GLOBAL_REGISTRY: Optional["PluginRegistry"] = None
 

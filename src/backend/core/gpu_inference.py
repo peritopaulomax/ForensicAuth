@@ -153,27 +153,6 @@ def prepare_vram_for_heavy_model(*, log: bool = True) -> dict[str, dict[str, int
         pass
 
     try:
-        from forensics.camo.camo_pipeline import clear_camo_model_cache
-
-        clear_camo_model_cache()
-    except Exception:
-        pass
-
-    try:
-        from forensics.deeclip.deeclip_pipeline import clear_deeclip_model_cache
-
-        clear_deeclip_model_cache()
-    except Exception:
-        pass
-
-    try:
-        from forensics.clide.clide_pipeline import clear_clide_model_cache
-
-        clear_clide_model_cache()
-    except Exception:
-        pass
-
-    try:
         from forensics.synthetic_image_detection.pipeline import release_gpu_memory
 
         release_gpu_memory()
@@ -185,70 +164,6 @@ def prepare_vram_for_heavy_model(*, log: bool = True) -> dict[str, dict[str, int
     if log:
         logger.info(
             "VRAM preparada para modelo pesado — livre: %s MiB -> %s MiB (total %s MiB)",
-            snap_before.get("free_mb"),
-            snap_after.get("free_mb"),
-            snap_after.get("total_mb"),
-        )
-    return {"before": snap_before, "after": snap_after}
-
-
-def prepare_vram_for_iapl(*, log: bool = True) -> dict[str, dict[str, int | None]]:
-    """Libera VRAM de modelos ja inferidos antes do IAPL (CLIP ViT-L + TTA batch 32)."""
-    snap_before = cuda_memory_snapshot()
-    try:
-        from forensics.effort.effort_pipeline import clear_effort_model_cache
-
-        clear_effort_model_cache()
-    except Exception:
-        pass
-
-    try:
-        from forensics.safe.safe_pipeline import clear_safe_model_cache
-
-        clear_safe_model_cache()
-    except Exception:
-        pass
-
-    try:
-        from forensics.camo.camo_pipeline import clear_camo_model_cache
-
-        clear_camo_model_cache()
-    except Exception:
-        pass
-
-    try:
-        from forensics.deeclip.deeclip_pipeline import clear_deeclip_model_cache
-
-        clear_deeclip_model_cache()
-    except Exception:
-        pass
-
-    try:
-        from forensics.clide.clide_pipeline import clear_clide_model_cache
-
-        clear_clide_model_cache()
-    except Exception:
-        pass
-
-    try:
-        from forensics.iapl.iapl_pipeline import clear_iapl_model_cache
-
-        clear_iapl_model_cache()
-    except Exception:
-        pass
-
-    try:
-        from forensics.synthetic_image_detection.pipeline import release_gpu_memory
-
-        release_gpu_memory()
-    except Exception:
-        pass
-
-    release_gpu_memory()
-    snap_after = cuda_memory_snapshot()
-    if log:
-        logger.info(
-            "VRAM preparada para IAPL — livre: %s MiB → %s MiB (total %s MiB)",
             snap_before.get("free_mb"),
             snap_after.get("free_mb"),
             snap_after.get("total_mb"),

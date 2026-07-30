@@ -4,9 +4,8 @@ import pytest
 import fitz
 from pathlib import Path
 
-from core.plugin_registry import PluginRegistry, STANDBY_PLUGIN_NAMES
+from core.plugin_registry import PluginRegistry
 
-from core.plugins.pdf_touchup_plugin import PDFTouchupPlugin
 from core.plugins.pdf_font_color_overlay_plugin import PDFFontColorOverlayPlugin
 from forensics.pdf.pdf_forensic_scanner import resolve_page_resources, resolve_page_resources_xref
 from forensics.pdf.pdf_font_color_overlay import collect_page_glyph_runs, run_font_color_overlay
@@ -28,20 +27,6 @@ def sample_pdf(tmp_path):
     doc.save(str(pdf_path))
     doc.close()
     return str(pdf_path)
-
-
-class TestPDFTouchupPlugin:
-    def test_analyze_returns_success(self, sample_pdf):
-        plugin = PDFTouchupPlugin()
-        result = plugin.analyze(sample_pdf, {})
-        assert result["success"] is True
-        assert result["adapter"] == "pdf_touchup"
-
-    def test_clean_pdf_not_tampered(self, sample_pdf):
-        plugin = PDFTouchupPlugin()
-        result = plugin.analyze(sample_pdf, {})
-        assert result["is_tampered"] is False
-        assert result["touchup_count"] == 0
 
 
 class TestPDFFontColorOverlayPlugin:
@@ -155,7 +140,5 @@ class TestPDFPluginsRegistered:
             "pdf_font_color_overlay",
         ):
             assert technique in names
-        for standby in ("pdf_touchup", "pdf_metadata", "pdf_structure", "pdf_text_image"):
-            if standby in STANDBY_PLUGIN_NAMES or standby not in names:
-                continue
-            pytest.fail(f"Plugin orfao {standby} ainda registrado")
+        for orphan in ("pdf_touchup", "pdf_metadata", "pdf_structure", "pdf_text_image"):
+            assert orphan not in names, f"Plugin orfao {orphan} ainda registrado"

@@ -430,8 +430,6 @@ def release_gpu_memory() -> None:
     _DEVICE = None
     _core_release_gpu_memory(*handles)
     for clear_fn_path in (
-        ("forensics.fsd.fsd_pipeline", "clear_fsd_model_cache"),
-        ("forensics.universal_fake_detect.ufd_pipeline", "clear_ufd_model_cache"),
         ("forensics.truebees_clip_d.clipd_pipeline", "clear_clipd_model_cache"),
         ("forensics.safe.safe_pipeline", "clear_safe_model_cache"),
     ):

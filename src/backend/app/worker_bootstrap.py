@@ -19,7 +19,7 @@ def should_run_ml_warmup() -> bool:
 
 
 def schedule_worker_warmups() -> None:
-    """Schedule Effort/SAFE/CAMO/IAPL warmups (idempotent per process)."""
+    """Schedule Effort/SAFE warmups (idempotent per process)."""
     from app.config import get_settings
 
     settings = get_settings()
@@ -32,13 +32,9 @@ def schedule_worker_warmups() -> None:
         )
         return
 
-    from forensics.camo.camo_warmup import schedule_camo_warmup
     from forensics.effort.effort_warmup import schedule_effort_warmup
-    from forensics.iapl.iapl_warmup import schedule_iapl_warmup
     from forensics.safe.safe_warmup import schedule_safe_warmup
 
     schedule_effort_warmup()
     schedule_safe_warmup()
-    schedule_camo_warmup()
-    schedule_iapl_warmup()
     logger.info("ML warmup agendado no worker-gpu")

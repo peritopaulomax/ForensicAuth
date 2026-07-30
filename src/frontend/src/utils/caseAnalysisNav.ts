@@ -117,9 +117,7 @@ export const HIDDEN_IMAGE_TECHNIQUES = new Set(["imdlbenco"]);
 export const HIDDEN_PDF_TECHNIQUES = new Set<string>([]);
 
 /** Tecnicas registradas mas ocultas na UI da aba Audio. */
-export const HIDDEN_AUDIO_TECHNIQUES = new Set([
-  "wav_ima_adpcm",
-]);
+export const HIDDEN_AUDIO_TECHNIQUES = new Set<string>([]);
 
 export function isTechniqueHiddenInMediaTab(technique: string, media: string): boolean {
   if (media === "imagem" && HIDDEN_IMAGE_TECHNIQUES.has(technique)) return true;

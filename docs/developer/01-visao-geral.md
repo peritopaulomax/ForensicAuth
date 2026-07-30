@@ -173,7 +173,7 @@ Plugins registrados mas ocultos na UI: `hash_compare`, `synthetic_image_detectio
 | UI | Plugin | Foco |
 |----|--------|------|
 | Hub Áudio forense | `audio_spectrogram`, `audio_enf`, `audio_ltas`, `audio_levels`, `audio_dc_local` | Espectro, ENF, níveis, conteúdo DC |
-| (API) | `mp3_parser`, `opus_parser`, `wav_ima_adpcm` | Estrutura de containers/codecs |
+| (API) | `mp3_parser`, `opus_parser` | Estrutura de containers/codecs |
 
 ### Vídeo (`file_type: video`)
 

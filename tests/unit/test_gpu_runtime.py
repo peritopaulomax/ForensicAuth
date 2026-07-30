@@ -1,4 +1,4 @@
-"""GPU runtime: inference helpers, lock, queue, residency, VRAM/IAPL.
+"""GPU runtime: inference helpers, lock, queue, residency, VRAM.
 
 MERGE mecânico (Fase 3e) de:
   test_gpu_inference.py
@@ -265,24 +265,6 @@ class TestGpuResidency:
         assert should_keep_resident("synthetic_image_detection") is True
         get_settings.cache_clear()
 
-    def test_prepare_iapl_skips_when_vram_ok(self, monkeypatch):
-        monkeypatch.setenv("GPU_MIN_FREE_MB", "1500")
-        monkeypatch.setenv("GPU_RESERVED_FUTURE_MB", "7000")
-
-        from app.config import get_settings
-
-        get_settings.cache_clear()
-
-        snap = {"free_mb": 20000, "total_mb": 24000, "allocated_mb": 1000}
-        with patch("core.gpu_residency.cuda_memory_snapshot", return_value=snap, create=True):
-            with patch("core.gpu_residency.vram_under_pressure", return_value=False):
-                from core.gpu_residency import prepare_vram_for_iapl_if_needed
-
-                out = prepare_vram_for_iapl_if_needed()
-                assert out.get("skipped") is True
-
-        get_settings.cache_clear()
-
     def test_maybe_evict_skips_when_resident_and_ok(self, monkeypatch):
         monkeypatch.setenv("SYNTHETIC_KEEP_RESIDENT", "true")
 
@@ -300,11 +282,11 @@ class TestGpuResidency:
         get_settings.cache_clear()
 
 
-# --- vram / iapl prep ---
+# --- vram prep ---
 
 
-class TestPrepareVramForIapl:
-    def test_prepare_vram_calls_all_clear_caches(self, monkeypatch):
+class TestPrepareVramForHeavyModel:
+    def test_prepare_vram_calls_clear_caches(self, monkeypatch):
         calls: list[str] = []
 
         monkeypatch.setattr(
@@ -316,14 +298,6 @@ class TestPrepareVramForIapl:
             lambda: calls.append("safe"),
         )
         monkeypatch.setattr(
-            "forensics.iapl.iapl_pipeline.clear_iapl_model_cache",
-            lambda: calls.append("iapl"),
-        )
-        monkeypatch.setattr(
-            "forensics.camo.camo_pipeline.clear_camo_model_cache",
-            lambda: calls.append("camo"),
-        )
-        monkeypatch.setattr(
             "forensics.synthetic_image_detection.pipeline.release_gpu_memory",
             lambda: calls.append("synthetic"),
         )
@@ -331,14 +305,14 @@ class TestPrepareVramForIapl:
             "core.gpu_inference.cuda_memory_snapshot",
             lambda: {"free_mb": 1000, "total_mb": 10240, "allocated_mb": 500},
         )
+        monkeypatch.setattr("core.gpu_inference.purge_foreign_gpu_model_caches", MagicMock())
         monkeypatch.setattr("core.gpu_inference.release_gpu_memory", MagicMock())
 
-        from core.gpu_inference import prepare_vram_for_iapl
+        from core.gpu_inference import prepare_vram_for_heavy_model
 
-        result = prepare_vram_for_iapl(log=False)
+        result = prepare_vram_for_heavy_model(log=False)
 
-        assert set(calls) == {"effort", "safe", "iapl", "camo", "synthetic"}
-        assert calls.count("synthetic") >= 1
+        assert set(calls) == {"effort", "safe", "synthetic"}
         assert "before" in result and "after" in result
 
 

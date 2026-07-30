@@ -126,9 +126,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health_check():
-    from forensics.camo.camo_warmup import camo_warmup_status
     from forensics.effort.effort_warmup import effort_warmup_status
-    from forensics.iapl.iapl_warmup import iapl_warmup_status
     from forensics.safe.safe_warmup import safe_warmup_status
     from core.technique_runtime import technique_runtime_status
 
@@ -140,8 +138,6 @@ def health_check():
             "zero_grid": {"available": zero_ok, "reason": zero_reason or None},
             "effort_warmup": effort_warmup_status(),
             "safe_warmup": safe_warmup_status(),
-            "camo_warmup": camo_warmup_status(),
-            "iapl_warmup": iapl_warmup_status(),
         },
     }
 
