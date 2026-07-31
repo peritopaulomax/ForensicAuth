@@ -2,7 +2,7 @@
 
 ## Responsabilidade Unica
 
-Implementar adaptadores forenses para as tecnicas de analise de imagem, encapsulando bibliotecas especificas (jpegio, libzero, opencv, insightface, etc.) sob a interface `ForensicPlugin`.
+Implementar adaptadores forenses para as tecnicas de analise de imagem, encapsulando bibliotecas especificas (jpegio, libzero, opencv, PyTorch/transformers, etc.) sob a interface `ForensicPlugin`.
 
 ## Tecnicas Implementadas
 

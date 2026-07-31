@@ -27,27 +27,20 @@ HEAVY_DEPS: list[tuple[str, str]] = [
     ("peft", "peft"),
     ("timm", "timm"),
     ("open_clip", "open_clip_torch"),
-    ("clip", "clip (openai)"),
     ("mmcv", "mmcv"),
     ("xgboost", "xgboost"),
-    ("insightface", "insightface"),
     ("kornia", "kornia"),
     ("pytorch_wavelets", "pytorch_wavelets"),
     ("pywt", "PyWavelets"),
-    ("dlib", "dlib"),
     ("numba", "numba"),
     ("jpegio", "jpegio"),
-    ("rawpy", "rawpy"),
-    ("imagehash", "imagehash"),
     ("skimage", "scikit-image"),
     ("librosa", "librosa"),
     ("soundfile", "soundfile"),
-    ("av", "av"),
     ("decord", "decord"),
     ("imageio_ffmpeg", "imageio-ffmpeg"),
     ("pytorch_lightning", "pytorch-lightning"),
     ("lightning", "lightning"),
-    ("easydict", "easydict"),
 ]
 
 # Subpastas esperadas sob MODELS_DIR (técnicas GPU / ML ativas).
@@ -91,29 +84,9 @@ def try_import(module: str) -> tuple[bool, str]:
     try:
         mod = importlib.import_module(module)
         version = getattr(mod, "__version__", None)
-        if version is None and module == "clip":
-            version = "ok"
         return True, str(version or "ok")
     except Exception as exc:  # noqa: BLE001
         return False, str(exc).split("\n")[0][:120]
-
-
-def check_onnxruntime() -> tuple[str, bool, str]:
-    """Preferir onnxruntime-gpu; aceitar onnxruntime CPU como aviso."""
-    ok, ver = try_import("onnxruntime")
-    if not ok:
-        return "onnxruntime-gpu", False, ver
-    providers = []
-    try:
-        import onnxruntime as ort
-
-        providers = list(ort.get_available_providers())
-    except Exception:  # noqa: BLE001
-        pass
-    has_cuda = any("CUDA" in p for p in providers)
-    label = "onnxruntime-gpu" if has_cuda else "onnxruntime (CPU providers)"
-    detail = f"{ver} providers={providers or '?'}"
-    return label, has_cuda, detail
 
 
 def count_files(path: Path) -> int:
@@ -201,8 +174,8 @@ def main() -> int:
         if ok:
             print(f"OK   {label:22s} {detail}")
         else:
-            # clip/open_clip/mmcv/dlib/decord são frequentes de faltar em hosts parciais
-            soft = module in {"clip", "open_clip", "mmcv", "dlib", "decord", "peft"}
+            # open_clip/mmcv/decord/peft são frequentes de faltar em hosts parciais
+            soft = module in {"open_clip", "mmcv", "decord", "peft"}
             if soft:
                 warnings += 1
                 print(f"WARN {label:22s} ausente ({detail})")
@@ -210,18 +183,6 @@ def main() -> int:
                 missing_critical += 1
                 print(f"FAIL {label:22s} ausente")
             recommendations.append(f"Instale deps GPU: pip install -r requirements-gpu.txt ({label})")
-
-    ort_label, ort_cuda, ort_detail = check_onnxruntime()
-    if ort_cuda:
-        print(f"OK   {ort_label:22s} {ort_detail}")
-    elif try_import("onnxruntime")[0]:
-        warnings += 1
-        print(f"WARN {ort_label:22s} {ort_detail}")
-        recommendations.append("Instale onnxruntime-gpu para InsightFace/PAD em CUDA.")
-    else:
-        missing_critical += 1
-        print(f"FAIL {ort_label:22s} ausente")
-        recommendations.append("Instale onnxruntime-gpu (requirements-gpu.txt).")
 
     # --- Model weights ---
     print("\n[MODEL WEIGHTS]")

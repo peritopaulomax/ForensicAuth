@@ -30,17 +30,10 @@ pip install -r requirements-gpu.txt
 ```
 **Arquivo:** `requirements-gpu.txt` (já versionado na raiz do repositório)
 
-**Dependências:**
-- [ ] `torch>=2.0.0` (com suporte CUDA — ver nota abaixo)
-- [ ] `torchvision>=0.15.0`
-- [ ] `transformers>=4.35.0`
-- [ ] `xgboost>=2.0.0`
-- [ ] `insightface>=0.7.0`
-- [ ] `numba>=0.58.0`
-- [ ] `jpegio>=0.2.0` (biblioteca legada forense)
-- [ ] `rawpy>=0.18.0`
-- [ ] `imagehash>=4.3.0`
-- [ ] `scikit-image>=0.21.0`
+**Dependências:** ver `requirements-gpu.txt` (torch/CUDA, transformers, open_clip,
+xgboost, kornia/wavelets para SAFE, mmcv para MIML, decord/lightning para vídeo, etc.).
+Pacotes de técnicas aposentadas (CAMO/`dlib`, InsightFace, rawpy, imagehash, openai CLIP
+git) foram removidos da lista.
 
 > **Nota CUDA:** O comando de instalação do PyTorch depende da versão do CUDA instalada. Verifique a versão com `nvidia-smi` e use o `index-url` correspondente, por exemplo:
 > ```bash
@@ -106,7 +99,7 @@ Esse script verifica:
 1. Python / plataforma
 2. `nvidia-smi` e `nvcc`
 3. PyTorch + CUDA (device / VRAM)
-4. Dependências de `requirements-gpu.txt` (incl. mmcv, kornia, onnxruntime-gpu, …)
+4. Dependências de `requirements-gpu.txt` (incl. mmcv, kornia, open_clip, decord, …)
 5. Subpastas de pesos em `MODELS_DIR` (IMDL, spoofing, vídeo, PAD, …)
 6. Env (GPU_AVAILABLE, role worker-gpu, CUDA_VISIBLE_DEVICES) e ping Redis
 
