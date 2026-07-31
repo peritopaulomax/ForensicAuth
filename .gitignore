@@ -104,6 +104,10 @@ models-dev/
 # Vendor: pesos/datasets locais aninhados (nunca versionar; baixar via scripts)
 vendor/**/models/
 vendor/**/data/
+vendor/**/checkpoints/
+vendor/**/weights/
+# PRNU: fingerprints por caso (runtime; não versionar)
+src/backend/models/prnu/fingerprints/
 peritus_cases/
 peritus_cases-dev/
 attic/archive/
