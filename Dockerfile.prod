@@ -18,8 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# constraints.txt pins every package to versions validated on the reference host.
+# POLICY: regenerate constraints.txt whenever requirements*.txt changes (see its header).
+ENV PIP_DEFAULT_TIMEOUT=100 \
+    PIP_RETRIES=10
+COPY requirements.txt constraints.txt ./
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # Copy application code
 COPY src/backend/ ./

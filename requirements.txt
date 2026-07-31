@@ -1,3 +1,5 @@
+# ATENCAO: ao alterar este arquivo, regenere constraints.txt antes de commitar
+# (politica e comando no cabecalho de constraints.txt).
 # Backend API
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0

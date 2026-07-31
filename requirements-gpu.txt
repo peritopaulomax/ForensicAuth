@@ -1,4 +1,6 @@
 # ForensicAuth — GPU/Heavy Dependencies
+# ATENCAO: ao alterar este arquivo, regenere constraints.txt antes de commitar
+# (politica e comando no cabecalho de constraints.txt).
 # Install on the definitive Linux+GPU system with:
 #   pip install -r requirements.txt
 #   pip install -r requirements-gpu.txt
