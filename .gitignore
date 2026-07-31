@@ -98,8 +98,12 @@ derivatives/
 derivatives-dev/
 results/
 results-dev/
+# Pesos ML só na raiz do repo (não engolir src/backend/models/ = ORM SQLAlchemy)
 /models/
 models-dev/
+# Vendor: pesos/datasets locais aninhados (nunca versionar; baixar via scripts)
+vendor/**/models/
+vendor/**/data/
 peritus_cases/
 peritus_cases-dev/
 attic/archive/
