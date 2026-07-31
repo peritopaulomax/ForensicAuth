@@ -24,6 +24,7 @@ function makeEvidence(partial: Partial<Evidence> & { id: string; file_type: stri
     file_size: 100,
     mime_type: "application/octet-stream",
     sha256: "a".repeat(64),
+    extra_metadata: {},
     uploaded_by: "1",
     created_at: "2026-07-28T00:00:00Z",
     ...partial,

@@ -1100,7 +1100,7 @@ export function ReferenceLrPanel({
   );
 }
 
-type FeatureWeightSortKey = "feature" | "description" | "coef" | "value" | "contrib";
+type FeatureWeightSortKey = "name" | "description" | "coef" | "value" | "contrib";
 
 type FeatureWeightRow = {
   name: string;
@@ -1190,7 +1190,7 @@ function LrFeatureWeightsTable({
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(column);
-      setSortDir(column === "feature" || column === "description" ? "asc" : "desc");
+      setSortDir(column === "name" || column === "description" ? "asc" : "desc");
     }
   };
 
@@ -1222,7 +1222,7 @@ function LrFeatureWeightsTable({
           <tr style={{ background: "#f9fafb" }}>
             <SortableTh
               label="Feature"
-              column="feature"
+              column="name"
               active={sortKey}
               direction={sortDir}
               onSort={onSort}
