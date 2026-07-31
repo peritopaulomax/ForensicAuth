@@ -31,9 +31,11 @@ eggs/
 .eggs/
 lib/
 lib64/
-# Nativos do backend (libzero) — nao engolir com o lib/ generico acima
+# Nativos do backend (libzero) e helpers do frontend — nao engolir com o lib/ generico acima
 !src/backend/lib/
 !src/backend/lib/**
+!src/frontend/src/lib/
+!src/frontend/src/lib/**
 parts/
 sdist/
 var/
