@@ -44,12 +44,20 @@ const ML_TECHNIQUES = new Set([
   "audio_spoofing_detection",
 ]);
 
+const CPU_HEAVY_TECHNIQUES = new Set([
+  "jpeg_ghosts",
+  "copy_move_pca",
+]);
+
 function defaultMaxWaitMs(technique: string): number {
   if (AUDIO_TECHNIQUES.has(technique)) {
     return 45 * 60 * 1000;
   }
   if (ML_TECHNIQUES.has(technique)) {
     return 30 * 60 * 1000;
+  }
+  if (CPU_HEAVY_TECHNIQUES.has(technique)) {
+    return 12 * 60 * 1000;
   }
   return 4 * 60 * 1000;
 }
@@ -220,7 +228,7 @@ export function useForensicJob() {
       throw new Error(
         timeoutMessage ||
           `Timeout aguardando resultado (${minutes} min). ` +
-            "Para audio longo, use reamostragem (8–16 kHz) ou FFT menor.",
+            "O job pode ainda estar em processamento; verifique os resultados do caso em instantes.",
       );
     },
     [applyBackendProgress, setTarget]

@@ -177,7 +177,7 @@ def write_plot_html(fig: go.Figure, path: Path, *, div_id: str = "audio-plot") -
     _prepare_responsive_figure(fig)
     fig.write_html(
         str(path),
-        include_plotlyjs="cdn",
+        include_plotlyjs="inline",
         full_html=True,
         config={"responsive": True, "displayModeBar": True, "displaylogo": False},
         div_id=div_id,

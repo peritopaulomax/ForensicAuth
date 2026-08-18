@@ -4,9 +4,11 @@ import { getTechniqueConfig } from "@/config/techniqueRegistry";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Layout from "@/components/Layout";
 import ImageAnalysisRedirect from "@/components/ImageAnalysisRedirect";
+import { useAuthStore } from "@/store/authStore";
 
 function TechniquePageRouterInner() {
   const { caseId, techniqueId } = useParams<{ caseId: string; techniqueId: string }>();
+  const userRole = useAuthStore((s) => s.user?.role);
 
   if (!caseId || !techniqueId) {
     return <Navigate to="/" replace />;
@@ -17,6 +19,16 @@ function TechniquePageRouterInner() {
 
   if (!config) {
     return <ImageAnalysisRedirect slug={techniqueId} />;
+  }
+
+  if (config.adminOnly && userRole !== "admin") {
+    const media = config.mediaType || "imagem";
+    return (
+      <Navigate
+        to={`/cases/${caseId}?tab=analises&media=${encodeURIComponent(media)}`}
+        replace
+      />
+    );
   }
 
   const Component = config.component;

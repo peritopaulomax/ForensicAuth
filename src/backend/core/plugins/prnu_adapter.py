@@ -211,7 +211,7 @@ class PRNUAdapter(ForensicPlugin):
 
         fig.write_html(
             str(out_path),
-            include_plotlyjs="cdn",
+            include_plotlyjs="inline",
             div_id="prnu-correlation-surface",
             config={
                 "scrollZoom": True,

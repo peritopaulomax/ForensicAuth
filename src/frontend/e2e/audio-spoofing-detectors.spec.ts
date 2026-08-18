@@ -18,8 +18,9 @@ test.describe("Audio spoofing multi-detector UI", () => {
     await page.getByRole("link", { name: /spoofing/i }).first().click();
     await expect(page.getByText("Parametros")).toBeVisible();
     await expect(page.getByLabel(/DF Arena 1B/i)).toBeVisible();
-    await expect(page.getByLabel(/SLS XLS-R/i)).toBeVisible();
     await expect(page.getByLabel(/WeDefense ASV2025/i)).toBeVisible();
+    await expect(page.getByLabel(/SLS XLS-R/i)).toHaveCount(0);
+    await expect(page.getByLabel(/TFCL/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /analisar audio/i })).toBeVisible();
   });
 });

@@ -6,6 +6,7 @@ import {
   MEDIA_GROUP_CATALOG,
   getMediaAnalysisGroup,
   findMediaGroupForTechnique,
+  isMediaTechniqueVisible,
   resolveMediaTechniqueTabLabel,
 } from "./mediaAnalysisGroups";
 
@@ -68,6 +69,15 @@ describe("mediaAnalysisGroups", () => {
     const labels = group!.techniques.map((e) => resolveMediaTechniqueTabLabel(e));
     expect(labels).toEqual(["Metadados", "Parser ISO BMFF", "Similaridade ISO BMFF"]);
     expect(findMediaGroupForTechnique("video_metadata")?.group.id).toBe("video-estrutura");
+  });
+
+  it("hides videofact from non-admin roles", () => {
+    const group = getMediaAnalysisGroup("video", "video-manipulacao");
+    const videofact = group!.techniques.find((t) => t.id === "videofact");
+    expect(videofact?.adminOnly).toBe(true);
+    expect(isMediaTechniqueVisible(videofact!, "admin")).toBe(true);
+    expect(isMediaTechniqueVisible(videofact!, "perito")).toBe(false);
+    expect(isMediaTechniqueVisible(videofact!, undefined)).toBe(false);
   });
 
   it("applies empty scaffold hooks without dropping base groups", () => {

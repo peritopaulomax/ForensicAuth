@@ -33,25 +33,17 @@ import {
 /** Product default: Difusão Transformer + CNN moderna + AIGI Bench Social (role both). */
 const DEFAULT_SYNTHETIC_REFERENCE: ReferencePopulationEntry[] = itemsToEntries(
   [
-    { base_group: "GenImage", subgroup: "Midjourney" },
-    { base_group: "Defactify", subgroup: "DALL-E_3" },
-    { base_group: "Defactify", subgroup: "Midjourney_v6" },
-    { base_group: "Defactify", subgroup: "SD3" },
-    { base_group: "Defactify", subgroup: "SDXL" },
-    { base_group: "AIGCDetectBenchmark", subgroup: "Midjourney" },
-    { base_group: "AIGCDetectBenchmark", subgroup: "SDXL" },
-    { base_group: "OpenSDI", subgroup: "flux" },
-    { base_group: "OpenSDI", subgroup: "sd3" },
-    { base_group: "AIGIBench_no_SocialRF", subgroup: "DALLE-3" },
-    { base_group: "AIGIBench_no_SocialRF", subgroup: "FLUX1-dev" },
     { base_group: "AIGIBench_no_SocialRF", subgroup: "SD3" },
-    { base_group: "AIGIBench_SocialRF", subgroup: "SocialRF" },
-    { base_group: "Synthbuster", subgroup: "Adobe_Firefly" },
-    { base_group: "Synthbuster", subgroup: "DALL-E_2" },
-    { base_group: "Synthbuster", subgroup: "DALL-E_3" },
-    { base_group: "Synthbuster", subgroup: "Midjourney_v5" },
-    { base_group: "Synthbuster", subgroup: "Stable_Diffusion_XL" },
+    { base_group: "AIGIBench_no_SocialRF", subgroup: "FLUX1-dev" },
+    { base_group: "OpenSDI", subgroup: "sd3" },
+    { base_group: "OpenSDI", subgroup: "flux" },
+    { base_group: "Defactify", subgroup: "SD3" },
     { base_group: "BFree_extended_synthbuster", subgroup: "FLUX" },
+    { base_group: "AIGIBench_SocialRF", subgroup: "SocialRF" },
+    { base_group: "MLLMGenerated", subgroup: "gpt_image2" },
+    { base_group: "MLLMGenerated", subgroup: "nano_banana2" },
+    { base_group: "MeiGenTrending", subgroup: "gptimage" },
+    { base_group: "MeiGenTrending", subgroup: "nanobanana" },
   ],
   "both"
 );
@@ -91,9 +83,9 @@ const DEFAULT_SYNTHETIC_ANALYSES: SyntheticAnalysisId[] = SYNTHETIC_ANALYSIS_OPT
 
 const INDIVIDUAL_HEADERS = [
   "Modelo",
-  "Score AI",
-  "Score Real",
-  "Razão (Log)",
+  "Logit AI",
+  "Logit Real",
+  "Δ log10 (real−AI)",
   "Classificação",
   "Dispositivo",
 ];

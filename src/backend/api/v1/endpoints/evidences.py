@@ -651,6 +651,76 @@ def get_evidence_file(
     )
 
 
+@router.get("/evidences/{evidence_id}/playback")
+def get_evidence_playback(
+    evidence_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Serve video for HTML5 playback with display rotation baked when needed.
+
+    Preserves the original on `/file` for custody/download. Playback may be a
+    cached re-encode when the container has rotate/displaymatrix metadata that
+    some browsers mishandle (upside-down / sideways preview).
+    """
+    evidence = get_accessible_evidence(db, evidence_id, current_user)
+
+    if evidence.file_type != "video":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Playback normalizado disponivel apenas para videos",
+        )
+
+    file_path = Path(evidence.file_path)
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Arquivo nao encontrado no disco",
+        )
+
+    from services.video_playback_service import VideoPlaybackError, resolve_playback_path
+
+    try:
+        play_path, _info = resolve_playback_path(file_path)
+    except VideoPlaybackError:
+        # Fallback: original bytes (browser may still autorotate).
+        play_path = file_path
+
+    media = "video/mp4" if play_path.suffix.lower() == ".mp4" else (
+        evidence.mime_type or "application/octet-stream"
+    )
+    return FileResponse(
+        str(play_path),
+        filename=evidence.original_filename,
+        media_type=media,
+    )
+
+
+@router.get("/evidences/{evidence_id}/video-orientation")
+def get_evidence_video_orientation(
+    evidence_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return coded size and clockwise display rotation for a video evidence."""
+    evidence = get_accessible_evidence(db, evidence_id, current_user)
+    if evidence.file_type != "video":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Orientacao disponivel apenas para videos",
+        )
+    file_path = Path(evidence.file_path)
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Arquivo nao encontrado no disco",
+        )
+
+    from core.video_display_orientation import probe_video_display_orientation
+
+    return JSONResponse(probe_video_display_orientation(file_path))
+
+
 @router.get("/evidences/{evidence_id}/lineage", response_model=LineageGraphResponse)
 def get_evidence_lineage(
     evidence_id: uuid.UUID,

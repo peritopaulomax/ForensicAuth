@@ -350,16 +350,17 @@ const _BASE_FORENSIC_TECHNIQUE_META: Record<string, ForensicTechniqueMeta> = {
       "SPEECH-ARENA-2025. DF Arena 1B V1 — antispoofing com Wav2Vec2 XLS-R-1B + Conformer. Modelo HuggingFace: Speech-Arena-2025/DF_Arena_1B_V_1. Disponível em: <https://huggingface.co/Speech-Arena-2025/DF_Arena_1B_V_1>. Acesso em: 4 jul. 2026.\n\n" +
       "KULKARNI, Ajinkya; DOWERAH, Sandipana; KULKARNI, Atharva; ALUMÄE, Tanel; MAGIMAI DOSS, Mathew. Audio Deepfake Detection with Self-supervised XLS-R and SLS classifier. In: ACM MULTIMEDIA (ACM MM), 2024. Repositório: <https://github.com/QiShanZhang/SLSforASVspoof-2021-DF>. Acesso em: 4 jul. 2026.\n\n" +
       "ZHANG, Lin et al. WeDefense: A Toolkit to Defend Against Fake Audio. arXiv:2601.15240, 2025. Disponível em: <https://arxiv.org/abs/2601.15240>. Checkpoint ASVspoof 2025: <https://huggingface.co/JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning>. Acesso em: 29 jul. 2026.\n\n" +
+      "XUE, Jun et al. Time-Frequency Consistency Learning for Robust Speech Deepfake Detection. In: ACM MULTIMEDIA (ACM MM), 2026. Repositório: <https://github.com/JunXue-tech/TFCL>. Checkpoint: <https://huggingface.co/datasets/JunXueTech/TFCL>. Acesso em: 31 jul. 2026.\n\n" +
       "KULKARNI, Ajinkya; DOWERAH, Sandipana; KULKARNI, Atharva; ALUMÄE, Tanel; MAGIMAI DOSS, Mathew. Do Compact SSL Backbones Matter for Audio Deepfake Detection? A Controlled Study with RAPTOR. arXiv:2603.06164, 2026.",
-    cardSubtitle: "DF Arena 1B + SLS XLS-R + WeDefense · meta-classificador LR",
+    cardSubtitle: "DF Arena 1B + WeDefense · meta-classificador LR",
     detail:
       "Hub multi-detector de spoofing de áudio com calibração LR por população de referência versionada. " +
-      "DF Arena 1B (Wav2Vec2 XLS-R-1B + Conformer), SLS XLS-R (ACM MM 2024) e WeDefense WavLM+MHFA (ASVspoof 2025) " +
-      "analisam janelas de 4 segundos; os logits bonafide alimentam meta-classificador e bi-Gaussianized LR. " +
+      "Detectores ativos na UI: DF Arena 1B (Wav2Vec2 XLS-R-1B + Conformer) e WeDefense WavLM+MHFA (ASVspoof 2025); " +
+      "analisam janelas de ~4 segundos e os logits bonafide alimentam meta-classificador e bi-Gaussianized LR. " +
       "Opcionalmente, tipicidade latente (k-NN nos embeddings, sistema D) enriquece a fusão. " +
-      "LR positiva favorece H1 = bonafide (áudio autêntico). População padrão: clonagem comercial "
-      + "(StyleTTS2, NaturalSpeech2, xTTS, PromptTTS2, VoiceBox), ASVspoof 5 e In-The-Wild "
-      + "(distribuição via redes/mensageiros). CodecFake permanece opcional no catálogo.",
+      "LR positiva favorece H1 = bonafide (áudio autêntico). População padrão: MLAAD_PT "
+      + "(Voxtral, Qwen3-TTS-12Hz-1.7B-Base, OpenAI_TTS-1_HD, OmniVoice, MOSS-TTS-8B, "
+      + "Fish-S2-Pro, Llasa-1B-Multilingual). Demais bases permanecem no catálogo.",
     summary:
       "Processamento local com GPU/CPU. Selecione detectores e subgrupos de calibração; artefatos: detector_scores.txt e gráficos LR.",
     license: "Non-commercial (ver LICENSE.txt de cada modelo)",

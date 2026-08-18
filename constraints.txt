@@ -16,6 +16,7 @@ alembic==1.18.5
 amqp==5.3.1
 annotated-doc==0.0.5
 annotated-types==0.8.0
+antlr4-python3-runtime==4.9.3
 anyio==4.14.2
 appdirs==1.4.4
 asn1crypto==1.5.1
@@ -126,6 +127,8 @@ nvidia-nccl-cu13==2.29.7
 nvidia-nvjitlink==13.3.33
 nvidia-nvshmem-cu13==3.4.5
 nvidia-nvtx==13.0.85
+omegaconf==2.3.1
+onnxruntime==1.28.0
 open_clip_torch==3.3.0
 opencv-python==4.11.0.86
 opencv-python-headless==4.11.0.86

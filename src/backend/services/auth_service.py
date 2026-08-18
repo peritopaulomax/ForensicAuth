@@ -50,6 +50,16 @@ def _hash_refresh_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 
+def normalize_username(username: str) -> str:
+    """Strip leading/trailing whitespace from usernames."""
+    return (username or "").strip()
+
+
+def normalize_email(email: str) -> str:
+    """Strip leading/trailing whitespace from emails."""
+    return (email or "").strip()
+
+
 class AuthService:
     def __init__(self, db: Session):
         self.db = db
@@ -118,6 +128,7 @@ class AuthService:
 
     def authenticate(self, username: str, password: str) -> AuthResult:
         """Authenticate a user and return user + access/refresh tokens."""
+        username = normalize_username(username)
         user = self.db.query(User).filter(User.username == username).first()
 
         if not user:
@@ -225,6 +236,11 @@ class AuthService:
 
     def first_access(self, username: str, password: str, password_confirm: str) -> User:
         """Set initial password for a pre-provisioned user."""
+        username = normalize_username(username)
+        if not username:
+            raise AuthenticationError(
+                "Usuario invalido ou senha ja definida. Verifique o username ou faca login."
+            )
         if password != password_confirm:
             raise AuthenticationError("As senhas nao coincidem")
 
@@ -253,18 +269,25 @@ class AuthService:
         if not valid:
             raise HTTPException(status_code=422, detail=msg)
 
-        existing_username = self.db.query(User).filter(User.username == data["username"]).first()
+        username = normalize_username(data["username"])
+        email = normalize_email(data["email"])
+        if not username:
+            raise HTTPException(status_code=422, detail="Username invalido")
+        if not email:
+            raise HTTPException(status_code=422, detail="Email invalido")
+
+        existing_username = self.db.query(User).filter(User.username == username).first()
         if existing_username:
             raise HTTPException(status_code=409, detail="Username ja existe")
 
-        existing_email = self.db.query(User).filter(User.email == data["email"]).first()
+        existing_email = self.db.query(User).filter(User.email == email).first()
         if existing_email:
             raise HTTPException(status_code=409, detail="Email ja cadastrado")
 
         user = User(
             id=uuid.uuid4(),
-            username=data["username"],
-            email=data["email"],
+            username=username,
+            email=email,
             hashed_password=self.hash_password(data["password"]),
             password_set=True,
             role=data["role"],

@@ -689,6 +689,10 @@ def _render_pipeline(m: dict[str, Any]) -> str:
     # do manifesto) — já publicadas offline; o pipeline NÃO extrai a base inteira aqui.
     # Calibração esperada (espelho áudio/imagem): meta (logistic|xgboost) no train →
     # bigaussianização → Tippett/Cllr/EER no test + LR do questionado.
+    # OBRIGATÓRIO: treinar o meta via
+    #   core.synthetic_lr_reference.train_meta_classifier
+    # (logistic = StandardScaler/z-score + LogisticRegression). NÃO use
+    # LogisticRegression cru — escalas de logit entre detectores não são comparáveis.
     # Em reference_lr inclua feature_weights (+ feature_values, logreg_coefficients/
     # logreg_intercept se logistic) para o painel colapsado de coeficientes/importâncias.
 """

@@ -162,14 +162,18 @@ def predict_bfree_row(image: Image.Image, on_progress: ProgressFn = None) -> lis
         logger.warning("B-Free falhou: %s", exc)
         return None
 
-    fake_score = _sigmoid(score)
-    real_score = 1.0 - fake_score
-    decision = "AI" if score > 0 else "REAL"
+    ai_logit = float(score)
+    real_logit = -ai_logit
+    decision = "REAL" if real_logit >= 0.0 else "AI"
+    delta = real_logit - ai_logit
+    import math
+
+    log_ratio = f"{delta / math.log(10.0):.2f}" if math.isfinite(delta) else "nan"
     return [
         MODEL_LABEL,
-        f"{fake_score:.4f}",
-        f"{real_score:.4f}",
-        f"score={score:.4f}",
+        f"{ai_logit:.4f}",
+        f"{real_logit:.4f}",
+        log_ratio,
         decision,
         device_display_label(device.type),
     ]

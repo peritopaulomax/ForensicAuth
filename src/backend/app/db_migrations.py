@@ -311,7 +311,7 @@ def ensure_migrate_analista_to_perito(engine: Engine) -> None:
     if "users" not in inspector.get_table_names():
         return
     with engine.connect() as conn:
-        conn.execute(text("UPDATE users SET role = 'perito' WHERE role = 'analista'"))
+        conn.execute(text("UPDATE users SET role = 'perito' WHERE role::text = 'analista'"))
         conn.commit()
 
 
@@ -322,6 +322,6 @@ def ensure_migrate_em_andamento_to_aberto(engine: Engine) -> None:
         return
     with engine.connect() as conn:
         conn.execute(
-            text("UPDATE cases SET status = 'aberto' WHERE status = 'em_andamento'")
+            text("UPDATE cases SET status = 'aberto' WHERE status::text = 'em_andamento'")
         )
         conn.commit()

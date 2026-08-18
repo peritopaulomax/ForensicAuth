@@ -24,29 +24,28 @@ import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
 import { getEvidenceFileUrl } from "@/services/evidence";
 import api from "@/services/api";
 
-type AudioSpoofingDetectorId = "df_arena_1b" | "sls_xlsr" | "wedefense_wavlm_mhfa";
+type AudioSpoofingDetectorId = "df_arena_1b" | "sls_xlsr" | "wedefense_wavlm_mhfa" | "tfcl_xlsr";
 
+/** Detectores expostos na UI (SLS/TFCL permanecem no backend, ocultos). */
 const DEFAULT_DETECTORS: AudioSpoofingDetectorId[] = [
   "df_arena_1b",
-  "sls_xlsr",
   "wedefense_wavlm_mhfa",
 ];
 
 const DETECTOR_OPTIONS: { id: AudioSpoofingDetectorId; label: string }[] = [
   { id: "df_arena_1b", label: "DF Arena 1B" },
-  { id: "sls_xlsr", label: "SLS XLS-R (ACM MM 2024)" },
   { id: "wedefense_wavlm_mhfa", label: "WeDefense ASV2025 WavLM + MHFA" },
 ];
 
 const DEFAULT_AUDIO_REFERENCE: ReferencePopulationEntry[] = itemsToEntries(
   [
-    { base_group: "DFADD", subgroup: "StyleTTS2" },
-    { base_group: "DFADD", subgroup: "NaturalSpeech2" },
-    { base_group: "SONAR", subgroup: "xTTS" },
-    { base_group: "SONAR", subgroup: "PromptTTS2" },
-    { base_group: "SONAR", subgroup: "VoiceBox" },
-    { base_group: "ASVspoof5", subgroup: "flac_E_eval" },
-    { base_group: "In-The-Wild", subgroup: "In-The-Wild" },
+    { base_group: "MLAAD_PT", subgroup: "Voxtral" },
+    { base_group: "MLAAD_PT", subgroup: "Qwen3-TTS-12Hz-1.7B-Base" },
+    { base_group: "MLAAD_PT", subgroup: "OpenAI_TTS-1_HD" },
+    { base_group: "MLAAD_PT", subgroup: "OmniVoice" },
+    { base_group: "MLAAD_PT", subgroup: "MOSS-TTS-8B" },
+    { base_group: "MLAAD_PT", subgroup: "Fish-S2-Pro" },
+    { base_group: "MLAAD_PT", subgroup: "Llasa-1B-Multilingual" },
   ],
   "both"
 );
@@ -111,9 +110,9 @@ interface AnalysisResult {
 
 const SCORE_HEADERS = [
   "Detector",
-  "Score Spoof",
-  "Score Bonafide",
-  "Razão (Log)",
+  "Logit Spoof",
+  "Logit Bonafide",
+  "Δ log10 (bona−spoof)",
   "Classificação",
   "Dispositivo",
 ];
@@ -273,26 +272,6 @@ function TemporalChart({ data }: { data: PlotSeries }) {
         <circle key={i} cx={xScale(p.center_seconds)} cy={yScale(p.spoof_prob)} r={3} fill="#dc2626" />
       ))}
     </svg>
-  );
-}
-
-function ScoreBadge({ label, value, color }: { label: string; value: number; color: string }) {
-  const pct = Math.round((value ?? 0) * 100);
-  return (
-    <div
-      style={{
-        padding: "0.6rem 0.9rem",
-        borderRadius: 8,
-        background: "#f9fafb",
-        border: "1px solid #e5e7eb",
-        minWidth: 140,
-      }}
-    >
-      <div style={{ fontSize: "0.75rem", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.03em" }}>
-        {label}
-      </div>
-      <div style={{ fontSize: "1.5rem", fontWeight: 700, color }}>{pct}%</div>
-    </div>
   );
 }
 
@@ -846,53 +825,11 @@ export default function AudioSpoofingAnalysis() {
 
       {typedResult?.success === true && (
         <>
-          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", marginBottom: "1rem" }}>
-            <ScoreBadge label="Spoof (primario)" value={typedResult.score_spoof ?? 0} color="#dc2626" />
-            <ScoreBadge label="Bonafide (primario)" value={typedResult.score_bonafide ?? 0} color="#16a34a" />
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(280px, 1fr) minmax(280px, 2fr)",
-              gap: "1rem",
-              alignItems: "start",
-              marginBottom: "1rem",
-            }}
-          >
-            <div>
-              <p style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#374151" }}>
-                <strong>Decisao agregada (detector primario):</strong>{" "}
-                <span
-                  style={{
-                    color:
-                      typedResult.label === "spoof"
-                        ? "#dc2626"
-                        : typedResult.label === "uncertain"
-                          ? "#b45309"
-                          : "#16a34a",
-                    fontWeight: 700,
-                  }}
-                >
-                  {typedResult.label === "spoof"
-                    ? "Spoof"
-                    : typedResult.label === "uncertain"
-                      ? "Incerto"
-                      : "Bonafide"}
-                </span>
-              </p>
-              <p style={{ margin: 0, fontSize: "0.8rem", color: "#6b7280" }}>
-                Detectores: {(typedResult.selected_analyses ?? selectedDetectors).join(", ")}
-                {" · "}
-                Janelas: {typedResult.window_count ?? 0} de {typedResult.window_seconds ?? 4}s
-                {" · "}
-                Dispositivo: {typedResult.inference_device || "auto"}
-                {" · "}
-                Duracao: {typedResult.duration_seconds ?? 0}s
-              </p>
+          {individualRows.length > 0 && (
+            <div style={{ marginBottom: "1rem" }}>
+              <ResultsTable rows={individualRows} />
             </div>
-            {individualRows.length > 0 && <ResultsTable rows={individualRows} />}
-          </div>
+          )}
 
           <ReferenceLrPanel
             lr={referenceLr}

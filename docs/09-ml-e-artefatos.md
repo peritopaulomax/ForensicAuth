@@ -23,7 +23,7 @@ flowchart LR
     S2 --> S3[LR / typicality opcional]
   end
   subgraph Audio[Áudio spoofing]
-    A1[audio_spoofing_detection] --> A2[df_arena / wedefense / sls]
+    A1[audio_spoofing_detection] --> A2[df_arena / wedefense / sls / tfcl]
     A2 --> A3[LR calibrado]
   end
   subgraph Face[Facial]
@@ -39,13 +39,19 @@ Todas acima (lista GPU) usam fila **`gpu`** — ver `core/gpu_inference.py`.
 
 UI `reference_lr.mode`: `result_only` | `calibrated` (contrato no scaffold de técnicas).
 
+Meta-classificador ensemble (imagem sintética, áudio spoofing e scaffolds `calibrated`):
+treino único em `core.synthetic_lr_reference.train_meta_classifier`. No **logistic**,
+features passam por **z-score (`StandardScaler`)** antes do LogReg para equalizar
+escalas de logit entre detectores; XGBoost permanece sem scaler. Cache LR inclui
+`feature_scale: zscore|none`.
+
 ## Vendor — política
 
 - Código sob `vendor/` é **terceiro** ou fork; não reescrever.  
 - Atualizar só com pin/teste e consciência de licença.  
 - Ter vendor ≠ técnica ativa (standby).
 
-Lista exemplificativa: `SAFE`, `SAFIRE-main`, `df_arena_1b`, `wedefense`, `sls_asvspoof`, `MoE-FFD`, `videofact-wacv-2024`, `truebees_deepfake_detectors`, …
+Lista exemplificativa: `SAFE`, `SAFIRE-main`, `df_arena_1b`, `wedefense`, `sls_asvspoof`, `tfcl`, `MoE-FFD`, `videofact-wacv-2024`, `truebees_deepfake_detectors`, …
 
 ## Warmup e papéis de processo
 
@@ -70,6 +76,7 @@ Build pesado de referências: variável `FORENSICAUTH_REFERENCE_BUILD_DIR` (fora
 |-----------|--------|
 | Pesos só na máquina da API | Worker não acha checkpoint |
 | Typicality com leak de split | Métricas otimistas demais |
+| Meta logistic sem z-score / LogReg cru | Detector de maior escala domina o ensemble |
 | Rodar vários workers GPU `-c N` | OOM / corrupção de contexto |
 | Alterar vendor “só um pouquinho” | Quebra equivalência forense |
 

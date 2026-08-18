@@ -149,7 +149,7 @@ def test_repair_augmented_representations_renames_embeddings(tmp_path):
     embed_dir.mkdir()
     wrong_sid = "ASVspoof5__flac_E_eval__E__mp3_128k"
     right_sid = "ASVspoof5__flac_E_eval__E_0001858027__mp3_128k"
-    for det in ("df_arena_1b", "sls_xlsr", "wedefense_wavlm_mhfa"):
+    for det in ("df_arena_1b", "sls_xlsr", "wedefense_wavlm_mhfa", "tfcl_xlsr"):
         np.save(embed_dir / f"{wrong_sid}__{det}.npy", np.zeros(4, dtype=np.float32))
 
     reps = tmp_path / "representations.csv"

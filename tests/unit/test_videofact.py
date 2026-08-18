@@ -21,6 +21,14 @@ def test_videofact_runtime_missing_weights():
         assert "videofact" in reason.lower() or "peso" in reason.lower()
 
 
+def test_videofact_thresholds_match_paper():
+    from forensics.videofact.videofact_runtime import default_thresholds
+
+    thr = default_thresholds()
+    assert thr["xfer"] == 0.5
+    assert thr["df"] == 0.5
+
+
 def test_videofact_plugin_validate_mode(monkeypatch):
     from core.plugins.videofact_plugin import VideoFactPlugin
 

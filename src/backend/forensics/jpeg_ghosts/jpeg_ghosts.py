@@ -20,17 +20,14 @@ def process_single_quality(image: np.ndarray, quality: int, block_size: int) -> 
     _, encoded_img = cv2.imencode(".jpg", image, encode_param)
     compressed_img = cv2.imdecode(encoded_img, cv2.IMREAD_COLOR).astype(np.float32)
     del encoded_img
-    gc.collect()
 
     diff = (original_float - compressed_img) ** 2
     del original_float, compressed_img
-    gc.collect()
 
     convolved = np.zeros_like(diff)
     for channel in range(3):
         convolved[:, :, channel] = cv2.filter2D(diff[:, :, channel], -1, kernel)
     del diff
-    gc.collect()
 
     averaged = np.mean(convolved, axis=2)
     del convolved
@@ -44,7 +41,6 @@ def process_single_quality(image: np.ndarray, quality: int, block_size: int) -> 
         normalized = (averaged - vmin) / span
 
     del averaged
-    gc.collect()
     return normalized
 
 
@@ -65,7 +61,7 @@ def process_image(
         try:
             from joblib import Parallel, delayed
 
-            images = Parallel(n_jobs=n_jobs, backend="loky")(
+            images = Parallel(n_jobs=n_jobs, backend="threading")(
                 delayed(process_single_quality)(image, q, block_size) for q in qualities
             )
             return qualities, images
@@ -144,6 +140,71 @@ def _pick_best_quality(
     return best_q, best_peak, best_ghost, best_metric
 
 
+def _process_shift_full(
+    shifted_img: np.ndarray,
+    dx: int,
+    dy: int,
+    qmin: int,
+    qmax: int,
+    step: int,
+    block_size: int,
+    neighborhood_k: int,
+    n_jobs_inner: int,
+) -> Optional[Dict[str, Any]]:
+    """Compute the full result for one grid shift (ghost maps + metrics)."""
+    qualities, processed_images = process_image(
+        shifted_img, qmin, qmax, step, block_size, n_jobs=n_jobs_inner
+    )
+    if not qualities:
+        return None
+
+    metrics_results = [compute_metric(img, neighborhood_k) for img in processed_images]
+
+    best_q, shift_peak, shift_ghost, shift_metric = _pick_best_quality(
+        qualities, processed_images, metrics_results
+    )
+
+    return {
+        "dx": dx,
+        "dy": dy,
+        "best_quality": best_q,
+        "peak_metric": shift_peak,
+        "ghost_map": shift_ghost,
+        "metric_map": shift_metric,
+        "qualities": qualities,
+        "ghost_maps_by_quality": {int(q): proc for q, proc in zip(qualities, processed_images)},
+        "metrics_by_quality": {int(q): met for q, met in zip(qualities, metrics_results)},
+        "metric_peaks_by_quality": {
+            int(q): float(np.max(met)) for q, met in zip(qualities, metrics_results)
+        },
+    }
+
+
+def _summarize_shift(
+    shifted_img: np.ndarray,
+    dx: int,
+    dy: int,
+    qmin: int,
+    qmax: int,
+    step: int,
+    block_size: int,
+    neighborhood_k: int,
+) -> Optional[Dict[str, Any]]:
+    """Light per-shift summary for the parallel phase (drops metric maps)."""
+    full = _process_shift_full(
+        shifted_img, dx, dy, qmin, qmax, step, block_size, neighborhood_k, n_jobs_inner=1
+    )
+    if full is None:
+        return None
+    return {
+        "dx": full["dx"],
+        "dy": full["dy"],
+        "best_quality": full["best_quality"],
+        "peak_metric": full["peak_metric"],
+        "ghost_map": full["ghost_map"],
+    }
+
+
 def run_jpeg_ghosts_analysis(
     image_bgr: np.ndarray,
     qmin: int = 50,
@@ -177,52 +238,74 @@ def run_jpeg_ghosts_analysis(
     global_peak = -np.inf
     global_best: Optional[Dict[str, Any]] = None
 
-    for s_idx, (shifted_img, dx, dy) in enumerate(shifts):
-        base_pct = 10 + int(80 * s_idx / max(n_shifts, 1))
-        label = f"deslocamento ({dx},{dy})" if shift_search else "sem busca de grade"
-        prog(base_pct, f"Processando {label} ({s_idx + 1}/{n_shifts})")
+    if n_jobs != 1 and n_shifts > 1:
+        # Fase paralela: uma tarefa por deslocamento de grade (qualidades seriais
+        # dentro de cada worker para nao aninhar pools). Executada em lotes de
+        # n_jobs deslocamentos para manter a percepcao de progresso do modo
+        # serial. A recomputacao do vencedor na fase 2 recupera os mapas por
+        # qualidade descartados aqui.
+        from joblib import Parallel, delayed
 
-        qualities, processed_images = process_image(
-            shifted_img, qmin, qmax, step, block_size, n_jobs=n_jobs
-        )
-        if not qualities:
-            continue
-
-        metrics_results = [compute_metric(img, neighborhood_k) for img in processed_images]
-
-        best_q, shift_peak, shift_ghost, shift_metric = _pick_best_quality(
-            qualities, processed_images, metrics_results
-        )
-
-        per_shift.append(
-            {
-                "dx": dx,
-                "dy": dy,
-                "best_quality": best_q,
-                "peak_metric": shift_peak,
-                "ghost_map": shift_ghost,
-            }
-        )
-
-        if shift_peak > global_peak:
-            global_peak = shift_peak
-            global_best = {
-                "dx": dx,
-                "dy": dy,
-                "best_quality": best_q,
-                "peak_metric": shift_peak,
-                "ghost_map": shift_ghost,
-                "metric_map": shift_metric,
-                "qualities": qualities,
-                "ghost_maps_by_quality": {int(q): proc for q, proc in zip(qualities, processed_images)},
-                "metrics_by_quality": {int(q): met for q, met in zip(qualities, metrics_results)},
-                "metric_peaks_by_quality": {
-                    int(q): float(np.max(met)) for q, met in zip(qualities, metrics_results)
-                },
-            }
-
-        del processed_images, metrics_results
+        chunk = max(1, n_jobs)
+        summaries: List[Optional[Dict[str, Any]]] = []
+        for start in range(0, n_shifts, chunk):
+            batch = shifts[start : start + chunk]
+            summaries.extend(
+                Parallel(n_jobs=n_jobs, backend="threading")(
+                    delayed(_summarize_shift)(
+                        shifted_img, dx, dy, qmin, qmax, step, block_size, neighborhood_k
+                    )
+                    for shifted_img, dx, dy in batch
+                )
+            )
+            done = min(start + chunk, n_shifts)
+            prog(10 + int(78 * done / n_shifts), f"Deslocamentos processados: {done}/{n_shifts}")
+        best_s_idx = -1
+        for s_idx, summary in enumerate(summaries):
+            if summary is None:
+                continue
+            per_shift.append(summary)
+            if summary["peak_metric"] > global_peak:
+                global_peak = summary["peak_metric"]
+                best_s_idx = s_idx
+        del summaries
         gc.collect()
+
+        if best_s_idx >= 0:
+            prog(90, "Detalhando deslocamento vencedor")
+            shifted_img, dx, dy = shifts[best_s_idx]
+            global_best = _process_shift_full(
+                shifted_img, dx, dy, qmin, qmax, step, block_size, neighborhood_k,
+                n_jobs_inner=n_jobs,
+            )
+    else:
+        for s_idx, (shifted_img, dx, dy) in enumerate(shifts):
+            base_pct = 10 + int(80 * s_idx / max(n_shifts, 1))
+            label = f"deslocamento ({dx},{dy})" if shift_search else "sem busca de grade"
+            prog(base_pct, f"Processando {label} ({s_idx + 1}/{n_shifts})")
+
+            full = _process_shift_full(
+                shifted_img, dx, dy, qmin, qmax, step, block_size, neighborhood_k,
+                n_jobs_inner=n_jobs,
+            )
+            if full is None:
+                continue
+
+            per_shift.append(
+                {
+                    "dx": dx,
+                    "dy": dy,
+                    "best_quality": full["best_quality"],
+                    "peak_metric": full["peak_metric"],
+                    "ghost_map": full["ghost_map"],
+                }
+            )
+
+            if full["peak_metric"] > global_peak:
+                global_peak = full["peak_metric"]
+                global_best = full
+
+            gc.collect()
 
     if global_best is None:
         raise RuntimeError("Nenhum resultado gerado")

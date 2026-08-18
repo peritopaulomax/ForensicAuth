@@ -108,7 +108,6 @@ async function mockCommon(page: Page) {
       contentType: "application/json",
       body: JSON.stringify([
         { id: "df_arena_1b", label: "DF Arena 1B", available: true },
-        { id: "sls_xlsr", label: "SLS XLS-R (ACM MM 2024)", available: true },
         { id: "wedefense_wavlm_mhfa", label: "WeDefense ASV2025 WavLM + MHFA", available: true },
       ]),
     });
@@ -137,11 +136,13 @@ function lrResultWithTypicality() {
   return {
     success: true,
     inference_device: "cpu",
-    selected_analyses: ["df_arena_1b", "sls_xlsr", "wedefense_wavlm_mhfa"],
+    selected_analyses: ["df_arena_1b", "wedefense_wavlm_mhfa"],
+    spoof_logit: -0.40,
+    bonafide_logit: 0.85,
+    label: "bonafide",
     individual_results: [
-      ["DF Arena 1B", "0.30", "0.70", "0.85", "Bonafide", "cpu"],
-      ["SLS XLS-R (ACM MM 2024)", "0.40", "0.60", "0.41", "Incerto", "cpu"],
-      ["WeDefense ASV2025 WavLM + MHFA", "0.35", "0.65", "0.62", "Incerto", "cpu"],
+      ["DF Arena 1B", "-0.4000", "0.8500", "0.54", "Bonafide", "cpu"],
+      ["WeDefense ASV2025 WavLM + MHFA", "0.3500", "-0.1000", "-0.20", "Spoof", "cpu"],
     ],
     reference_lr: {
       latent_typicality: true,
@@ -226,7 +227,6 @@ test.describe("audio spoofing LR typicality UI", () => {
     expect(postBody?.parameters?.meta_classifier).toBe("logistic");
     expect(postBody?.parameters?.selected_analyses).toEqual([
       "df_arena_1b",
-      "sls_xlsr",
       "wedefense_wavlm_mhfa",
     ]);
   });
@@ -327,6 +327,6 @@ test.describe("audio spoofing LR typicality UI", () => {
     await page.getByRole("button", { name: /analisar audio/i }).click();
 
     await expect.poll(() => postBody?.parameters?.use_augmented_reference).toBe(true);
-    expect(postBody?.parameters?.selected_analyses).toEqual(["sls_xlsr", "wedefense_wavlm_mhfa"]);
+    expect(postBody?.parameters?.selected_analyses).toEqual(["wedefense_wavlm_mhfa"]);
   });
 });

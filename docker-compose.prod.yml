@@ -34,6 +34,7 @@ services:
       context: .
       dockerfile: Dockerfile.prod
     container_name: forensicauth-app-prod
+    user: "1000:1000"
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -42,6 +43,8 @@ services:
     environment:
       - FORENSICAUTH_PROCESS_ROLE=api
       - FORENSICAUTH_WORKER_QUEUE=celery
+      - PYTHONPATH=/app/src/backend
+      - HOME=/tmp
       - UPLOAD_DIR=/app/uploads
       - RESULTS_DIR=/app/results
       - DERIVATIVES_DIR=/app/derivatives
@@ -55,6 +58,7 @@ services:
       - ./data/peritus_cases:/app/peritus_cases
       - ./models:/app/models
       - ./reference_data:/app/reference_data
+      - ./vendor:/app/vendor
     depends_on:
       db:
         condition: service_healthy
@@ -66,6 +70,7 @@ services:
       context: .
       dockerfile: Dockerfile.prod
     container_name: forensicauth-worker-prod
+    user: "1000:1000"
     restart: unless-stopped
     command: celery -A app.celery_app worker --loglevel=info -c 4
     env_file:
@@ -74,6 +79,8 @@ services:
       - FORENSICAUTH_PROCESS_ROLE=worker-cpu
       - FORENSICAUTH_WORKER_QUEUE=celery
       - GPU_AVAILABLE=false
+      - PYTHONPATH=/app/src/backend
+      - HOME=/tmp
       - UPLOAD_DIR=/app/uploads
       - RESULTS_DIR=/app/results
       - DERIVATIVES_DIR=/app/derivatives
@@ -87,6 +94,7 @@ services:
       - ./data/peritus_cases:/app/peritus_cases
       - ./models:/app/models
       - ./reference_data:/app/reference_data
+      - ./vendor:/app/vendor
     depends_on:
       db:
         condition: service_healthy

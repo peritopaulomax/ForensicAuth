@@ -308,9 +308,29 @@ class PatchMatch:
 
         # enforce condition on the infinite norm of the displacement vectors by resampling the vectors that don't satisfy
         # the condition, until all of them do.
+        # Guard: pixels near the image center cannot produce displacements of
+        # arbitrarily large inf-norm. If min_dn exceeds that bound, the
+        # resample loop below would never terminate (e.g. min_dn=64 on 112x112
+        # with p=10, where the center reaches at most 46).
+        c_i, c_j = m // 2, n // 2
+        reach_i = max(c_i - p, (m - p - 1) - c_i)
+        reach_j = max(c_j - p, (n - p - 1) - c_j)
+        max_reach = max(reach_i, reach_j)
+        if self.min_dn > max_reach:
+            raise ValueError(
+                f"min_dn={self.min_dn} inatingivel para imagem {m}x{n} com p={p}: "
+                f"norma infinita maxima de deslocamento e {max_reach}"
+            )
+
         diff = np.abs(end_points - start_points)  # absolute values of displacement vectors coordinates
         to_small = np.maximum(diff[..., 0], diff[..., 1]) < self.min_dn  # kwarg axis for np.max is not supported in numba???
+        attempts = 0
         while np.any(to_small):  # resample the displacement vectors until they match the condition
+            attempts += 1
+            if attempts > 1000:
+                raise RuntimeError(
+                    f"create_vect_field2: resample nao convergiu (min_dn={self.min_dn}, imagem {m}x{n}, p={p})"
+                )
             for i in range(m):
                 for j in range(n):
                     if to_small[i, j]:

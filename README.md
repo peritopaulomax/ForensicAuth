@@ -5,7 +5,7 @@ Plataforma forense digital (local) para análise de imagem, áudio, vídeo e PDF
 ## Começar aqui
 
 Manual pedagógico completo: **[docs/README.md](docs/README.md)**  
-(ordem de leitura, primeira semana, capítulos 01–10).
+
 
 ## Setup rápido (dev)
 

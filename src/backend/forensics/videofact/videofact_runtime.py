@@ -17,8 +17,10 @@ WEIGHT_FILES = {
     "df": "videofact_df.ckpt",
 }
 
-XFER_THRESHOLD = 0.40
-DF_THRESHOLD = 0.33
+# Paper protocol (WACV 2024 / arXiv 2211.15775): unified threshold 0.5 for
+# frame-level ACC. Demo Gradio used 0.40/0.33 — we follow the article.
+XFER_THRESHOLD = 0.5
+DF_THRESHOLD = 0.5
 
 DROPBOX_URLS = {
     "xfer": (

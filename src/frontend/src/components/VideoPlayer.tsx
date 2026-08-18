@@ -93,9 +93,10 @@ export default function VideoPlayer({
   );
 }
 
+/** URL for upright HTML5 playback (bakes rotate/displaymatrix when needed). */
 export function useVideoEvidenceUrl(evidenceId: string | null) {
   return useMemo(
-    () => (evidenceId ? `/api/v1/evidences/${evidenceId}/file` : null),
+    () => (evidenceId ? `/api/v1/evidences/${evidenceId}/playback` : null),
     [evidenceId]
   );
 }

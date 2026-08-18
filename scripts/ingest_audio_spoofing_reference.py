@@ -67,6 +67,7 @@ DETECTORS: tuple[str, ...] = (
     "df_arena_1b",
     "sls_xlsr",
     "wedefense_wavlm_mhfa",
+    "tfcl_xlsr",
 )
 
 PROTOCOL_REQUIRED_PATH = "audio_path"
@@ -109,10 +110,19 @@ SCORE_FIELDNAMES: list[str] = [
     "wedefense_wavlm_mhfa_decision",
     "wedefense_wavlm_mhfa_device",
     "wedefense_wavlm_mhfa_window_count",
+    # Keep meta block before TFCL to match existing lr_scores_balanced_full.csv header.
+    # Appending with a different column order silently misaligns values (DictWriter).
     "augmentation",
     "augmentation_params",
     "source_sha256",
     "parent_source_id",
+    "tfcl_xlsr_spoof_prob",
+    "tfcl_xlsr_bonafide_prob",
+    "tfcl_xlsr_spoof_logit",
+    "tfcl_xlsr_bonafide_logit",
+    "tfcl_xlsr_decision",
+    "tfcl_xlsr_device",
+    "tfcl_xlsr_window_count",
 ]
 
 REP_FIELDNAMES: list[str] = [
@@ -144,8 +154,14 @@ REP_FIELDNAMES: list[str] = [
     "wedefense_wavlm_mhfa_embedding_dim",
     "wedefense_wavlm_mhfa_embedding_path",
     "wedefense_wavlm_mhfa_spoof_logit",
+    # Keep y_spoof/merge_source before TFCL to match existing representations.csv header.
     "y_spoof",
     "merge_source",
+    "tfcl_xlsr_bonafide_logit",
+    "tfcl_xlsr_bonafide_prob",
+    "tfcl_xlsr_embedding_dim",
+    "tfcl_xlsr_embedding_path",
+    "tfcl_xlsr_spoof_logit",
 ]
 
 MANIFEST_ORIG_FIELDNAMES: list[str] = [
@@ -693,12 +709,22 @@ def _append_csv(path: Path, fieldnames: list[str], rows: list[dict[str, Any]]) -
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not path.is_file() or path.stat().st_size == 0
+    out_fields = list(fieldnames)
+    if not write_header:
+        with path.open("r", encoding="utf-8", newline="") as existing:
+            reader = csv.DictReader(existing)
+            if reader.fieldnames:
+                # Preserve on-disk column order; only append unknown fields at the end.
+                out_fields = list(reader.fieldnames)
+                for key in fieldnames:
+                    if key not in out_fields:
+                        out_fields.append(key)
     with path.open("a", encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
+        writer = csv.DictWriter(fh, fieldnames=out_fields, extrasaction="ignore")
         if write_header:
             writer.writeheader()
         for row in rows:
-            writer.writerow({key: row.get(key, "") for key in fieldnames})
+            writer.writerow({key: row.get(key, "") for key in out_fields})
 
 
 def _embeddings_dir_for(record: MediaRecord, reps_root: Path) -> Path:

@@ -28,6 +28,42 @@ type ModeResult = {
   frames: FrameRow[];
 };
 
+type VideoFactReport = {
+  modes: ModeResult[];
+  display?: {
+    rotation_degrees?: number;
+    inference_uprighted?: boolean;
+    inference_upright_rotation_degrees?: number;
+    heatmap_orientation_baked?: boolean;
+    heatmap_export_rotation_degrees?: number;
+  };
+};
+
+type VideoOrientation = {
+  available?: boolean;
+  rotation_degrees?: number;
+  coded_width?: number | null;
+  coded_height?: number | null;
+};
+
+/** CSS fallback for jobs that ran before pre-inference uprighting. */
+function heatmapCssRotation(
+  report: VideoFactReport | null,
+  orient: VideoOrientation | null
+): number {
+  if (report?.display?.inference_uprighted) return 0;
+  if (report?.display?.heatmap_orientation_baked) return 0;
+  const baked = report?.display?.heatmap_export_rotation_degrees;
+  if (typeof baked === "number" && baked !== 0) return ((baked % 360) + 360) % 360;
+  if (!orient?.available) return 0;
+  const rot = ((Number(orient.rotation_degrees) || 0) % 360 + 360) % 360;
+  if (!rot) return 0;
+  const w = orient.coded_width;
+  const h = orient.coded_height;
+  if (w && h && h > w) return 0;
+  return rot;
+}
+
 const PROGRESS_STAGES = [
   { min: 0, label: "Preparacao e carregamento VideoFACT" },
   { min: 15, label: "Amostragem de frames do video" },
@@ -92,11 +128,12 @@ export default function VideoFactAnalysis() {
   const [mode, setMode] = useState<VideoFactMode>("both");
   const [maxSamples, setMaxSamples] = useState(100);
   const [sampleEvery, setSampleEvery] = useState(5);
-  const [report, setReport] = useState<{ modes: ModeResult[] } | null>(null);
+  const [report, setReport] = useState<VideoFactReport | null>(null);
   const [activeMode, setActiveMode] = useState<string>("xfer");
   const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
   const [heatmapUrl, setHeatmapUrl] = useState<string | null>(null);
   const [chartUrls, setChartUrls] = useState<Record<string, string>>({});
+  const [videoOrient, setVideoOrient] = useState<VideoOrientation | null>(null);
 
   const {
     running,
@@ -122,6 +159,7 @@ export default function VideoFactAnalysis() {
       setHeatmapUrl(null);
       setChartUrls({});
       setSelectedFrame(null);
+      setVideoOrient(null);
       clearMessage();
     },
     [reset, clearMessage]
@@ -131,6 +169,30 @@ export default function VideoFactAnalysis() {
     useGroupAwareEvidence(caseId!, applyEvidence);
 
   const videoUrl = useVideoEvidenceUrl(evidenceId);
+
+  useEffect(() => {
+    if (!evidenceId) {
+      setVideoOrient(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/v1/evidences/${evidenceId}/video-orientation`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled) setVideoOrient(data);
+      })
+      .catch(() => {
+        if (!cancelled) setVideoOrient(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [evidenceId]);
+
+  const heatmapRotateDeg = useMemo(
+    () => heatmapCssRotation(report, videoOrient),
+    [report, videoOrient]
+  );
 
   const inferenceDevice = useMemo(() => {
     const msg = progressLabel || "";
@@ -146,7 +208,7 @@ export default function VideoFactAnalysis() {
 
   const loadArtifacts = useCallback(
     async (jobId: string, jobResult: Record<string, unknown>) => {
-      const parsed = await fetchResultJson<{ modes: ModeResult[] }>(jobId, "videofact_report.json");
+      const parsed = await fetchResultJson<VideoFactReport>(jobId, "videofact_report.json");
       if (parsed?.modes?.length) {
         setReport(parsed);
         setActiveMode(parsed.modes[0].mode);
@@ -378,11 +440,32 @@ export default function VideoFactAnalysis() {
                 Mapa de localizacao — frame {selectedFrame ?? "—"}
               </p>
               {heatmapUrl ? (
-                <img
-                  src={heatmapUrl}
-                  alt="Heatmap VideoFACT"
-                  style={{ width: "100%", borderRadius: 6, border: "1px solid #e5e7eb" }}
-                />
+                <div
+                  style={{
+                    width: "100%",
+                    minHeight: 200,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    overflow: "hidden",
+                    borderRadius: 6,
+                    border: "1px solid #e5e7eb",
+                    background: "#111827",
+                  }}
+                >
+                  <img
+                    src={heatmapUrl}
+                    alt="Heatmap VideoFACT"
+                    style={{
+                      maxWidth: heatmapRotateDeg % 180 === 0 ? "100%" : "70vh",
+                      maxHeight: 280,
+                      width: heatmapRotateDeg % 180 === 0 ? "100%" : "auto",
+                      transform: heatmapRotateDeg ? `rotate(${heatmapRotateDeg}deg)` : undefined,
+                      transformOrigin: "center center",
+                      borderRadius: 4,
+                    }}
+                  />
+                </div>
               ) : (
                 <div
                   style={{

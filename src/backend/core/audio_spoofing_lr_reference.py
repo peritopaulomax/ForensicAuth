@@ -22,8 +22,9 @@ import pandas as pd
 from forensics.audio_spoofing.runtime import (
     AUDIO_SPOOFING_ANALYSIS_DF_ARENA,
     AUDIO_SPOOFING_ANALYSIS_SLS_XLSR,
+    AUDIO_SPOOFING_ANALYSIS_TFCL,
     AUDIO_SPOOFING_ANALYSIS_WEDEFENSE,
-    DEFAULT_AUDIO_SPOOFING_ANALYSES,
+    REGISTERED_AUDIO_SPOOFING_ANALYSES,
 )
 from core.progress import ProgressCallback, report_progress
 from sklearn.metrics import roc_curve
@@ -60,7 +61,8 @@ from core.synthetic_lr_reference import (
     _score_dataframe,
     _score_matrix_hash,
     _serialize_calibration,
-    _train_meta_classifier,
+    train_meta_classifier,
+    _unwrap_meta_estimator,
     _validate_classifier,
     _write_json,
     normalize_meta_classifier,
@@ -73,7 +75,8 @@ from core.reference_data.paths import (
     project_root as _project_root_fn,
 )
 
-ALL_DETECTORS = DEFAULT_AUDIO_SPOOFING_ANALYSES
+# Full detector set for score/embedding matrices (includes UI-hidden SLS/TFCL).
+ALL_DETECTORS = REGISTERED_AUDIO_SPOOFING_ANALYSES
 FEATURE_SUFFIX = "_bonafide_logit"
 PROJECT_ROOT = _project_root_fn()
 
@@ -288,16 +291,16 @@ class ReferenceSelectionRoles:
         return frozenset(item.key for item in self.test_items)
 
 
-# Cadeia forense típica: clonagem comercial (ElevenLabs e similares) + mix LA recente + distribuição in-the-wild.
-# CodecFake (C1–C7) fica no catálogo, mas fora do default: modela codec neural na síntese, não Opus/MP3 pós-envio.
+# Default: geradores MLAAD_PT (PT) — espelha populations/voice_clone_default.yaml.
+# Demais bases (DFADD/SONAR/ASVspoof/…) permanecem no catálogo para seleção manual.
 DEFAULT_VOICE_CLONE_REFERENCE: tuple[PopulationItem, ...] = (
-    PopulationItem("DFADD", "StyleTTS2"),
-    PopulationItem("DFADD", "NaturalSpeech2"),
-    PopulationItem("SONAR", "xTTS"),
-    PopulationItem("SONAR", "PromptTTS2"),
-    PopulationItem("SONAR", "VoiceBox"),
-    PopulationItem("ASVspoof5", "flac_E_eval"),
-    PopulationItem("In-The-Wild", "In-The-Wild"),
+    PopulationItem("MLAAD_PT", "Voxtral"),
+    PopulationItem("MLAAD_PT", "Qwen3-TTS-12Hz-1.7B-Base"),
+    PopulationItem("MLAAD_PT", "OpenAI_TTS-1_HD"),
+    PopulationItem("MLAAD_PT", "OmniVoice"),
+    PopulationItem("MLAAD_PT", "MOSS-TTS-8B"),
+    PopulationItem("MLAAD_PT", "Fish-S2-Pro"),
+    PopulationItem("MLAAD_PT", "Llasa-1B-Multilingual"),
 )
 
 
@@ -387,6 +390,15 @@ DETECTOR_PAPERS: dict[str, dict[str, str]] = {
         "paper_title": "WeDefense: A Toolkit to Defend Against Fake Audio",
         "paper_url": "https://arxiv.org/abs/2601.15240",
         "repo_url": "https://huggingface.co/JYP2024/Wedefense_ASV2025_WavLM_Base_Pruning",
+    },
+    AUDIO_SPOOFING_ANALYSIS_TFCL: {
+        "label": "TFCL XLS-R (ACM MM 2026)",
+        "description": (
+            "Time-Frequency Consistency Learning: XLS-R 300M + AASIST robusto a distorções AFE."
+        ),
+        "paper_title": "Time-Frequency Consistency Learning for Robust Speech Deepfake Detection",
+        "paper_url": "https://github.com/JunXue-tech/TFCL",
+        "repo_url": "https://huggingface.co/datasets/JunXueTech/TFCL",
     },
 }
 
@@ -644,10 +656,23 @@ def _load_scores(score_matrix: Path) -> pd.DataFrame:
     if "error" in df.columns:
         df = df[df["error"].fillna("").eq("")].copy()
     df = _normalize_generators(df)
-    if "y_spoof" in df.columns:
-        df["y_fake"] = df["y_spoof"].astype(int)
-    elif "label" in df.columns:
-        df["y_fake"] = (df["label"].astype(str).str.lower() == "spoof").astype(int)
+    # Prefer label when present: y_spoof may be corrupted by historical CSV column
+    # misalignment (non 0/1 values). Fall back to y_spoof only when it is clean.
+    if "label" in df.columns:
+        labels = df["label"].astype(str).str.lower().str.strip()
+        from_label = labels.eq("spoof")
+        known = labels.isin(["spoof", "bonafide", "real", "fake"])
+        if bool(known.any()):
+            df["y_fake"] = from_label.astype(int)
+            # map common aliases
+            df.loc[labels.isin(["fake"]), "y_fake"] = 1
+            df.loc[labels.isin(["real", "bonafide"]), "y_fake"] = 0
+        elif "y_spoof" in df.columns:
+            df["y_fake"] = pd.to_numeric(df["y_spoof"], errors="coerce").fillna(0).astype(int).clip(0, 1)
+        else:
+            raise RuntimeError("Score matrix deve conter y_spoof ou label.")
+    elif "y_spoof" in df.columns:
+        df["y_fake"] = pd.to_numeric(df["y_spoof"], errors="coerce").fillna(0).astype(int).clip(0, 1)
     else:
         raise RuntimeError("Score matrix deve conter y_spoof ou label.")
     for detector in ALL_DETECTORS:
@@ -1021,6 +1046,8 @@ def _cache_key_from_parts(
         "test_items": sorted(item.key for item in roles.test_items),
         "selected_detectors": list(selected_detectors),
         "classifier": classifier,
+        # Invalidate pre-scaler logistic caches; xgboost unchanged.
+        "feature_scale": "zscore" if classifier == "logistic" else "none",
         "seed": seed,
         "sample_multiplier": sample_multiplier,
         "sample_per_class": SAMPLE_PER_CLASS,
@@ -1039,8 +1066,15 @@ def _assign_splits(sample: pd.DataFrame, seed: int, sample_multiplier: int = 1) 
     train_per_class = TRAIN_PER_CLASS * sample_multiplier
     calib_per_class = CALIB_PER_CLASS * sample_multiplier
     test_per_class = TEST_PER_CLASS * sample_multiplier
-    for (_key, y_fake), group in sample.groupby(["reference_key", "y_fake"], sort=True):
+    expected = train_per_class + calib_per_class + test_per_class
+    for (key, y_fake), group in sample.groupby(["reference_key", "y_fake"], sort=True):
         shuffled = group.sample(frac=1.0, random_state=int(rng.integers(0, 2**31 - 1))).copy()
+        n = len(shuffled)
+        if n != expected:
+            raise RuntimeError(
+                f"Split inesperado para {key}/y_fake={y_fake}: {n} linhas "
+                f"(esperado {expected}). Verifique y_fake/label na matriz de referência."
+            )
         shuffled["reference_split"] = (
             ["train_logreg"] * train_per_class
             + ["calibration_bigauss"] * calib_per_class
@@ -1338,8 +1372,9 @@ def _build_report(
         }
     if classifier == "logistic":
         report["logreg_coefficients"] = feature_weights
-        if hasattr(model, "intercept_"):
-            report["logreg_intercept"] = float(model.intercept_[0])
+        est = _unwrap_meta_estimator(model)
+        if hasattr(est, "intercept_"):
+            report["logreg_intercept"] = float(est.intercept_[0])
     _write_json(out_dir / "lr_reference_report.json", report)
     _write_summary_txt(out_dir / summary_name, report)
     joblib.dump(
@@ -1606,7 +1641,7 @@ def compute_reference_lr(
         72,
         f"Treinando meta-classificador ({classifier}) em {len(train):,} amostras…",
     )
-    model = _train_meta_classifier(classifier, x_train, y_train, feature_cols, seed)
+    model = train_meta_classifier(classifier, x_train, y_train, feature_cols, seed)
     report_progress(on_progress, 85, "Calibracao bi-Gaussiana (EER) na populacao de referencia…")
     calibration = _fit_bigauss(split, model, feature_cols)
 

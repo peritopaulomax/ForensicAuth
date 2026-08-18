@@ -147,7 +147,7 @@ class DoubleCompressionPlugin(ForensicPlugin):
         div_id = "double-compression-plot"
         fig.write_html(
             str(path),
-            include_plotlyjs="cdn",
+            include_plotlyjs="inline",
             div_id=div_id,
             config={
                 "scrollZoom": True,

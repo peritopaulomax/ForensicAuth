@@ -55,7 +55,49 @@ def _image_thumbnail(file_path: Path) -> BytesIO:
         raise ThumbnailError(f"Arquivo nao e uma imagem valida: {file_path.name}") from exc
 
 
+def _video_thumbnail_ffmpeg(file_path: Path) -> BytesIO | None:
+    """First frame via ffmpeg (applies display rotation into pixels)."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("ffmpeg"):
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-i",
+                str(file_path),
+                "-frames:v",
+                "1",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "mjpeg",
+                "-",
+            ],
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if proc.returncode != 0 or not proc.stdout:
+        return None
+    try:
+        img = PILImage.open(BytesIO(proc.stdout))
+        return _pil_thumbnail_jpeg(img)
+    except Exception:
+        return None
+
+
 def _video_thumbnail(file_path: Path) -> BytesIO:
+    baked = _video_thumbnail_ffmpeg(file_path)
+    if baked is not None:
+        return baked
+
     import cv2
 
     cap = cv2.VideoCapture(str(file_path))

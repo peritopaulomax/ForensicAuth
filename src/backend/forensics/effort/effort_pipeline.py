@@ -116,12 +116,8 @@ def effort_model_cache_keys() -> list[str]:
     return list(_model_cache.keys())
 
 
-def _decision_label(score_ai: float) -> str:
-    if score_ai > 0.66:
-        return "AI"
-    if score_ai < 0.34:
-        return "REAL"
-    return "Incerto"
+def _decision_label_from_real_logit(real_logit: float) -> str:
+    return "REAL" if float(real_logit) >= 0.0 else "AI"
 
 
 def effort_row(
@@ -133,16 +129,18 @@ def effort_row(
     """Formato compativel com a tabela de detecção de imagens sintéticas (inclui coluna Dispositivo)."""
     import math
 
-    ai_score = float(fake_probability)
+    ai_score = float(np.clip(fake_probability, 1e-9, 1.0 - 1e-9))
     real_score = 1.0 - ai_score
-    razao = real_score / ai_score if ai_score > 1e-9 else float("inf")
-    log_razao = f"{math.log10(razao):.2f}" if math.isfinite(razao) else "inf"
+    ai_logit = math.log(ai_score / real_score)
+    real_logit = math.log(real_score / ai_score)
+    delta = real_logit - ai_logit
+    log_razao = f"{delta / math.log(10.0):.2f}" if math.isfinite(delta) else "nan"
     return [
         model_label,
-        f"{ai_score:.4f}",
-        f"{real_score:.4f}",
+        f"{ai_logit:.4f}",
+        f"{real_logit:.4f}",
         log_razao,
-        _decision_label(ai_score),
+        _decision_label_from_real_logit(real_logit),
         device_display_label(inference_device),
     ]
 

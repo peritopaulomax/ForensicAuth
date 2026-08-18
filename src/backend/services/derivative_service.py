@@ -743,14 +743,24 @@ class DerivativeService:
                 "input_count": len(parent_inputs),
             }
         elif job.technique == "audio_spoofing_detection":
-            label = job_result.get("label") or "incerto"
-            procedure_summary = (
-                f"Audio spoofing · {label} · spoof {float(job_result.get('score_spoof', 0)):.0%}"
-            )
+            label = job_result.get("label") or "spoof"
+            bona_logit = job_result.get("bonafide_logit")
+            spoof_logit = job_result.get("spoof_logit")
+            if bona_logit is not None and spoof_logit is not None:
+                procedure_summary = (
+                    f"Audio spoofing · {label} · logit_bona {float(bona_logit):+.3f} · "
+                    f"logit_spoof {float(spoof_logit):+.3f}"
+                )
+            else:
+                procedure_summary = (
+                    f"Audio spoofing · {label} · spoof {float(job_result.get('score_spoof', 0)):.0%}"
+                )
             outputs_metrics = {
                 "label": label,
                 "score_spoof": job_result.get("score_spoof"),
                 "score_bonafide": job_result.get("score_bonafide"),
+                "spoof_logit": spoof_logit,
+                "bonafide_logit": bona_logit,
                 "window_count": job_result.get("window_count"),
                 "window_seconds": params.get("window_seconds"),
                 "selected_analyses": params.get("selected_analyses") or job_result.get("selected_analyses"),

@@ -26,9 +26,9 @@ class TestAudioSpoofingMultiDetectorIntegration:
         assert res.status_code == 200
         rows = res.json()
         ids = {row["id"] for row in rows}
-        assert "df_arena_1b" in ids
-        assert "sls_xlsr" in ids
-        assert "wedefense_wavlm_mhfa" in ids
+        assert ids == {"df_arena_1b", "wedefense_wavlm_mhfa"}
+        assert "sls_xlsr" not in ids
+        assert "tfcl_xlsr" not in ids
         by_id = {row["id"]: row for row in rows}
         for row in rows:
             assert row.get("description")
@@ -102,6 +102,41 @@ class TestAudioSpoofingMultiDetectorIntegration:
         assert 0.0 <= result["aggregated"]["spoof_prob"] <= 1.0
         assert 0.0 <= result["aggregated"]["bonafide_prob"] <= 1.0
 
+    @pytest.mark.weights
+    def test_tfcl_runtime_status_when_weights_present(self):
+        from forensics.tfcl_spoofing.tfcl_runtime import (
+            resolve_tfcl_checkpoint_path,
+            resolve_xlsr_weights_path,
+            runtime_status,
+        )
+
+        if resolve_xlsr_weights_path() is None or resolve_tfcl_checkpoint_path() is None:
+            pytest.skip("Pesos TFCL nao baixados neste ambiente")
+        ok, reason = runtime_status()
+        assert ok, reason
+
+    @pytest.mark.weights
+    def test_tfcl_infer_short_audio(self, short_wav):
+        from forensics.tfcl_spoofing.tfcl_pipeline import infer_tfcl_windows
+        from forensics.tfcl_spoofing.tfcl_runtime import (
+            resolve_tfcl_checkpoint_path,
+            resolve_xlsr_weights_path,
+        )
+
+        if resolve_xlsr_weights_path() is None or resolve_tfcl_checkpoint_path() is None:
+            pytest.skip("Pesos TFCL nao baixados neste ambiente")
+
+        import librosa
+
+        audio, sr = librosa.load(short_wav, sr=None, mono=True)
+        result = infer_tfcl_windows(audio, sr, window_seconds=4.0, device="cpu", return_embedding=True)
+        assert result["window_count"] >= 1
+        assert "aggregated" in result
+        assert 0.0 <= result["aggregated"]["spoof_prob"] <= 1.0
+        assert 0.0 <= result["aggregated"]["bonafide_prob"] <= 1.0
+        assert "embedding" in result
+        assert int(result["embedding_dim"]) == int(result["embedding"].shape[0])
+
     def test_post_analysis_job_multi_detector_mocked(
         self, client, auth_headers, db_session, sample_case, test_user, short_wav, monkeypatch
     ):
@@ -131,8 +166,8 @@ class TestAudioSpoofingMultiDetectorIntegration:
                 "adapter": "audio_spoofing_detection",
                 "status": "completed",
                 "individual_results": [
-                    ["DF Arena 1B", "0.6", "0.4", "-0.18", "Incerto", "cpu"],
-                    ["SLS XLS-R (ACM MM 2024)", "0.6", "0.4", "-0.18", "Incerto", "cpu"],
+                    ["DF Arena 1B", "0.6000", "-0.2000", "-0.35", "Spoof", "cpu"],
+                    ["SLS XLS-R (ACM MM 2024)", "0.6000", "-0.2000", "-0.35", "Spoof", "cpu"],
                 ],
                 "detector_scores": {
                     "df_arena_1b": {"spoof_prob": 0.6, "bonafide_prob": 0.4, "label": "uncertain"},

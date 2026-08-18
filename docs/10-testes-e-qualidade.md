@@ -8,7 +8,7 @@
 | Integration | `tests/integration/` | pytest | Sim (filtrado) |
 | Aceitação SDD | `tests/specs/*.md` | Manual / revisão | Não executa |
 | FE unit | frontend | Vitest | À parte |
-| E2E UI | `src/frontend/e2e/` | Playwright | À parte (sem specs de detectores SID aposentados: CLIDE/DeeCLIP/FSD) |
+| E2E UI | `src/frontend/e2e/` | Playwright | À parte |
 
 Markers em `pytest.ini`: `weights`, `gpu`, `slow`, `integration`, `e2e`.
 

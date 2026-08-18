@@ -53,7 +53,11 @@ export default function Users() {
   const handleProvision = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
-    provisionMutation.mutate({ username, email, role });
+    provisionMutation.mutate({
+      username: username.trim(),
+      email: email.trim(),
+      role,
+    });
   };
 
   return (

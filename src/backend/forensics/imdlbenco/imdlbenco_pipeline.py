@@ -58,7 +58,46 @@ def _report(on_progress: ProgressFn, pct: int, label: str) -> None:
 
 
 def _clear_gpu_model_cache() -> None:
+    """Drop hub + official IMDL GPU caches so heavy jobs (TruFor full-res) can reclaim VRAM.
+
+    Official pipelines keep separate caches (CAT-Net, MIML, Mesorch, …). The hub
+    cache alone is not enough — leaving those resident was causing TruFor to OOM
+    and fall back to CPU even with no concurrent jobs.
+    """
     evict_cache_keys_on_device(_model_cache)
+
+    try:
+        from forensics.imdlbenco import miml_official_pipeline as miml
+
+        for key in list(miml._apsc_cache.keys()):
+            release_gpu_memory(miml._apsc_cache.pop(key, None))
+    except Exception:
+        pass
+
+    try:
+        from forensics.imdlbenco.cat_net_official_pipeline import clear_model_cache
+
+        clear_model_cache()
+    except Exception:
+        pass
+
+    for mod_name in (
+        "forensics.imdlbenco.mesorch_official_pipeline",
+        "forensics.imdlbenco.nfa_vit_official_pipeline",
+        "forensics.imdlbenco.co_transformers_official_pipeline",
+        "forensics.imdlbenco.dinov3_iml_official_pipeline",
+    ):
+        try:
+            import importlib
+
+            mod = importlib.import_module(mod_name)
+            cache = getattr(mod, "_model_cache", None)
+            if isinstance(cache, dict):
+                for key in list(cache.keys()):
+                    release_gpu_memory(cache.pop(key, None))
+        except Exception:
+            pass
+
     release_gpu_memory()
 
 

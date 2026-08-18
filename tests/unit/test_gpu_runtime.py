@@ -331,3 +331,22 @@ class TestCapImageForResidue:
         img = Image.new("RGB", (4000, 3000))
         out = _cap_image_for_residue(img, max_side=2048)
         assert max(out.size) == 2048
+
+
+class TestImdlGpuCachePurge:
+    def test_clear_gpu_model_cache_drops_official_pipeline_caches(self, monkeypatch):
+        from forensics.imdlbenco import imdlbenco_pipeline as hub
+        from forensics.imdlbenco import mesorch_official_pipeline as mesorch
+        from forensics.imdlbenco import miml_official_pipeline as miml
+
+        monkeypatch.setattr(hub, "release_gpu_memory", MagicMock())
+        monkeypatch.setattr(hub, "evict_cache_keys_on_device", MagicMock())
+
+        miml._apsc_cache["cuda:0"] = object()
+        mesorch._model_cache["mesorch:cuda"] = object()
+        hub._model_cache["hub:cuda"] = object()
+
+        hub._clear_gpu_model_cache()
+
+        assert miml._apsc_cache == {}
+        assert mesorch._model_cache == {}

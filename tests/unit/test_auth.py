@@ -207,6 +207,65 @@ class TestUserService:
         assert user.username == "silva.pf"
         assert user.role == "perito"
 
+    def test_provision_strips_username_and_email(self, db_session, test_admin):
+        from services.user_service import UserService
+
+        service = UserService(db_session)
+        user = service.provision_user(
+            {
+                "username": "  spaced.user  ",
+                "email": "  spaced@pf.gov.br  ",
+                "role": "perito",
+            },
+            test_admin,
+        )
+        assert user.username == "spaced.user"
+        assert user.email == "spaced@pf.gov.br"
+
+    def test_first_access_and_login_tolerate_padded_username(self, db_session, test_admin):
+        from services.auth_service import AuthService
+        from services.user_service import UserService
+
+        service = UserService(db_session)
+        service.provision_user(
+            {
+                "username": "  pad.user  ",
+                "email": "pad@pf.gov.br",
+                "role": "perito",
+            },
+            test_admin,
+        )
+        auth = AuthService(db_session)
+        user = auth.first_access("  pad.user  ", "NovaSenha1", "NovaSenha1")
+        assert user.username == "pad.user"
+        assert user.password_set is True
+        result = auth.authenticate(" pad.user ", "NovaSenha1")
+        assert result.user.username == "pad.user"
+
+    def test_trim_migration_fixes_legacy_whitespace(self, db_session):
+        from app.db_migrations import ensure_trim_usernames_and_emails
+        from models.user import User
+        from services.user_service import unset_password_hash
+        import uuid
+
+        dirty = User(
+            id=uuid.uuid4(),
+            username="  legado.user  ",
+            email="  legado@pf.gov.br  ",
+            hashed_password=unset_password_hash(),
+            password_set=False,
+            role="perito",
+            is_active=True,
+        )
+        db_session.add(dirty)
+        db_session.commit()
+
+        ensure_trim_usernames_and_emails(db_session.get_bind())
+        db_session.expire_all()
+        fixed = db_session.query(User).filter(User.id == dirty.id).one()
+        assert fixed.username == "legado.user"
+        assert fixed.email == "legado@pf.gov.br"
+
     def test_admin_cannot_provision_analista(self, db_session, test_admin):
         from services.user_service import UserService
         from fastapi import HTTPException

@@ -16,8 +16,8 @@ macros:
   codec_conditions:
     label: CodecFake (7 codecs neurais)
     year_range: '2024'
-    description: C1–C7 são condições de codec neural distintas (SoundStorm, etc.),
-      não geradores TTS — spoofing via re-síntese codec.
+    description: C1–C7 são condições de codec neural distintas (SoundStorm, etc.), não geradores TTS —
+      spoofing via re-síntese codec.
     items:
     - base_group: CodecFake
       subgroup: C1
@@ -75,8 +75,7 @@ macros:
   in_the_wild:
     label: In-the-wild / vocoder / misc
     year_range: 2020–2024
-    description: In-the-wild, Fake-or-Real e vocoders LibriSeVoc (bonafide compartilhado
-      via gt).
+    description: In-the-wild, Fake-or-Real e vocoders LibriSeVoc (bonafide compartilhado via gt).
     items:
     - base_group: In-The-Wild
       subgroup: In-The-Wild
@@ -94,38 +93,73 @@ macros:
       subgroup: wavenet
     - base_group: LibriSeVoc
       subgroup: wavegrad
+  multilingual_tts:
+    label: multilingual_tts
+    year_range: null
+    description: 'MLAAD Portuguese (PT): cada gerador TTS agrupa 500 spoof + 500 bonafide MLS-PT associados.'
+    items:
+    - base_group: MLAAD_PT
+      subgroup: Fish-S2-Pro
+    - base_group: MLAAD_PT
+      subgroup: Hume_TADA-3B-ML
+    - base_group: MLAAD_PT
+      subgroup: LEMAS-TTS
+    - base_group: MLAAD_PT
+      subgroup: Llasa-1B-Multilingual
+    - base_group: MLAAD_PT
+      subgroup: MOSS-TTS-1.7B
+    - base_group: MLAAD_PT
+      subgroup: MOSS-TTS-8B
+    - base_group: MLAAD_PT
+      subgroup: OmniVoice
+    - base_group: MLAAD_PT
+      subgroup: OpenAI_TTS-1_HD
+    - base_group: MLAAD_PT
+      subgroup: Qwen3-TTS-12Hz-0.6B-Base
+    - base_group: MLAAD_PT
+      subgroup: Qwen3-TTS-12Hz-1.7B-Base
+    - base_group: MLAAD_PT
+      subgroup: VoxCPM2
+    - base_group: MLAAD_PT
+      subgroup: Voxtral
+    - base_group: MLAAD_PT
+      subgroup: tts_models_multilingual_multi-dataset_bark
+    - base_group: MLAAD_PT
+      subgroup: tts_models_multilingual_multi-dataset_xtts_v1.1
+    - base_group: MLAAD_PT
+      subgroup: tts_models_multilingual_multi-dataset_xtts_v2
+    - base_group: MLAAD_PT
+      subgroup: tts_models_pt_cv_vits
 bases:
   ASVspoof2019_LA:
     label: ASVspoof 2019 LA
-    description: Logical access ASVspoof 2019 — TTS/VC clássico sobre VCTK; split
-      flac_E para avaliação de countermeasures.
+    description: Logical access ASVspoof 2019 — TTS/VC clássico sobre VCTK; split flac_E para avaliação
+      de countermeasures.
     paper_title: 'ASVspoof 2019: Future Horizons in Spoofed and Countermeasure Speech'
     paper_url: https://www.asvspoof.org/
     generators:
     - flac_E
   ASVspoof2021_LA_eval:
     label: ASVspoof 2021 LA eval
-    description: ASVspoof 2021 LA evaluation — ataques neural TTS/VC; referência histórica
-      para generalização cross-algoritmo.
+    description: ASVspoof 2021 LA evaluation — ataques neural TTS/VC; referência histórica para generalização
+      cross-algoritmo.
     paper_title: 'ASVspoof 2021: automatic speaker verification spoofing and countermeasures'
     paper_url: https://www.asvspoof.org/
     generators:
     - LA_eval
   ASVspoof5:
     label: ASVspoof 5
-    description: ASVspoof 5 evaluation (flac_E_eval) — deepfakes recentes e condições
-      de canal ampliadas.
-    paper_title: 'ASVspoof 5: Design, Collection and Validation of Spoofing and Deepfake
-      Speech'
+    description: ASVspoof 5 evaluation (flac_E_eval) — deepfakes recentes e condições de canal ampliadas.
+    paper_title: 'ASVspoof 5: Design, Collection and Validation of Spoofing and Deepfake Speech'
     paper_url: https://www.asvspoof.org/
     generators:
     - flac_E_eval
   CodecFake:
     label: CodecFake
-    description: CodecFake — spoofing sob diferentes condições de codec neural (C1–C7);
-      fala re-sintetizada via codecs SOTA.
-    paper_title: 'CodecFake: Enhancing Anti-Spoofing Models Against Deepfake Audios
-      from Codec-Based Speech Synthesis Systems'
+    description: CodecFake — spoofing sob diferentes condições de codec neural (C1–C7); fala re-sintetizada
+      via codecs SOTA.
+    paper_title: 'CodecFake: Enhancing Anti-Spoofing Models Against Deepfake Audios from Codec-Based Speech
+      Synthesis Systems'
     paper_url: https://arxiv.org/abs/2406.07237
     generators:
     - C1
@@ -137,8 +171,7 @@ bases:
     - C7
   ADD2022:
     label: ADD 2022
-    description: Audio Deepfake Detection 2022 — tracks 1 (TTS) e 32 (VC) no split
-      de teste.
+    description: Audio Deepfake Detection 2022 — tracks 1 (TTS) e 32 (VC) no split de teste.
     paper_title: 'ADD 2022 Challenge: Audio Deepfake Detection'
     paper_url: https://www.addchallenge.org/add2022
     generators:
@@ -146,8 +179,7 @@ bases:
     - track32test
   ADD2023:
     label: ADD 2023
-    description: Audio Deepfake Detection 2023 — tracks de teste com ataques TTS/VC
-      recentes.
+    description: Audio Deepfake Detection 2023 — tracks de teste com ataques TTS/VC recentes.
     paper_title: 'ADD 2023 Challenge: Audio Deepfake Detection'
     paper_url: https://www.addchallenge.org/add2023
     generators:
@@ -155,8 +187,7 @@ bases:
     - Track1.2_testR2
   DFADD:
     label: DFADD
-    description: Deepfake ADD — geradores nomeados no arquivo (GradTTS, FastSpeech2,
-      etc.) no split test_converted2.
+    description: Deepfake ADD — geradores nomeados no arquivo (GradTTS, FastSpeech2, etc.) no split test_converted2.
     paper_title: 'DFADD: Deepfake Audio Detection Dataset'
     paper_url: https://github.com/Speech-Arena/speech_df_arena
     generators:
@@ -167,8 +198,8 @@ bases:
     - pflow
   SONAR:
     label: SONAR
-    description: SONAR — múltiplos geradores TTS/neural (PromptTTS2, VALL-E, VoiceBox,
-      etc.) para avaliação cross-generator.
+    description: SONAR — múltiplos geradores TTS/neural (PromptTTS2, VALL-E, VoiceBox, etc.) para avaliação
+      cross-generator.
     paper_title: 'SONAR: A Synthetic Speech Detection Benchmark'
     paper_url: https://github.com/Speech-Arena/speech_df_arena
     generators:
@@ -182,8 +213,7 @@ bases:
     - OpenAI_fixed
   In-The-Wild:
     label: In-The-Wild
-    description: Áudio in-the-wild (YouTube, podcasts) — condições acústicas e de
-      canal menos controladas.
+    description: Áudio in-the-wild (YouTube, podcasts) — condições acústicas e de canal menos controladas.
     paper_title: In-The-Wild Spoofing Attack Detection
     paper_url: https://arxiv.org/abs/2207.01559
     generators:
@@ -197,8 +227,7 @@ bases:
     - Fake-or-Real
   LibriSeVoc:
     label: LibriSeVoc
-    description: LibriSeVoc — spoofing baseado em vocoders (WaveNet, WaveGrad, MelGAN,
-      etc.) sobre LibriSpeech.
+    description: LibriSeVoc — spoofing baseado em vocoders (WaveNet, WaveGrad, MelGAN, etc.) sobre LibriSpeech.
     paper_title: 'LibriSeVoc: A Vocoder-based Spoofing Dataset'
     paper_url: https://github.com/Speech-Arena/speech_df_arena
     generators:
@@ -208,3 +237,25 @@ bases:
     - diffwave
     - wavenet
     - wavegrad
+  MLAAD_PT:
+    label: MLAAD Portuguese (PT)
+    description: Base ingerida via protocol CSV (dataset=MLAAD_PT, folder=mlaad_pt).
+    paper_title: null
+    paper_url: null
+    generators:
+    - Fish-S2-Pro
+    - Hume_TADA-3B-ML
+    - LEMAS-TTS
+    - Llasa-1B-Multilingual
+    - MOSS-TTS-1.7B
+    - MOSS-TTS-8B
+    - OmniVoice
+    - OpenAI_TTS-1_HD
+    - Qwen3-TTS-12Hz-0.6B-Base
+    - Qwen3-TTS-12Hz-1.7B-Base
+    - VoxCPM2
+    - Voxtral
+    - tts_models_multilingual_multi-dataset_bark
+    - tts_models_multilingual_multi-dataset_xtts_v1.1
+    - tts_models_multilingual_multi-dataset_xtts_v2
+    - tts_models_pt_cv_vits

@@ -13,14 +13,26 @@ from core.synthetic_lr_reference import (
 )
 
 
-def test_default_modern_includes_transformer_cnn_and_socialrf():
+def test_default_modern_includes_product_eleven_generators():
     keys = {item.key for item in DEFAULT_MODERN_REFERENCE}
-    assert "AIGIBench_SocialRF/SocialRF" in keys
-    assert "AIGIBench_no_SocialRF/FLUX1-dev" in keys  # transformer
-    assert "GenImage/Midjourney" in keys  # cnn modern
-    assert "AIGCDetectBenchmark/ProGAN" not in keys  # gan older excluded
+    expected = {
+        "AIGIBench_no_SocialRF/SD3",
+        "AIGIBench_no_SocialRF/FLUX1-dev",
+        "OpenSDI/sd3",
+        "OpenSDI/flux",
+        "Defactify/SD3",
+        "BFree_extended_synthbuster/FLUX",
+        "AIGIBench_SocialRF/SocialRF",
+        "MLLMGenerated/gpt_image2",
+        "MLLMGenerated/nano_banana2",
+        "MeiGenTrending/gptimage",
+        "MeiGenTrending/nanobanana",
+    }
+    assert keys == expected
+    assert "AIGIBench_no_SocialRF/DALLE-3" not in keys
+    assert "GenImage/Midjourney" not in keys
     payload = default_reference_population()
-    assert len(payload) == len(DEFAULT_MODERN_REFERENCE)
+    assert len(payload) == 11
     assert all("base_group" in row and "subgroup" in row for row in payload)
 
 

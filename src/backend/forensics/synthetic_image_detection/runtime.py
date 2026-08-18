@@ -144,8 +144,19 @@ def huggingface_models_cached() -> tuple[bool, str]:
 
 @lru_cache(maxsize=1)
 def _deps_status() -> Tuple[bool, str]:
+    # Heavy GPU-stack imports (torch/torchvision/transformers) only exist on the
+    # GPU worker; the slim API image checks availability from file state alone.
+    heavy = ("torch", "torchvision", "transformers")
+    light = ("xgboost", "cv2", "skimage")
+    try:
+        from app.config import get_settings
+
+        is_gpu_worker = get_settings().FORENSICAUTH_PROCESS_ROLE == "worker-gpu"
+    except Exception:
+        is_gpu_worker = True
+    modules = light + (heavy if is_gpu_worker else ())
     missing: list[str] = []
-    for module in ("torch", "torchvision", "transformers", "xgboost", "cv2", "skimage"):
+    for module in modules:
         try:
             __import__(module)
         except ImportError:

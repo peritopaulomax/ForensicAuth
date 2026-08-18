@@ -44,8 +44,15 @@ IMDL_ADMIN_ONLY_METHODS = {
     "forensic_hub",
     "opensdi",
 }
-# Plugins de localização fora do hub IMDL restritos a admin.
-ADMIN_ONLY_TECHNIQUES = {"safire"}
+# Plugins restritos a admin (UI + submit).
+ADMIN_ONLY_TECHNIQUES = {
+    "safire",
+    "videofact",
+    "stil_video_detection",
+    "lowres_fake_video",
+    "truvil",
+    "vilocal",
+}
 
 
 class SubmitJobRequest(BaseModel):
@@ -153,12 +160,18 @@ def list_imdlbenco_methods(
 def list_audio_spoofing_detectors(
     current_user: User = Depends(get_current_user),
 ):
-    """Catalog of audio spoofing detectors with per-detector runtime status."""
+    """Catalog of audio spoofing detectors with per-detector runtime status.
+
+    Only ``ui_visible`` detectors are returned (SLS/TFCL remain registered
+    server-side but hidden from the product UI).
+    """
     from forensics.audio_spoofing.runtime import DETECTOR_CATALOG, detector_runtime_status
 
     _ = current_user
     rows = []
     for item in DETECTOR_CATALOG:
+        if item.get("ui_visible", True) is False:
+            continue
         ok, reason = detector_runtime_status(item["id"])
         rows.append({**item, "available": ok, "unavailable_reason": reason if not ok else None})
     return rows

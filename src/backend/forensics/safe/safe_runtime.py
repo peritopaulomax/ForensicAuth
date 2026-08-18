@@ -43,19 +43,28 @@ def resolve_checkpoint() -> Path | None:
 
 
 def _package_ok() -> tuple[bool, str]:
-    missing: list[str] = []
-    for module in ("torch", "torchvision", "kornia", "pytorch_wavelets"):
-        try:
-            __import__(module)
-        except ImportError:
-            missing.append(module)
-    if missing:
-        return (
-            False,
-            "Dependencias SAFE ausentes: "
-            + ", ".join(missing)
-            + ". Instale: pip install kornia pytorch_wavelets pywavelets",
-        )
+    # Heavy GPU-stack imports (torch/kornia/pytorch_wavelets) only exist on the
+    # GPU worker; the slim API image checks vendor files only.
+    try:
+        from app.config import get_settings
+
+        is_gpu_worker = get_settings().FORENSICAUTH_PROCESS_ROLE == "worker-gpu"
+    except Exception:
+        is_gpu_worker = True
+    if is_gpu_worker:
+        missing: list[str] = []
+        for module in ("torch", "torchvision", "kornia", "pytorch_wavelets"):
+            try:
+                __import__(module)
+            except ImportError:
+                missing.append(module)
+        if missing:
+            return (
+                False,
+                "Dependencias SAFE ausentes: "
+                + ", ".join(missing)
+                + ". Instale: pip install kornia pytorch_wavelets pywavelets",
+            )
     if not safe_vendor_dir().is_dir():
         return False, f"Codigo SAFE ausente em {safe_vendor_dir()}"
     return True, ""

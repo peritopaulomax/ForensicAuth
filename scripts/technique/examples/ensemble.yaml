@@ -60,6 +60,7 @@ ensemble:
       Defina subgrupos para treino/calibração e para teste (espelho áudio).
       LR positiva favorece H1 = real/autêntico.
       Meta-classificador permitido: logistic | xgboost.
+      Logistic deve usar train_meta_classifier (z-score/StandardScaler).
     # Catálogo inline (sem API). Alternativa: catalog_endpoint: /analysis/...
     macros:
       demo_toy:

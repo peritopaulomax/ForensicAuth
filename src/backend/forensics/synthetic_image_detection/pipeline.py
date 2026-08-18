@@ -404,12 +404,17 @@ def load_xgb_model(models_dir: Path) -> Any:
     return model1
 
 
+def get_decision_from_real_logit(real_logit: float, *, threshold: float = 0.0) -> str:
+    """Hard label alinhado à convenção soft-score (logit real/autêntico ≥ 0 → REAL)."""
+    return "REAL" if float(real_logit) >= float(threshold) else "AI"
+
+
 def get_decision(score_ai: float) -> str:
-    if score_ai > 0.66:
-        return "AI"
-    if score_ai < 0.34:
-        return "REAL"
-    return "Incerto"
+    """Compat: deriva logit real a partir da prob AI (limiar 0 ≡ P(real) ≥ 0.5)."""
+    ai = float(np.clip(score_ai, 1e-9, 1.0 - 1e-9))
+    real = 1.0 - ai
+    real_logit = math.log(real / ai)
+    return get_decision_from_real_logit(real_logit)
 
 
 def release_gpu_memory() -> None:
@@ -596,29 +601,30 @@ def predict_ensemble(
                     emb = None
                 probs = softmax(logits)
                 scores = {CLASS_NAMES[model_id][j]: probs[j] for j in range(len(probs))}
+                class_names = CLASS_NAMES[model_id]
 
-                ai_score = 0.5
-                found_score = False
-                for class_name, score in scores.items():
-                    if any(keyword in class_name.lower().replace("_", "") for keyword in ai_keywords):
-                        ai_score = float(score)
-                        found_score = True
-                        break
-                if not found_score:
-                    for class_name, score in scores.items():
-                        if any(keyword in class_name.lower().replace("_", "") for keyword in real_keywords):
-                            ai_score = 1.0 - float(score)
-                            break
+                ai_idx = 0
+                real_idx = 1
+                for j, class_name in enumerate(class_names):
+                    key = class_name.lower().replace("_", "")
+                    if any(keyword in key for keyword in ai_keywords):
+                        ai_idx = j
+                    if any(keyword in key for keyword in real_keywords):
+                        real_idx = j
 
-                real_score = 1 - ai_score
-                razao = real_score / ai_score if ai_score > 1e-9 else float("inf")
-                decision = get_decision(ai_score)
+                ai_logit = float(logits[ai_idx])
+                real_logit = float(logits[real_idx])
+                ai_score = float(probs[ai_idx])
+                real_score = float(probs[real_idx])
+                delta = real_logit - ai_logit
+                log_ratio = f"{delta / math.log(10.0):.2f}" if math.isfinite(delta) else "nan"
+                decision = get_decision_from_real_logit(real_logit)
                 individual_results.append(
                     [
                         MODEL_PATHS[model_id].split("/")[-1],
-                        f"{ai_score:.4f}",
-                        f"{real_score:.4f}",
-                        f"{math.log10(razao):.2f}",
+                        f"{ai_logit:.4f}",
+                        f"{real_logit:.4f}",
+                        log_ratio,
                         decision,
                         ml_device_label,
                     ]
@@ -631,6 +637,8 @@ def predict_ensemble(
                 detector_scores[analysis_id] = {
                     "fake_prob": float(ai_score),
                     "real_prob": float(real_score),
+                    "fake_logit": ai_logit,
+                    "real_logit": real_logit,
                     "raw_score": None,
                     "decision": decision,
                     "device": ml_device_label,
@@ -671,14 +679,18 @@ def predict_ensemble(
                     on_before_cpu_fallback=lambda _reason: on_progress
                     and on_progress(52, f"{BFREE_MODEL_LABEL} em CPU - fallback VRAM..."),
                 )
+                ai_logit = float(score)
+                real_logit = -ai_logit
+                decision = "REAL" if real_logit >= 0.0 else "AI"
+                delta = real_logit - ai_logit
+                log_ratio = f"{delta / math.log(10.0):.2f}" if math.isfinite(delta) else "nan"
                 fake_score = bfree_sigmoid(score)
                 real_score = 1.0 - fake_score
-                decision = "AI" if score > 0 else "REAL"
                 bfree_row = [
                     BFREE_MODEL_LABEL,
-                    f"{fake_score:.4f}",
-                    f"{real_score:.4f}",
-                    f"score={score:.4f}",
+                    f"{ai_logit:.4f}",
+                    f"{real_logit:.4f}",
+                    log_ratio,
                     decision,
                     device_display_label(device.type),
                 ]
@@ -691,16 +703,31 @@ def predict_ensemble(
                     raise RuntimeError("B-Free indisponivel")
 
             individual_results.append(bfree_row)
-            detector_scores[SYNTHETIC_ANALYSIS_BFREE] = {
-                "fake_prob": float(bfree_row[1]),
-                "real_prob": float(bfree_row[2]),
-                "raw_score": bfree_row[3],
-                "decision": bfree_row[4],
-                "device": bfree_row[5],
-            }
-            if return_embedding:
-                detector_scores[SYNTHETIC_ANALYSIS_BFREE]["embedding"] = emb
-                detector_scores[SYNTHETIC_ANALYSIS_BFREE]["embedding_dim"] = int(emb.shape[0])
+            if return_embedding and emb is not None:
+                detector_scores[SYNTHETIC_ANALYSIS_BFREE] = {
+                    "fake_prob": float(fake_score),
+                    "real_prob": float(real_score),
+                    "fake_logit": float(ai_logit),
+                    "real_logit": float(real_logit),
+                    "raw_score": bfree_row[3],
+                    "decision": bfree_row[4],
+                    "device": bfree_row[5],
+                    "embedding": emb,
+                    "embedding_dim": int(emb.shape[0]),
+                }
+            else:
+                # Row already holds logits; recover probs from ±logit via sigmoid.
+                ai_l = float(bfree_row[1])
+                fake_p = float(1.0 / (1.0 + math.exp(-ai_l)))
+                detector_scores[SYNTHETIC_ANALYSIS_BFREE] = {
+                    "fake_prob": fake_p,
+                    "real_prob": 1.0 - fake_p,
+                    "fake_logit": ai_l,
+                    "real_logit": float(bfree_row[2]),
+                    "raw_score": bfree_row[3],
+                    "decision": bfree_row[4],
+                    "device": bfree_row[5],
+                }
         except Exception as exc:
             logger.warning("B-Free indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
 
@@ -710,7 +737,6 @@ def predict_ensemble(
                 from forensics.truebees_clip_d.clipd_pipeline import (
                     CORVI2023_MODEL_LABEL,
                     CORVI2023_MODEL_NAME,
-                    CORVI2023_REPO,
                     CORVI2023_TILE_SIZE,
                     _sigmoid_from_llr,
                     clipd_runtime_status,
@@ -735,25 +761,24 @@ def predict_ensemble(
                         image, dev, CORVI2023_TILE_SIZE, return_embedding=True
                     )
 
-                (llr, num_tiles, tiled, emb), device = run_with_device_fallback(
+                (llr, _num_tiles, _tiled, emb), device = run_with_device_fallback(
                     _run_corvi,
                     on_fallback=clear_clipd_model_cache,
                     on_before_cpu_fallback=lambda _reason: on_progress
                     and on_progress(54, f"{CORVI2023_MODEL_LABEL} em CPU - fallback VRAM..."),
                 )
+                ai_logit = float(llr)
+                real_logit = -ai_logit
+                decision = "REAL" if real_logit >= 0.0 else "AI"
+                delta = real_logit - ai_logit
+                log_ratio = f"{delta / math.log(10.0):.2f}" if math.isfinite(delta) else "nan"
                 prob = _sigmoid_from_llr(llr)
                 real_score = 1.0 - prob
-                decision = "AI" if llr > 0 else "REAL"
-                tile_note = (
-                    f"LLR={llr:.4f}; tiles={num_tiles}x{CORVI2023_TILE_SIZE}px"
-                    if tiled
-                    else f"LLR={llr:.4f}"
-                )
                 corvi_row = [
                     CORVI2023_MODEL_LABEL,
-                    f"{prob:.4f}",
-                    f"{real_score:.4f}",
-                    f"{tile_note}; repo={CORVI2023_REPO}",
+                    f"{ai_logit:.4f}",
+                    f"{real_logit:.4f}",
+                    log_ratio,
                     decision,
                     device_display_label(device.type),
                 ]
@@ -766,16 +791,30 @@ def predict_ensemble(
                     raise RuntimeError("Corvi2023 indisponivel")
 
             individual_results.append(corvi_row)
-            detector_scores[SYNTHETIC_ANALYSIS_CORVI2023] = {
-                "fake_prob": float(corvi_row[1]),
-                "real_prob": float(corvi_row[2]),
-                "raw_score": corvi_row[3],
-                "decision": corvi_row[4],
-                "device": corvi_row[5],
-            }
-            if return_embedding:
-                detector_scores[SYNTHETIC_ANALYSIS_CORVI2023]["embedding"] = emb
-                detector_scores[SYNTHETIC_ANALYSIS_CORVI2023]["embedding_dim"] = int(emb.shape[0])
+            if return_embedding and emb is not None:
+                detector_scores[SYNTHETIC_ANALYSIS_CORVI2023] = {
+                    "fake_prob": float(prob),
+                    "real_prob": float(real_score),
+                    "fake_logit": float(ai_logit),
+                    "real_logit": float(real_logit),
+                    "raw_score": corvi_row[3],
+                    "decision": corvi_row[4],
+                    "device": corvi_row[5],
+                    "embedding": emb,
+                    "embedding_dim": int(emb.shape[0]),
+                }
+            else:
+                ai_l = float(corvi_row[1])
+                fake_p = float(1.0 / (1.0 + math.exp(-ai_l)))
+                detector_scores[SYNTHETIC_ANALYSIS_CORVI2023] = {
+                    "fake_prob": fake_p,
+                    "real_prob": 1.0 - fake_p,
+                    "fake_logit": ai_l,
+                    "real_logit": float(corvi_row[2]),
+                    "raw_score": corvi_row[3],
+                    "decision": corvi_row[4],
+                    "device": corvi_row[5],
+                }
         except Exception as exc:
             logger.warning("Corvi2023 indisponivel ou falhou no Detecção imagens sintéticas: %s", exc)
 
@@ -819,14 +858,19 @@ def predict_ensemble(
                     raise RuntimeError("SAFE indisponivel")
 
             individual_results.append(safe_row)
+            # effort_row agora grava logits; probs via sigmoid do logit AI.
+            ai_l = float(safe_row[1])
+            fake_p = float(1.0 / (1.0 + math.exp(-ai_l)))
             detector_scores[SYNTHETIC_ANALYSIS_SAFE] = {
-                "fake_prob": float(safe_row[1]),
-                "real_prob": float(safe_row[2]),
+                "fake_prob": fake_p,
+                "real_prob": 1.0 - fake_p,
+                "fake_logit": ai_l,
+                "real_logit": float(safe_row[2]),
                 "raw_score": safe_row[3],
                 "decision": safe_row[4],
                 "device": safe_row[5],
             }
-            if return_embedding:
+            if return_embedding and emb is not None:
                 detector_scores[SYNTHETIC_ANALYSIS_SAFE]["embedding"] = emb
                 detector_scores[SYNTHETIC_ANALYSIS_SAFE]["embedding_dim"] = int(emb.shape[0])
         except Exception as exc:

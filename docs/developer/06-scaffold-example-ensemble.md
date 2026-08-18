@@ -209,8 +209,11 @@ Features da população: ler de
 `reference_data/<domain>/<scores_path>` (já publicadas).  
 O pipeline **não** extrai a base inteira no job do questionado.
 
-Calibração esperada (espelho áudio): LogReg (train) → logits (val) →
-bigaussianização → Tippett / Cllr / EER (test) + LR do questionado.
+Calibração esperada (espelho áudio/imagem): treine o meta com
+`from core.synthetic_lr_reference import train_meta_classifier`
+(logistic aplica **z-score/`StandardScaler`** antes do LogReg; xgboost não escala) →
+logits (val) → bigaussianização → Tippett / Cllr / EER (test) + LR do questionado.
+Não use `LogisticRegression` cru nos scores dos detectores.
 
 **Checkpoint:** stub substituído; job devolve `success: true` + tabela (+ LR se calibrated).
 

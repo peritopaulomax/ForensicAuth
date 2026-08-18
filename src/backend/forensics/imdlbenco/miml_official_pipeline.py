@@ -134,6 +134,15 @@ def official_runtime_ready(method: str) -> tuple[bool, str]:
             return False, "Repositorio MIML ausente em vendor/MIML."
         if runtime.resolve_miml_apsc_checkpoint() is None:
             return False, "Peso APSC-Net ausente: models/imdlbenco/miml/apsc/APSC-Net.pth."
+        # Heavy vendor import (torch/mmcv/mmseg) only exists on the GPU worker;
+        # the slim API image answers readiness from file-based checks alone.
+        try:
+            from app.config import get_settings
+
+            if get_settings().FORENSICAUTH_PROCESS_ROLE != "worker-gpu":
+                return True, ""
+        except Exception:
+            pass
         try:
             import torch  # noqa: F401
             with _vendor_context(vendor, ("mmcv", "mmseg", "mmcv_custom", "mmcv_custom_hornet")):

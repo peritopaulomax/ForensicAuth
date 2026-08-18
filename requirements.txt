@@ -41,6 +41,10 @@ numpy>=1.24.0
 scipy>=1.11.0
 Pillow>=10.0.0
 scikit-learn>=1.3.0
+# xgboost: meta-classificador LR do catalogo SID/audio (core.synthetic_lr_reference)
+xgboost>=2.0.0
+# omegaconf: probe/runtime do detector SLS (fairseq vendorizado em vendor/sls_asvspoof)
+omegaconf>=2.3.0
 
 # Graph & Visualization (PDF structure graph — precisa do binario dot, nao so pip)
 #   conda activate forensicauth

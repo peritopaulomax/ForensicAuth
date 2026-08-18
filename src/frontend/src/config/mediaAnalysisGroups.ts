@@ -71,11 +71,11 @@ const _VIDEO_ANALYSIS_GROUPS_BASE: MediaAnalysisGroup[] = [
     description:
       "Localização e classificação de manipulações / deepfakes em vídeo (VideoFact, STIL, LowRes, TruVIL, ViLocal).",
     techniques: [
-      { kind: "plugin", id: "videofact" },
-      { kind: "plugin", id: "stil_video_detection" },
-      { kind: "plugin", id: "lowres_fake_video" },
-      { kind: "plugin", id: "truvil" },
-      { kind: "plugin", id: "vilocal" },
+      { kind: "plugin", id: "videofact", adminOnly: true },
+      { kind: "plugin", id: "stil_video_detection", adminOnly: true },
+      { kind: "plugin", id: "lowres_fake_video", adminOnly: true },
+      { kind: "plugin", id: "truvil", adminOnly: true },
+      { kind: "plugin", id: "vilocal", adminOnly: true },
     ],
   },
 ];

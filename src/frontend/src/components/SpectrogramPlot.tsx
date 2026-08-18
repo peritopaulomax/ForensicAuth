@@ -52,21 +52,18 @@ export interface SpectrogramFullData {
   window_size_percent?: number;
 }
 
-const PLOTLY_CDN = "https://cdn.plot.ly/plotly-2.27.0.min.js";
+import * as Plotly from "plotly.js-dist-min";
 
 let plotlyLoadPromise: Promise<void> | null = null;
 
 function loadPlotly(): Promise<void> {
   if (window.Plotly) return Promise.resolve();
-  if (plotlyLoadPromise) return plotlyLoadPromise;
-  plotlyLoadPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = PLOTLY_CDN;
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Falha ao carregar Plotly"));
-    document.head.appendChild(script);
-  });
+  if (!plotlyLoadPromise) {
+    // Plotly bundled via plotly.js-dist-min (no CDN; works without internet).
+    plotlyLoadPromise = Promise.resolve().then(() => {
+      window.Plotly = Plotly as unknown as Window["Plotly"];
+    });
+  }
   return plotlyLoadPromise;
 }
 

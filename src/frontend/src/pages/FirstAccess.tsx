@@ -25,7 +25,7 @@ export default function FirstAccess() {
     setLoading(true);
     try {
       await firstAccess({
-        username,
+        username: username.trim(),
         password,
         password_confirm: passwordConfirm,
       });

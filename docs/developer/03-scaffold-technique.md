@@ -509,8 +509,9 @@ Exemplo completo: `scripts/technique/examples/ensemble.yaml`.
 | PNGs LR | se LR | `lr_reference_{tippett,distribution,identity}.png` |
 | scores agregados | se `score_display` | chaves do manifesto |
 
-Calibração esperada no pipeline (espelho áudio; **implementada por você** no `pipeline.py`, não pelo scaffold):  
-LogReg (train) → logits (val) → bigaussianização → Tippett/Cllr/EER (test) + LR do questionado.
+Calibração esperada no pipeline (espelho áudio/imagem; **implementada por você** no `pipeline.py`, não pelo scaffold):  
+meta via `core.synthetic_lr_reference.train_meta_classifier` (logistic = **z-score/`StandardScaler`** + LogReg; xgboost sem scaler) → logits (val) → bigaussianização → Tippett/Cllr/EER (test) + LR do questionado.  
+**Proibido** treinar `LogisticRegression` direto nos logits brutos dos detectores — escalas diferentes enviesam o ensemble.
 
 ---
 
@@ -566,7 +567,7 @@ def run(evidence_path, parameters, out_dir, *, on_progress=None) -> dict:
 Ainda **fora** do genérico / roadmap:
 
 - Templates `complex`, `hub`
-- **Motor LR genérico compartilhado** (ainda nos serviços áudio/sintético) — o scaffold só declara contrato + UI
+- **Orquestração LR genérica por domínio** (ainda nos adapters áudio/sintético) — o scaffold só declara contrato + UI; o **treino do meta** já é compartilhado (`train_meta_classifier` com z-score no logistic)
 - Publicação automática de features das bases (continua offline)
 - Escalas de cor TruFor / UI IMDL “gorda”
 - Upload de refs globais **dentro** da página comparison (use a aba Referências)
@@ -585,6 +586,7 @@ Ainda **fora** do genérico / roadmap:
 | Ensemble sem `individual_results` | Tabela vazia / MessageBox na UI |
 | `calibrated` sem CSV publicado | Job falha no pipeline — validar `reference_data/<domain>/` antes |
 | Catálogo vazio | Exija `macros` ou `catalog_endpoint` no manifesto |
+| Meta logistic sem z-score | Detector de maior escala de logit domina — use só `train_meta_classifier` |
 
 Reversibilidade das entradas scaffold: **Fácil**.
 

@@ -54,10 +54,22 @@ def clipd_runtime_status(model_name: str = "clipdet_latent10k_plus") -> tuple[bo
     if not weights.is_file() or weights.stat().st_size < 1000:
         return False, f"Pesos GRIP CLIP-D ausentes em {weights}. Execute: python scripts/download_truebees_clipd_assets.py"
     try:
+        import yaml  # noqa: F401
+    except ImportError as exc:
+        return False, f"Dependencia GRIP CLIP-D ausente: {exc.name}"
+    # Heavy GPU-stack imports only exist on the GPU worker; the slim API image
+    # answers readiness from file-based checks alone.
+    try:
+        from app.config import get_settings
+
+        if get_settings().FORENSICAUTH_PROCESS_ROLE != "worker-gpu":
+            return True, ""
+    except Exception:
+        pass
+    try:
         import open_clip  # noqa: F401
         import torch  # noqa: F401
         import torchvision  # noqa: F401
-        import yaml  # noqa: F401
     except ImportError as exc:
         return False, f"Dependencia GRIP CLIP-D ausente: {exc.name}"
     return True, ""

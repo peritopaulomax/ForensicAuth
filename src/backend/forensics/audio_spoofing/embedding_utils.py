@@ -38,3 +38,14 @@ def register_sls_embedding_hook(model: Any) -> Any:
 
     handle = model.fc3.register_forward_hook(_hook)
     return handle, store
+
+
+def register_tfcl_embedding_hook(model: Any) -> Any:
+    """Penultimate AASIST vector = input to ``out_layer`` (dim 160)."""
+    store: list[np.ndarray] = []
+
+    def _hook(_module: Any, inputs: tuple[Any, ...], _output: Any) -> None:
+        capture_fc_input(_module, inputs, store)
+
+    handle = model.out_layer.register_forward_hook(_hook)
+    return handle, store

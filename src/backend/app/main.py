@@ -126,18 +126,36 @@ app.add_middleware(
 
 @app.get("/health")
 def health_check():
-    from forensics.effort.effort_warmup import effort_warmup_status
-    from forensics.safe.safe_warmup import safe_warmup_status
-    from core.technique_runtime import technique_runtime_status
+    def _probe(import_fn):
+        """Run a capability probe; optional ML deps may be absent in slim images."""
+        try:
+            return import_fn()
+        except Exception as exc:
+            return {"available": False, "reason": str(exc)}
 
-    zero_ok, zero_reason = technique_runtime_status("zero_grid")
+    def _zero_grid():
+        from core.technique_runtime import technique_runtime_status
+
+        ok, reason = technique_runtime_status("zero_grid")
+        return {"available": ok, "reason": reason or None}
+
+    def _effort():
+        from forensics.effort.effort_warmup import effort_warmup_status
+
+        return effort_warmup_status()
+
+    def _safe():
+        from forensics.safe.safe_warmup import safe_warmup_status
+
+        return safe_warmup_status()
+
     return {
         "status": "ok",
         "version": settings.APP_VERSION,
         "capabilities": {
-            "zero_grid": {"available": zero_ok, "reason": zero_reason or None},
-            "effort_warmup": effort_warmup_status(),
-            "safe_warmup": safe_warmup_status(),
+            "zero_grid": _probe(_zero_grid),
+            "effort_warmup": _probe(_effort),
+            "safe_warmup": _probe(_safe),
         },
     }
 

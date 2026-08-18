@@ -26,6 +26,10 @@ from core.gpu_inference import (
     resolve_inference_device,
     run_with_device_fallback,
 )
+from core.video_display_orientation import (
+    normalize_rotation_degrees,
+    probe_video_display_orientation,
+)
 from forensics.videofact.videofact_runtime import (
     DF_THRESHOLD,
     MODEL_LABEL_DF,
@@ -74,6 +78,10 @@ class VideoFactAnalysis:
     total_frames_sampled: int
     sample_every: int
     inference_device: str
+    display_rotation_degrees: int = 0
+    inference_uprighted: bool = False
+    inference_upright_rotation_degrees: int = 0
+    heatmap_orientation_baked: bool = True
 
 
 def _report(on_progress: ProgressFn, pct: int, label: str) -> None:
@@ -117,6 +125,63 @@ def _get_model(mode: str, device: torch.device):
     return model
 
 
+def apply_nchw_rotate_clockwise(frame_batch: torch.Tensor, degrees: int) -> torch.Tensor:
+    """Rotate NCHW tensor by clockwise degrees in {0,90,180,270} (display upright)."""
+    deg = normalize_rotation_degrees(degrees)
+    if deg == 0:
+        return frame_batch
+    # torch.rot90 is counter-clockwise; map CW → CCW steps
+    if deg == 90:
+        return torch.rot90(frame_batch, k=-1, dims=(-2, -1))
+    if deg == 180:
+        return torch.rot90(frame_batch, k=2, dims=(-2, -1))
+    if deg == 270:
+        return torch.rot90(frame_batch, k=1, dims=(-2, -1))
+    return frame_batch
+
+
+def apply_videofact_frame_geometry(frame_batch: torch.Tensor) -> torch.Tensor:
+    """Vendor geometry after optional display uprighting.
+
+    Portrait (H>W) → transpose to landscape + vflip; landscape stays as-is.
+    Then resize to 1080×1920. Matches vendor/videofact-wacv-2024/inference_single.py
+    once frames are in display-oriented pixel space.
+    """
+    if frame_batch.ndim != 4:
+        raise ValueError(f"Esperado NCHW, recebido shape={tuple(frame_batch.shape)}")
+    if frame_batch.shape[2] > frame_batch.shape[3]:
+        frame_batch = frame_batch.permute(0, 1, 3, 2)
+        frame_batch = torchvision.transforms.functional.vflip(frame_batch)
+    if frame_batch.shape[2] != 1080 or frame_batch.shape[3] != 1920:
+        frame_batch = torchvision.transforms.functional.resize(
+            frame_batch, (1080, 1920), antialias=True
+        )
+    return frame_batch
+
+
+def prepare_videofact_frames(
+    frame_batch: torch.Tensor,
+    *,
+    input_upright_rotation: int = 0,
+) -> torch.Tensor:
+    """Upright by container rotation, then fit to VideoFACT 1080×1920.
+
+    Important: vendor portrait (transpose+vflip) **undoes** a prior 90° display
+    uprighting on landscape-coded phone clips. When metadata rotation is applied,
+    skip that hack and only resize upright pixels into the model canvas.
+    Without metadata rotation, keep pure vendor geometry.
+    """
+    rot = normalize_rotation_degrees(input_upright_rotation)
+    if rot:
+        upright = apply_nchw_rotate_clockwise(frame_batch, rot)
+        if upright.shape[2] != 1080 or upright.shape[3] != 1920:
+            upright = torchvision.transforms.functional.resize(
+                upright, (1080, 1920), antialias=True
+            )
+        return upright
+    return apply_videofact_frame_geometry(frame_batch)
+
+
 def _build_dataloader(
     video_path: str,
     *,
@@ -125,6 +190,7 @@ def _build_dataloader(
     sample_every: int,
     batch_size: int,
     num_workers: int,
+    input_upright_rotation: int = 0,
 ):
     import decord
     import random
@@ -140,15 +206,13 @@ def _build_dataloader(
     if not batch_idxs:
         raise ValueError("Video sem frames legiveis para amostragem.")
 
+    # ForensicAuth: apply display-matrix / rotate tags BEFORE vendor geometry so
+    # the network sees upright content (vendor alone ignores container rotation).
     frame_batch = vr.get_batch(batch_idxs)
     frame_batch = frame_batch.permute(0, 3, 1, 2).float()
-    if frame_batch.shape[2] > frame_batch.shape[3]:
-        frame_batch = frame_batch.permute(0, 1, 3, 2)
-    frame_batch = torchvision.transforms.functional.vflip(frame_batch)
-    if frame_batch.shape[2] != 1080 or frame_batch.shape[3] != 1920:
-        frame_batch = torchvision.transforms.functional.resize(
-            frame_batch, (1080, 1920), antialias=True
-        )
+    frame_batch = prepare_videofact_frames(
+        frame_batch, input_upright_rotation=input_upright_rotation
+    )
 
     return DataLoader(
         list(zip(frame_batch, batch_idxs)),
@@ -270,6 +334,7 @@ def _run_mode(
     on_progress: ProgressFn,
     progress_base: int,
     progress_span: int,
+    input_upright_rotation: int = 0,
 ) -> ModeResult:
     thresholds = default_thresholds()
     if mode == "xfer":
@@ -292,6 +357,7 @@ def _run_mode(
             sample_every=sample_every,
             batch_size=batch_size,
             num_workers=num_workers,
+            input_upright_rotation=input_upright_rotation,
         )
         heatmap_dir = out_dir / f"heatmaps_{mode}"
         frame_results = _process_frames(
@@ -370,6 +436,23 @@ def run_videofact_analysis(
         raise RuntimeError(reason_modes)
 
     _report(on_progress, 5, "Preparando VideoFACT")
+    orient = probe_video_display_orientation(video_path)
+    display_rot = normalize_rotation_degrees(orient.get("rotation_degrees") or 0)
+    # Always upright by container metadata before inference (not pure vendor).
+    input_rot = display_rot if orient.get("available") else 0
+    if input_rot:
+        logger.info(
+            "VideoFACT input upright rotation=%s° (coded=%sx%s) before vendor geometry",
+            input_rot,
+            orient.get("coded_width"),
+            orient.get("coded_height"),
+        )
+        _report(
+            on_progress,
+            6,
+            f"Orientacao: endireitando frames ({input_rot}°) antes da inferencia",
+        )
+
     device = resolve_inference_device()
     results: list[ModeResult] = []
     span = 80 // len(modes_to_run)
@@ -390,6 +473,7 @@ def run_videofact_analysis(
                 on_progress=on_progress,
                 progress_base=10 + i * span,
                 progress_span=span,
+                input_upright_rotation=input_rot,
             )
         )
 
@@ -400,6 +484,10 @@ def run_videofact_analysis(
         total_frames_sampled=total_sampled,
         sample_every=sample_every,
         inference_device=device_display_label(device),
+        display_rotation_degrees=display_rot,
+        inference_uprighted=bool(input_rot),
+        inference_upright_rotation_degrees=input_rot,
+        heatmap_orientation_baked=True,
     )
 
 
@@ -409,6 +497,19 @@ def analysis_to_report_dict(analysis: VideoFactAnalysis) -> dict[str, Any]:
         "total_frames_sampled": analysis.total_frames_sampled,
         "sample_every": analysis.sample_every,
         "inference_device": analysis.inference_device,
+        "display": {
+            "rotation_degrees": analysis.display_rotation_degrees,
+            "inference_uprighted": analysis.inference_uprighted,
+            "inference_upright_rotation_degrees": analysis.inference_upright_rotation_degrees,
+            "heatmap_orientation_baked": analysis.heatmap_orientation_baked,
+            "note": (
+                "Frames endireitados por metadado de rotacao e redimensionados a "
+                "1080x1920 (sem transpose+vflip do vendor — esse hack anularia o "
+                "endireitamento em clips landscape com rotate=90)."
+                if analysis.inference_uprighted
+                else "Sem metadado de rotacao; geometria vendor sobre pixels codificados."
+            ),
+        },
         "modes": [
             {
                 "mode": m.mode,
@@ -447,6 +548,12 @@ def write_videofact_report(analysis: VideoFactAnalysis, out_dir: Path) -> tuple[
         "VideoFACT — Relatorio de analise de video",
         f"Frames amostrados: {analysis.total_frames_sampled} (sample_every={analysis.sample_every})",
         f"Dispositivo: {analysis.inference_device}",
+        (
+            f"Orientacao entrada: endireitado {analysis.inference_upright_rotation_degrees}° "
+            "antes da inferencia"
+            if analysis.inference_uprighted
+            else "Orientacao entrada: sem rotacao de metadado"
+        ),
         "",
     ]
     for m in analysis.modes:

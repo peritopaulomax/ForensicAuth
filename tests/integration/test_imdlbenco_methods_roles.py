@@ -61,6 +61,27 @@ class TestImdlBencoMethodsRoleFiltering:
         assert create.status_code == 403
         assert "administrador" in create.json()["detail"].lower()
 
+    @pytest.mark.parametrize(
+        "technique",
+        ["videofact", "stil_video_detection", "lowres_fake_video", "truvil", "vilocal"],
+    )
+    def test_perito_cannot_submit_admin_only_video_techniques(
+        self, client, auth_headers, db_session, sample_case, sample_evidence, monkeypatch, technique
+    ):
+        monkeypatch.setattr("api.v1.endpoints.analysis.run_job_in_background", lambda _job_id: None)
+
+        create = client.post(
+            "/api/v1/analysis",
+            headers=auth_headers,
+            json={
+                "evidence_id": str(sample_evidence.id),
+                "technique": technique,
+                "parameters": {},
+            },
+        )
+        assert create.status_code == 403
+        assert "administrador" in create.json()["detail"].lower()
+
     def test_perito_can_submit_miml_apscnet(self, client, auth_headers, db_session, sample_case, sample_evidence, monkeypatch):
         from forensics.imdlbenco import imdlbenco_runtime
 

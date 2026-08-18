@@ -235,6 +235,7 @@ class TestAudioSpoofingDetection:
         from forensics.audio_spoofing.runtime import (
             AUDIO_SPOOFING_ANALYSIS_DF_ARENA,
             AUDIO_SPOOFING_ANALYSIS_SLS_XLSR,
+            AUDIO_SPOOFING_ANALYSIS_TFCL,
             AUDIO_SPOOFING_ANALYSIS_WEDEFENSE,
             DETECTOR_CATALOG,
         )
@@ -244,6 +245,7 @@ class TestAudioSpoofingDetection:
             AUDIO_SPOOFING_ANALYSIS_DF_ARENA,
             AUDIO_SPOOFING_ANALYSIS_SLS_XLSR,
             AUDIO_SPOOFING_ANALYSIS_WEDEFENSE,
+            AUDIO_SPOOFING_ANALYSIS_TFCL,
         }
         for row in DETECTOR_CATALOG:
             assert row["label"]
@@ -254,6 +256,7 @@ class TestAudioSpoofingDetection:
         assert "2601.15240" in by_id[AUDIO_SPOOFING_ANALYSIS_WEDEFENSE]["paper_url"]
         assert "huggingface.co" in by_id[AUDIO_SPOOFING_ANALYSIS_WEDEFENSE]["repo_url"]
         assert "QiShanZhang/SLSforASVspoof-2021-DF" in by_id[AUDIO_SPOOFING_ANALYSIS_SLS_XLSR]["repo_url"]
+        assert "JunXue" in by_id[AUDIO_SPOOFING_ANALYSIS_TFCL]["repo_url"]
 
     def test_adapter_registered_and_has_expected_name(self):
         from core.plugin_registry import PluginRegistry
@@ -306,7 +309,7 @@ class TestAudioSpoofingDetection:
         def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None, **kwargs):
             calls.append(len(audio))
             return {
-                "individual_results": [["DF Arena 1B", "0.5", "0.5", "0.00", "Incerto", "cpu"]],
+                "individual_results": [["DF Arena 1B", "0.1000", "-0.1000", "-0.09", "Spoof", "cpu"]],
                 "detector_scores": {
                     "df_arena_1b": {
                         "spoof_prob": 0.5,
@@ -342,13 +345,13 @@ class TestAudioSpoofingDetection:
             "detector_runtime_status",
             lambda detector_id: (
                 (True, "")
-                if detector_id in {"df_arena_1b", "sls_xlsr", "wedefense_wavlm_mhfa"}
+                if detector_id in {"df_arena_1b", "sls_xlsr", "wedefense_wavlm_mhfa", "tfcl_xlsr"}
                 else (False, "x")
             ),
         )
         plugin = adapter_mod.AudioSpoofingAdapter()
         ok, _ = plugin.validate_parameters({
-            "selected_analyses": ["df_arena_1b", "sls_xlsr", "wedefense_wavlm_mhfa"],
+            "selected_analyses": ["df_arena_1b", "sls_xlsr", "wedefense_wavlm_mhfa", "tfcl_xlsr"],
         })
         assert ok is True
         ok, msg = plugin.validate_parameters({"selected_analyses": []})
@@ -414,7 +417,7 @@ class TestAudioSpoofingDetection:
         def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None, return_embedding=False):
             run_calls.append({"return_embedding": return_embedding})
             return {
-                "individual_results": [["DF Arena 1B", "0.5", "0.5", "0.00", "Incerto", "cpu"]],
+                "individual_results": [["DF Arena 1B", "0.1000", "-0.1000", "-0.09", "Spoof", "cpu"]],
                 "detector_scores": {
                     "df_arena_1b": {
                         "spoof_prob": 0.5,
@@ -475,12 +478,12 @@ class TestAudioSpoofingDetection:
         def fake_run(audio, sr, window_seconds=4.0, selected_analyses=None, on_progress=None, **kwargs):
             return {
                 "individual_results": [
-                    ["DF Arena 1B", "0.70", "0.30", "-0.37", "Spoof", "cpu"],
-                    ["SLS XLS-R (ACM MM 2024)", "0.40", "0.60", "0.18", "Incerto", "cpu"],
+                    ["DF Arena 1B", "0.7000", "-0.3000", "-0.43", "Spoof", "cpu"],
+                    ["SLS XLS-R (ACM MM 2024)", "-0.4000", "0.2000", "0.26", "Bonafide", "cpu"],
                 ],
                 "detector_scores": {
-                    "df_arena_1b": {"spoof_prob": 0.7, "bonafide_prob": 0.3, "label": "spoof"},
-                    "sls_xlsr": {"spoof_prob": 0.4, "bonafide_prob": 0.6, "label": "uncertain"},
+                    "df_arena_1b": {"spoof_prob": 0.7, "bonafide_prob": 0.3, "bonafide_logit": -0.3, "label": "spoof"},
+                    "sls_xlsr": {"spoof_prob": 0.4, "bonafide_prob": 0.6, "bonafide_logit": 0.2, "label": "bonafide"},
                 },
                 "per_detector": {},
                 "plot_by_detector": {
@@ -538,38 +541,14 @@ class TestSLSSpoofingPaths:
 
 
 class TestDFArenaAggregation:
-    def test_aggregated_label_uncertain_when_both_below_or_equal_threshold(self):
-        from forensics.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
-        import numpy as np
+    def test_label_spoof_when_bonafide_logit_negative(self):
+        from forensics.audio_spoofing.pipeline import classification_from_bonafide_logit
 
-        # Both probabilities below or equal to threshold -> uncertain
-        logits = np.array([0.2, 0.1])
-        probs = _softmax(logits)
-        assert probs[0] <= UNCERTAINTY_THRESHOLD
-        assert probs[1] <= UNCERTAINTY_THRESHOLD
+        assert classification_from_bonafide_logit(-0.1) == "Spoof"
+        assert classification_from_bonafide_logit(-1.0) == "Spoof"
 
-    def test_aggregated_label_spoof_when_spoof_above_threshold(self):
-        from forensics.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
-        import numpy as np
+    def test_label_bonafide_when_bonafide_logit_nonnegative(self):
+        from forensics.audio_spoofing.pipeline import classification_from_bonafide_logit
 
-        logits = np.array([2.0, -1.0])
-        probs = _softmax(logits)
-        assert probs[0] > UNCERTAINTY_THRESHOLD
-
-    def test_aggregated_label_bonafide_when_bonafide_above_threshold(self):
-        from forensics.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
-        import numpy as np
-
-        logits = np.array([-1.0, 2.0])
-        probs = _softmax(logits)
-        assert probs[1] > UNCERTAINTY_THRESHOLD
-
-    def test_aggregated_label_uncertain_when_both_probabilities_below_65(self):
-        from forensics.df_arena.df_arena_pipeline import _softmax, UNCERTAINTY_THRESHOLD
-        import numpy as np
-
-        # logits that yield ~40% spoof / ~60% bonafide (both strictly below 65%)
-        logits = np.array([0.4, 0.8])
-        probs = _softmax(logits)
-        assert probs[0] < UNCERTAINTY_THRESHOLD
-        assert probs[1] < UNCERTAINTY_THRESHOLD
+        assert classification_from_bonafide_logit(0.0) == "Bonafide"
+        assert classification_from_bonafide_logit(2.0) == "Bonafide"

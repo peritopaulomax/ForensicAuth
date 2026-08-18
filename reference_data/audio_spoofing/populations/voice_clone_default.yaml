@@ -1,9 +1,9 @@
-# Default voice-clone oriented population (mirrors UI defaults).
+# Default LR population — MLAAD Portuguese generators (mirrors UI defaults).
 # Checkboxes in the product map to (base_group, subgroup) pairs listed here.
 
 version: 1
 id: voice_clone_default
-label: Voice-clone default (DFADD / SONAR / ASVspoof5 / In-The-Wild)
+label: MLAAD_PT default (7 geradores TTS PT)
 status: published
 sample_per_class: 500
 train_per_class: 250
@@ -12,22 +12,22 @@ test_per_class: 125
 seed: 20260705
 
 fit_items:
-  - { base_group: DFADD, subgroup: StyleTTS2 }
-  - { base_group: DFADD, subgroup: NaturalSpeech2 }
-  - { base_group: SONAR, subgroup: xTTS }
-  - { base_group: SONAR, subgroup: PromptTTS2 }
-  - { base_group: SONAR, subgroup: VoiceBox }
-  - { base_group: ASVspoof5, subgroup: flac_E_eval }
-  - { base_group: In-The-Wild, subgroup: In-The-Wild }
+  - { base_group: MLAAD_PT, subgroup: Voxtral }
+  - { base_group: MLAAD_PT, subgroup: Qwen3-TTS-12Hz-1.7B-Base }
+  - { base_group: MLAAD_PT, subgroup: OpenAI_TTS-1_HD }
+  - { base_group: MLAAD_PT, subgroup: OmniVoice }
+  - { base_group: MLAAD_PT, subgroup: MOSS-TTS-8B }
+  - { base_group: MLAAD_PT, subgroup: Fish-S2-Pro }
+  - { base_group: MLAAD_PT, subgroup: Llasa-1B-Multilingual }
 
 test_items:
-  - { base_group: DFADD, subgroup: StyleTTS2 }
-  - { base_group: DFADD, subgroup: NaturalSpeech2 }
-  - { base_group: SONAR, subgroup: xTTS }
-  - { base_group: SONAR, subgroup: PromptTTS2 }
-  - { base_group: SONAR, subgroup: VoiceBox }
-  - { base_group: ASVspoof5, subgroup: flac_E_eval }
-  - { base_group: In-The-Wild, subgroup: In-The-Wild }
+  - { base_group: MLAAD_PT, subgroup: Voxtral }
+  - { base_group: MLAAD_PT, subgroup: Qwen3-TTS-12Hz-1.7B-Base }
+  - { base_group: MLAAD_PT, subgroup: OpenAI_TTS-1_HD }
+  - { base_group: MLAAD_PT, subgroup: OmniVoice }
+  - { base_group: MLAAD_PT, subgroup: MOSS-TTS-8B }
+  - { base_group: MLAAD_PT, subgroup: Fish-S2-Pro }
+  - { base_group: MLAAD_PT, subgroup: Llasa-1B-Multilingual }
 
 features:
   scores: ../features/scores/lr_scores_balanced_full.csv

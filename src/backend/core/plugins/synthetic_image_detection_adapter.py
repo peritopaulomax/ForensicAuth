@@ -38,7 +38,7 @@ from core.technique_ids import SYNTHETIC_IMAGE_DETECTION
 _TYPICALITY_SYSTEMS = ("A", "B", "C", "D")
 _TYPICALITY_DISTANCES = ("cosine", "euclidean")
 
-_SCORE_HEADERS = ("Modelo", "Score AI", "Score Real", "Razão (Log)", "Classificação", "Dispositivo")
+_SCORE_HEADERS = ("Modelo", "Logit AI", "Logit Real", "Δ log10 (real−AI)", "Classificação", "Dispositivo")
 
 
 def _detector_scores_for_json(detector_scores: dict[str, Any]) -> dict[str, Any]:
@@ -217,7 +217,7 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
                         (
                             f"Calibrando LR+tipicidade ({n_items} subgrupos"
                             f"{', aumentada ×5' if use_augmented else ''}). "
-                            "Buscando cache local antes de recalibrar…"
+                            "Consultando cache; se nao houver, recalibra (pode demorar)…"
                         ),
                     )
                 else:
@@ -233,6 +233,12 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
                     else:
                         score_matrix = synthetic_score_matrix()
                     sample_multiplier = AUGMENTATION_MULTIPLIER if use_augmented else 1
+
+                    def lr_progress(pct: int, message: str) -> None:
+                        # Map LR sub-progress (0–100) into overall 96–99.
+                        mapped = 96 + int(min(3, max(0, pct) * 3 / 100))
+                        report_progress(on_progress, mapped, message)
+
                     lr_report = compute_reference_lr(
                         detector_scores=analysis.get("detector_scores", {}),
                         selection=parameters.get("reference_population"),
@@ -254,6 +260,7 @@ class SyntheticImageDetectionAdapter(ForensicPlugin):
                         typicality_system=str(parameters.get("typicality_system", DEFAULT_TYPICALITY_SYSTEM)),
                         typicality_k=int(parameters.get("typicality_k", DEFAULT_TYPICALITY_K)),
                         typicality_distance=str(parameters.get("typicality_distance", DEFAULT_TYPICALITY_DISTANCE)),
+                        on_progress=lr_progress,
                     )
                     result["reference_lr"] = lr_report
                     result["reference_lr_report_filename"] = "lr_reference_report.json"

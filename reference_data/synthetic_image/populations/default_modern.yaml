@@ -1,47 +1,31 @@
 version: 1
 id: default_modern
-label: Difusão moderna (Transformer + CNN) e AIGI Bench Social
+label: Default produto (11 geradores — Transformer/FLUX/MLLM)
 status: published
 description: >
-  População padrão de produto para calibração LR de imagens sintéticas:
-  macros Difusão Transformer e Difusão CNN (moderna), mais SocialRF (AIGI Bench Social).
+  População padrão de produto para calibração LR de imagens sintéticas
+  (seleção operacional: SD3/FLUX de vários bancos + SocialRF + MLLM/MeiGen).
 fit_items: &default_modern_items
-- base_group: GenImage
-  subgroup: Midjourney
-- base_group: Defactify
-  subgroup: DALL-E_3
-- base_group: Defactify
-  subgroup: Midjourney_v6
-- base_group: Defactify
-  subgroup: SD3
-- base_group: Defactify
-  subgroup: SDXL
-- base_group: AIGCDetectBenchmark
-  subgroup: Midjourney
-- base_group: AIGCDetectBenchmark
-  subgroup: SDXL
-- base_group: OpenSDI
-  subgroup: flux
-- base_group: OpenSDI
-  subgroup: sd3
 - base_group: AIGIBench_no_SocialRF
-  subgroup: DALLE-3
+  subgroup: SD3
 - base_group: AIGIBench_no_SocialRF
   subgroup: FLUX1-dev
-- base_group: AIGIBench_no_SocialRF
+- base_group: OpenSDI
+  subgroup: sd3
+- base_group: OpenSDI
+  subgroup: flux
+- base_group: Defactify
   subgroup: SD3
-- base_group: AIGIBench_SocialRF
-  subgroup: SocialRF
-- base_group: Synthbuster
-  subgroup: Adobe_Firefly
-- base_group: Synthbuster
-  subgroup: DALL-E_2
-- base_group: Synthbuster
-  subgroup: DALL-E_3
-- base_group: Synthbuster
-  subgroup: Midjourney_v5
-- base_group: Synthbuster
-  subgroup: Stable_Diffusion_XL
 - base_group: BFree_extended_synthbuster
   subgroup: FLUX
+- base_group: AIGIBench_SocialRF
+  subgroup: SocialRF
+- base_group: MLLMGenerated
+  subgroup: gpt_image2
+- base_group: MLLMGenerated
+  subgroup: nano_banana2
+- base_group: MeiGenTrending
+  subgroup: gptimage
+- base_group: MeiGenTrending
+  subgroup: nanobanana
 test_items: *default_modern_items

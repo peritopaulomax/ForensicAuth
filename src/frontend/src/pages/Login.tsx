@@ -17,7 +17,7 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      const { tokens, user } = await login({ username, password });
+      const { tokens, user } = await login({ username: username.trim(), password });
       setAuth(tokens.access_token, tokens.refresh_token, user);
       navigate("/");
     } catch (err: any) {

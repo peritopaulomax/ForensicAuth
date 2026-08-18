@@ -80,7 +80,7 @@ def _write_detector_scores_txt(out_dir: Path, rows: list[list[str]]) -> Path:
 
 
 class AudioSpoofingAdapter(ForensicPlugin):
-    """Detecção de spoofing de áudio com ensemble DF Arena 1B, SLS XLS-R e WeDefense WavLM + MHFA."""
+    """Detecção de spoofing de áudio com ensemble DF Arena 1B, SLS, WeDefense e TFCL."""
 
     @property
     def name(self) -> str:
@@ -94,7 +94,7 @@ class AudioSpoofingAdapter(ForensicPlugin):
     def description(self) -> str | None:
         return (
             "Deteccao de spoofing de audio com multiplos detectores "
-            "(DF Arena 1B, SLS XLS-R, WeDefense WavLM + MHFA), "
+            "(DF Arena 1B, SLS XLS-R, WeDefense WavLM + MHFA, TFCL XLS-R), "
             "janelas de 4s e vetor de escores por detector."
         )
 
@@ -317,7 +317,6 @@ class AudioSpoofingAdapter(ForensicPlugin):
                             selected_analyses
                             or (
                                 "df_arena_1b",
-                                "sls_xlsr",
                                 "wedefense_wavlm_mhfa",
                             )
                         ),

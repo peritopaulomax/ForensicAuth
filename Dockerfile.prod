@@ -3,7 +3,23 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies for WeasyPrint, OpenCV, etc.
+# g++ is required to compile jpegio's bundled libjpeg (Cython extension).
+# libgl1 is required by opencv-python (pulled in by mmengine).
+# libwebp7/libzstd1/liblzma5/libjbig0/libdeflate0 are libtiff.so.5 deps (libzero).
+# libimage-exiftool-perl provides the exiftool binary used by PyExifTool.
+# graphviz provides the `dot` binary used by pydot for PDF structure graphs.
+# ffmpeg provides ffprobe/ffmpeg for deep video/audio metadata and decoding.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    g++ \
+    libgl1 \
+    libwebp7 \
+    libzstd1 \
+    liblzma5 \
+    libjbig0 \
+    libdeflate0 \
+    libimage-exiftool-perl \
+    graphviz \
+    ffmpeg \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
     libharfbuzz-subset0 \
@@ -21,16 +37,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # constraints.txt pins every package to versions validated on the reference host.
 # POLICY: regenerate constraints.txt whenever requirements*.txt changes (see its header).
 ENV PIP_DEFAULT_TIMEOUT=100 \
-    PIP_RETRIES=10
+    PIP_RETRIES=10 \
+    LD_LIBRARY_PATH=/app/src/backend/lib/native
 COPY requirements.txt constraints.txt ./
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
-# Copy application code
-COPY src/backend/ ./
+# Copy application code mirroring the repo layout (/app/src/backend) so that
+# repo-root-relative paths (config.py parents[3], alembic.ini, forensics/paths.py)
+# resolve to /app inside the container. vendor/ is bind-mounted by compose.
+COPY src/backend/ /app/src/backend/
+COPY alembic.ini /app/alembic.ini
+COPY alembic/ /app/alembic/
 
 # Create required directories
-RUN mkdir -p uploads results derivatives peritus_cases
+RUN mkdir -p /app/uploads /app/results /app/derivatives /app/peritus_cases
+
+WORKDIR /app/src/backend
 
 EXPOSE 8000
 

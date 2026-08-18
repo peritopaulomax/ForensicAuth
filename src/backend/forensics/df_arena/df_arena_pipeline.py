@@ -171,8 +171,9 @@ def load_pipeline(device: torch.device | str | int | None = None) -> Any:
 SAMPLE_RATE = 16000
 WINDOW_SECONDS = 4.0
 
-# Limiar de incerteza: se ambas as probabilidades forem abaixo deste valor,
-# a decisão agregada é classificada como "uncertain".
+# Hard label: limiar no logit bonafide (convenção ASVspoof / TFCL infer_audio).
+BONAFIDE_LOGIT_THRESHOLD = 0.0
+# Mantido para testes/compat que ainda importam o nome antigo.
 UNCERTAINTY_THRESHOLD = 0.65
 
 
@@ -329,16 +330,7 @@ def infer_df_arena_windows(
 
     spoof_prob = float(agg_probs[0])
     bonafide_prob = float(agg_probs[1])
-    # Decision rule:
-    # - spoof_prob > 65%  -> Spoof
-    # - bonafide_prob > 65% -> Bonafide
-    # - otherwise (both <= 65%) -> Uncertain
-    if spoof_prob > UNCERTAINTY_THRESHOLD:
-        label = "spoof"
-    elif bonafide_prob > UNCERTAINTY_THRESHOLD:
-        label = "bonafide"
-    else:
-        label = "uncertain"
+    label = "bonafide" if agg_bonafide_logit >= BONAFIDE_LOGIT_THRESHOLD else "spoof"
 
     inference_device = "cpu"
     if device is not None:

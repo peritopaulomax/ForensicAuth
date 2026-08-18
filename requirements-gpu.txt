@@ -29,6 +29,9 @@ pycocotools>=2.0.11
 # ML / Boosting
 xgboost>=2.0.0
 
+# onnxruntime: exigido por torchmetrics.audio (import estatico via pytorch-lightning)
+onnxruntime>=1.16.0
+
 # Performance
 numba>=0.58.0
 

@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from models.user import User
-from services.auth_service import AuthService, PermissionDenied
+from services.auth_service import AuthService, PermissionDenied, normalize_email, normalize_username
 
 # Placeholder hash for users awaiting first-access password setup.
 UNSET_PASSWORD_PLAIN = "__FORENSIC_AUTH_UNSET_PASSWORD__"
@@ -33,10 +33,17 @@ class UserService:
         if current_user.role != "admin":
             raise PermissionDenied("Acesso negado para este recurso")
 
-        if self.db.query(User).filter(User.username == data["username"]).first():
+        username = normalize_username(data["username"])
+        email = normalize_email(data["email"])
+        if not username:
+            raise HTTPException(status_code=422, detail="Username invalido")
+        if not email:
+            raise HTTPException(status_code=422, detail="Email invalido")
+
+        if self.db.query(User).filter(User.username == username).first():
             raise HTTPException(status_code=409, detail="Username ja existe")
 
-        if self.db.query(User).filter(User.email == data["email"]).first():
+        if self.db.query(User).filter(User.email == email).first():
             raise HTTPException(status_code=409, detail="Email ja cadastrado")
 
         role = data["role"]
@@ -45,8 +52,8 @@ class UserService:
 
         user = User(
             id=uuid.uuid4(),
-            username=data["username"],
-            email=data["email"],
+            username=username,
+            email=email,
             hashed_password=unset_password_hash(),
             password_set=False,
             role=role,
@@ -68,11 +75,15 @@ class UserService:
         if user.id == current_user.id and data.get("is_active") is False:
             raise HTTPException(status_code=422, detail="Nao e possivel desativar o proprio usuario")
 
-        if "email" in data and data["email"] != user.email:
-            existing = self.db.query(User).filter(User.email == data["email"]).first()
-            if existing:
-                raise HTTPException(status_code=409, detail="Email ja cadastrado")
-            user.email = data["email"]
+        if "email" in data:
+            email = normalize_email(data["email"])
+            if not email:
+                raise HTTPException(status_code=422, detail="Email invalido")
+            if email != user.email:
+                existing = self.db.query(User).filter(User.email == email).first()
+                if existing:
+                    raise HTTPException(status_code=409, detail="Email ja cadastrado")
+                user.email = email
 
         if "role" in data:
             role = data["role"]

@@ -20,7 +20,8 @@ from forensics.audio_spoofing.embedding_utils import aggregate_embeddings, regis
 SAMPLE_RATE = 16000
 WINDOW_SECONDS = 4.0
 PAD_SAMPLES = 64600
-UNCERTAINTY_THRESHOLD = 0.65
+# Hard label: limiar no score bonafide (canal [:,1]), como no eval ASVspoof/TFCL.
+BONAFIDE_LOGIT_THRESHOLD = 0.0
 
 _model: Any | None = None
 _model_device: torch.device | None = None
@@ -179,12 +180,7 @@ def infer_sls_windows(
     spoof_prob = float(agg_probs[0])
     bonafide_prob = float(agg_probs[1])
 
-    if spoof_prob > UNCERTAINTY_THRESHOLD:
-        label = "spoof"
-    elif bonafide_prob > UNCERTAINTY_THRESHOLD:
-        label = "bonafide"
-    else:
-        label = "uncertain"
+    label = "bonafide" if agg_bonafide >= BONAFIDE_LOGIT_THRESHOLD else "spoof"
 
     result: dict[str, Any] = {
         "windows": window_results,

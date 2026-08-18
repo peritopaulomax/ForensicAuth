@@ -190,8 +190,11 @@ def test_register_base_updates_macros_yaml(tmp_path, monkeypatch):
 
 def test_voice_clone_population_yaml_loads():
     items = cat.population_as_dicts("audio_spoofing", "voice_clone_default")
-    assert len(items) >= 5
-    assert any(i["base_group"] == "DFADD" for i in items)
+    assert len(items) == 7
+    assert all(i["base_group"] == "MLAAD_PT" for i in items)
+    subgroups = {i["subgroup"] for i in items}
+    assert "Voxtral" in subgroups
+    assert "Llasa-1B-Multilingual" in subgroups
 
 
 def test_audio_refresh_from_disk_returns_yaml():

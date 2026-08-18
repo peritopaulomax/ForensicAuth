@@ -5,6 +5,12 @@ Prototype service for a selectable reference population:
 - trains a meta-classifier (logistic | xgboost) on detector logit features;
 - calibrates the meta-score with EER-based bi-Gaussianized calibration;
 - reports LR with positive values favoring H1 = real/authentic.
+
+Meta-classifier training is shared with audio spoofing and any scaffolded
+ensemble that calibrates LR. Logistic **must** go through
+``train_meta_classifier`` (z-score via ``StandardScaler``) so detectors with
+different logit scales remain comparable — do not fit bare
+``LogisticRegression`` on raw detector scores.
 """
 
 from __future__ import annotations
@@ -26,7 +32,11 @@ from scipy.stats import gaussian_kde, norm
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
+
+from core.progress import ProgressCallback, report_progress
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -557,15 +567,23 @@ def _expand_macro(macro_id: str) -> list[PopulationItem]:
 
 
 def _build_default_modern_reference() -> tuple[PopulationItem, ...]:
-    """Difusão Transformer + Difusão CNN moderna + AIGI Bench Social (SocialRF)."""
-    by_key: dict[str, PopulationItem] = {}
-    for macro_id in ("diffusion_transformer", "diffusion_cnn_modern"):
-        for item in _expand_macro(macro_id):
-            by_key[item.key] = item
-    by_key["AIGIBench_SocialRF/SocialRF"] = PopulationItem("AIGIBench_SocialRF", "SocialRF")
-    selected = set(by_key)
+    """Fallback se populations/default_modern.yaml estiver ausente."""
+    fallback = (
+        PopulationItem("AIGIBench_no_SocialRF", "SD3"),
+        PopulationItem("AIGIBench_no_SocialRF", "FLUX1-dev"),
+        PopulationItem("OpenSDI", "sd3"),
+        PopulationItem("OpenSDI", "flux"),
+        PopulationItem("Defactify", "SD3"),
+        PopulationItem("BFree_extended_synthbuster", "FLUX"),
+        PopulationItem("AIGIBench_SocialRF", "SocialRF"),
+        PopulationItem("MLLMGenerated", "gpt_image2"),
+        PopulationItem("MLLMGenerated", "nano_banana2"),
+        PopulationItem("MeiGenTrending", "gptimage"),
+        PopulationItem("MeiGenTrending", "nanobanana"),
+    )
+    selected = {item.key for item in fallback}
     ordered = [item for item in _default_items() if item.key in selected]
-    return tuple(ordered or by_key.values())
+    return tuple(ordered or fallback)
 
 
 def default_reference_population() -> list[dict[str, str]]:
@@ -1036,18 +1054,33 @@ def normalize_meta_classifier(classifier: str | None = None) -> str:
     return _validate_classifier(classifier or DEFAULT_META_CLASSIFIER)
 
 
-def _train_meta_classifier(
+def train_meta_classifier(
     classifier: str,
     x: np.ndarray,
     y: np.ndarray,
     feature_cols: list[str],
     seed: int,
 ) -> Any:
-    """Train a meta-classifier on detector logit features (logistic | xgboost)."""
+    """Train a meta-classifier on detector logit features (logistic | xgboost).
+
+    **Contract for all ensemble LR paths** (synthetic image, audio spoofing,
+    scaffolded ``reference_lr.mode=calibrated``): logistic always wraps
+    ``StandardScaler`` → ``LogisticRegression`` so z-scored features are
+    comparable across detectors. XGBoost is unscaled (tree splits are
+    scale-invariant). Prefer this API over fitting sklearn estimators directly.
+    """
     del feature_cols  # reserved for future per-feature options
     classifier = _validate_classifier(classifier)
     if classifier == "logistic":
-        model: Any = LogisticRegression(C=1.0, max_iter=2000, solver="lbfgs", random_state=seed)
+        model: Any = Pipeline(
+            steps=[
+                ("scaler", StandardScaler()),
+                (
+                    "clf",
+                    LogisticRegression(C=1.0, max_iter=2000, solver="lbfgs", random_state=seed),
+                ),
+            ]
+        )
     elif classifier == "xgboost":
         model = XGBClassifier(
             n_estimators=100,
@@ -1067,10 +1100,14 @@ def _train_meta_classifier(
     return model
 
 
+# Backward-compatible alias (internal call sites / older imports).
+_train_meta_classifier = train_meta_classifier
+
+
 def _classifier_decision_scores(model: Any, x: np.ndarray) -> np.ndarray:
     """Return a real-valued score in the direction real > synthetic.
 
-    Prefer decision_function when present (LogisticRegression linear score).
+    Prefer decision_function when present (LogisticRegression / Pipeline).
     Otherwise use logit(p_real) from predict_proba (XGBoost).
     """
     if hasattr(model, "decision_function"):
@@ -1080,12 +1117,24 @@ def _classifier_decision_scores(model: Any, x: np.ndarray) -> np.ndarray:
     return _logit_prob(p_real)
 
 
+def _unwrap_meta_estimator(model: Any) -> Any:
+    """Return the final estimator inside a Pipeline, if any."""
+    if isinstance(model, Pipeline):
+        return model.named_steps.get("clf") or model.steps[-1][1]
+    return model
+
+
 def _classifier_feature_importance(model: Any, feature_cols: list[str]) -> dict[str, float] | None:
-    """Return logistic coefficients or XGBoost feature importances when available."""
-    if hasattr(model, "coef_"):
-        return dict(zip(feature_cols, np.asarray(model.coef_[0], dtype=float).tolist()))
-    if hasattr(model, "feature_importances_"):
-        return dict(zip(feature_cols, np.asarray(model.feature_importances_, dtype=float).tolist()))
+    """Return logistic coefficients or XGBoost feature importances when available.
+
+    For logistic+StandardScaler, coefficients are on z-scored features (comparable
+    across detectors).
+    """
+    est = _unwrap_meta_estimator(model)
+    if hasattr(est, "coef_"):
+        return dict(zip(feature_cols, np.asarray(est.coef_[0], dtype=float).tolist()))
+    if hasattr(est, "feature_importances_"):
+        return dict(zip(feature_cols, np.asarray(est.feature_importances_, dtype=float).tolist()))
     return None
 
 
@@ -1579,6 +1628,8 @@ def _cache_key_from_parts(
         ),
         "selected_detectors": list(selected_detectors),
         "classifier": classifier,
+        # Invalidate pre-scaler logistic caches; xgboost unchanged.
+        "feature_scale": "zscore" if classifier == "logistic" else "none",
         "seed": seed,
         "sample_multiplier": sample_multiplier,
         "sample_per_class": SAMPLE_PER_CLASS,
@@ -1939,7 +1990,9 @@ def _build_report(
     }
     if classifier == "logistic":
         report["logreg_coefficients"] = feature_weights
-        report["logreg_intercept"] = float(model.intercept_[0])
+        est = _unwrap_meta_estimator(model)
+        if hasattr(est, "intercept_"):
+            report["logreg_intercept"] = float(est.intercept_[0])
     _write_json(out_dir / "lr_reference_report.json", report)
     _write_summary_txt(out_dir / summary_name, report)
     joblib.dump(
@@ -1970,6 +2023,7 @@ def compute_reference_lr(
     typicality_system: str = DEFAULT_TYPICALITY_SYSTEM,
     typicality_k: int = DEFAULT_TYPICALITY_K,
     typicality_distance: str = DEFAULT_TYPICALITY_DISTANCE,
+    on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     import logging
     import time
@@ -2026,6 +2080,7 @@ def compute_reference_lr(
 
     # Cache-first: probe legacy joblib names BEFORE reading the multi-hundred-MB CSV.
     t0 = time.perf_counter()
+    report_progress(on_progress, 8, "Consultando cache de calibracao LR…")
     hash_candidates: list[str] = []
     if use_latent_typicality:
         hash_candidates.extend(_LEGACY_REPS_MATRIX_HASHES)
@@ -2056,6 +2111,11 @@ def compute_reference_lr(
                 f"[synthetic_lr] trying cache {candidate_key} ({path.stat().st_size / 1e6:.0f} MB)…",
                 flush=True,
             )
+            report_progress(
+                on_progress,
+                12,
+                f"Lendo cache LR ({path.stat().st_size / 1e6:.0f} MB)…",
+            )
             candidate = _load_lr_cache(candidate_key)
             if candidate is None:
                 continue
@@ -2082,12 +2142,14 @@ def compute_reference_lr(
     if not _try_keys(cache_keys):
         # Prefer path-stable hash (sidecar-cached); only then pay for raw SHA
         # and only if the primary key still misses.
+        report_progress(on_progress, 14, "Calculando hash da matriz de referencia…")
         stable_hash = _score_matrix_hash(effective_score_matrix)
         stable_key = _cache_key_from_parts(score_matrix_hash=stable_hash, **key_parts)
         if stable_key not in seen_keys:
             seen_keys.add(stable_key)
             cache_keys.append(stable_key)
         if not _try_keys([stable_key]):
+            report_progress(on_progress, 16, "Recalculando hash SHA da matriz (pode demorar)…")
             raw_hash = _raw_file_hash(effective_score_matrix)
             raw_key = _cache_key_from_parts(score_matrix_hash=raw_hash, **key_parts)
             if raw_key not in seen_keys:
@@ -2100,6 +2162,7 @@ def compute_reference_lr(
     )
 
     if used_cache:
+        report_progress(on_progress, 90, "Cache de calibracao LR encontrado — reutilizando modelo")
         msg = (
             f"[synthetic_lr] CACHE HIT key={hit_key} primary={cache_key} "
             f"items={len(items)} latent={use_latent_typicality} mult={sample_multiplier} "
@@ -2180,12 +2243,27 @@ def compute_reference_lr(
     )
     print(msg, flush=True)
     log.info(msg)
+    report_progress(
+        on_progress,
+        18,
+        (
+            f"Cache miss — recalibrando LR ({len(items)} subgrupos"
+            f"{', tipicidade latente' if use_latent_typicality else ''}"
+            f"{', aug×' + str(sample_multiplier) if sample_multiplier > 1 else ''}). "
+            "Isso pode levar varios minutos…"
+        ),
+    )
 
     df = _load_scores(effective_score_matrix)
     if use_latent_typicality:
         print(
             f"[synthetic_lr] filtering embeddings on {len(df)} rows…",
             flush=True,
+        )
+        report_progress(
+            on_progress,
+            22,
+            f"Filtrando embeddings na matriz ({len(df)} linhas)…",
         )
         df = _filter_rows_with_embeddings(df, selected_detectors)
         if df.empty:
@@ -2256,6 +2334,11 @@ def compute_reference_lr(
         f"(mult={sample_multiplier})…",
         flush=True,
     )
+    report_progress(
+        on_progress,
+        30,
+        f"Montando amostra/splits ({len(items)} subgrupos, mult={sample_multiplier})…",
+    )
     sample = _build_reference_sample(df, items, seed, sample_multiplier=sample_multiplier)
     split = _assign_splits(sample, seed, sample_multiplier=sample_multiplier)
     split = _filter_working_split(split, roles)
@@ -2266,12 +2349,18 @@ def compute_reference_lr(
             f"[synthetic_lr] building typicality refs on train={len(train)} rows…",
             flush=True,
         )
+        report_progress(
+            on_progress,
+            40,
+            f"Construindo tipicidade latente (k-NN) no treino ({len(train)} linhas)…",
+        )
         typicality_refs = _build_typicality_refs(
             train,
             selected_detectors,
             typicality_k,
             typicality_distance,
         )
+        report_progress(on_progress, 55, "Materializando features de tipicidade…")
         train = _materialize_typicality_features(
             train.copy(), typicality_refs, selected_detectors
         )
@@ -2290,11 +2379,14 @@ def compute_reference_lr(
                     ignore_index=True,
                 )
 
+    report_progress(on_progress, 70, f"Treinando meta-classificador ({classifier})…")
     x_train = train[feature_cols].to_numpy(dtype=float)
     y_train = (1 - train["y_fake"].astype(int)).to_numpy()
-    model = _train_meta_classifier(classifier, x_train, y_train, feature_cols, seed)
+    model = train_meta_classifier(classifier, x_train, y_train, feature_cols, seed)
+    report_progress(on_progress, 82, "Calibracao bi-Gaussiana (EER)…")
     calibration = _fit_bigauss(split, model, feature_cols)
     scored = _score_dataframe(split, model, calibration, feature_cols)
+    report_progress(on_progress, 90, "Gravando cache LR em disco…")
     _save_lr_cache(
         cache_key=cache_key,
         model=model,
@@ -2322,6 +2414,11 @@ def compute_reference_lr(
     print(
         f"[synthetic_lr] calibrated+cached in {time.perf_counter() - t0:.1f}s key={cache_key}",
         flush=True,
+    )
+    report_progress(
+        on_progress,
+        95,
+        f"LR calibrado em {time.perf_counter() - t0:.0f}s — gerando relatorio…",
     )
 
     return _build_report(
