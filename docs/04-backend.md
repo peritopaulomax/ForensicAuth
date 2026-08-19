@@ -57,7 +57,7 @@ flowchart LR
 
 Entidades em `models/`: `User`, `Case`, `Evidence`, `AnalysisJob`, `CustodyRecord`, `CaseShare`, `CaseClosure`, `CaseClosureSignature`. Não há modelo/API de laudo unificado (`reports` removido).
 
-Tipos de evidência: `imagem` | `audio` | `video` | `pdf` | `documento`.
+Tipos de evidência: `imagem` | `audio` | `video` | `pdf` .
 
 ## Fluxo crítico: upload
 
