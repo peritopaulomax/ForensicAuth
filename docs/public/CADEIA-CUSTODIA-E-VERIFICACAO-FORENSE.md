@@ -1,6 +1,6 @@
 # Cadeia de custódia, assinaturas e verificação forense
 
-Documento técnico para peritos, auditores e administradores que precisam entender **como o ForensicAuth garante rastreabilidade**, **o que cada verificação faz** e **como ataques ou adulterações são detectados**.
+Documento técnico para peritos, e administradores que precisam entender **como o ForensicAuth garante rastreabilidade**, **o que cada verificação faz** e **como ataques ou adulterações são detectados**.
 
 ---
 
