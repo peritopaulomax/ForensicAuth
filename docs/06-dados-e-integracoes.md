@@ -24,8 +24,6 @@ erDiagram
   Case ||--o{ CaseClosure : fecha
 ```
 
-(Laudo PDF unificado / tabela `reports`: **fora de escopo** — removidos do código e schema.)
-
 ## Ciclo de vida dos arquivos
 
 ```text
@@ -38,7 +36,7 @@ VCP     → pacote .vcp.zip nativo (export/import entre instâncias ForensicAuth
 
 Soft-delete de caso/evidência **não** apaga a cadeia de custódia.
 
-**Peritus ≠ VCP.** São canais distintos (`peritus_bridge_service` vs `case_transfer_service`). O diretório `data/peritus_cases/` é o workspace do bridge legado (cópia/extração do ZIP), não o destino do VCP.
+**Peritus ≠ VCP.** São canais distintos (`peritus_bridge_service` vs `case_transfer_service`). O diretório `data/peritus_cases/` é o workspace do bridge legado do Peritus (cópia/extração do ZIP), não o destino do VCP.
 
 ## Migrações
 
@@ -69,12 +67,12 @@ Evidências = material sensível. Backup: **DB + `data/` + chaves Ed25519 + `.en
 ls data/uploads data/results data/derivatives reference_data
 ```
 
-## Armadilhas
+## Atenção
 
 - Apagar só o banco deixa órfãos no disco (e vice-versa).  
 - Worker remoto sem NFS/mesmo path quebra jobs.  
 - `reference_data` incompleto → LR calibrado falha ou degrada.  
-- Confundir VCP com Peritus: pacotes e endpoints não são intercambiáveis.
+- Não confundir VCP com pacote Peritus: pacotes e endpoints não são intercambiáveis.
 
 ## Próximo
 
