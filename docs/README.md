@@ -28,8 +28,8 @@ Manual pedagógico do sistema. Público: quem vai contribuir código ou operar a
 | 5 | Ver custódia e verify | Aba custódia / `audit/verify-case-forensic` |
 | 6 | (Opcional GPU) subir `worker-gpu` e uma técnica ML | `/api/v1/analysis/gpu-queue` |
 | 7 | Rodar testes default + ler AGENTS.md Regra 8 | `pytest … -m "not weights and not gpu"` |
-
-## O que o repositório usa
+O que o repositório usa
+## Repositório
 
 | Tema | Presente? | Onde aprofundar |
 |------|-----------|-----------------|
@@ -42,8 +42,7 @@ Manual pedagógico do sistema. Público: quem vai contribuir código ou operar a
 | TDD / testes | Sim | [10](10-testes-e-qualidade.md) |
 | Scripts / automação | Parcial | [07](07-operacao-e-setup.md) — `scripts/technique/` |
 
-## Outras pastas em `docs/` (já existentes — mantidas)
-
+## Outras pastas em `docs/` 
 | Pasta | Público | Conteúdo |
 |-------|---------|----------|
 | [`public/`](public/) | Ops / peritos | Instalação Linux, custódia, VCP |
