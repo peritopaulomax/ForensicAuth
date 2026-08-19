@@ -22,7 +22,7 @@ Pipeline order (canonical paths first, then GPU features)::
        → ``reference_data/audio_spoofing/features/``
     5. Optionally register catalog (``macros.yaml``, ``bases.json``)
 
-Does **not** import or call legacy ops scripts under ``Raiz VA-Suite``.
+
 
 Example::
 

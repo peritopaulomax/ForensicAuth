@@ -136,6 +136,9 @@ reference_data/synthetic_image/experiments/
 !reference_data/README.md
 !reference_data/**/catalog/
 !reference_data/**/catalog/**
+# Exclude backup files even inside catalog/
+reference_data/**/*.bak*
+reference_data/**/*.bak_*
 !reference_data/**/populations/
 !reference_data/**/populations/**
 
@@ -215,6 +218,10 @@ vendor/**/runs/
 vendor/**/examples/**/*.mp4
 vendor/**/*.mp4
 vendor/**/events.out.tfevents*
+# Vendor temp/scratch files
+vendor/**/*.tmp
+vendor/**/tmp.txt
+vendor/**/tmp/
 
 # External nested repositories kept outside this GitHub repo
 Legados/Peritus/copy-move-forgery-detection-pca/

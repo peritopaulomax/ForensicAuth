@@ -19,7 +19,7 @@ Pipeline order (canonical paths first, then GPU features)::
     4. Score + embed (ForensicAuth ``predict_ensemble``) → ``reference_data/.../features/``
     5. Optionally register catalog (``macros.yaml``, ``bases.json``)
 
-Does **not** import or call legacy ops scripts under ``Raiz VA-Suite``.
+
 
 Example::
 
