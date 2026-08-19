@@ -1,4 +1,4 @@
-# Documentação humana — ForensicAuth (VA Suite)
+# Documentação — ForensicAuth
 
 Manual pedagógico do sistema. Público: quem vai contribuir código ou operar a stack.
 
