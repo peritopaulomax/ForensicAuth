@@ -112,9 +112,9 @@ Worker remoto: [`deploy/WORKER-REMOTE.md`](deploy/WORKER-REMOTE.md).
 | Path | Função |
 |------|--------|
 | `scripts/technique/` | Scaffold de técnica (contribuidores) |
-| Download de pesos / calibração | Tooling do ambiente — conferir disponibilidade no clone |
+| Download de pesos / calibração | Ferramental do ambiente |
 
-Infra e workers: use Compose ou os comandos manuais desta página (não dependa de `ops/scripts/`).
+Infra e workers: use Compose ou os comandos manuais desta página.
 
 ## Como verificar
 
@@ -126,7 +126,7 @@ Infra e workers: use Compose ou os comandos manuais desta página (não dependa 
 | GPU | job ML + `gpu-queue` / logs worker-gpu |
 | FE | abrir :3000 ou :80 no Compose |
 
-## Armadilhas
+## Atenção
 
 - Compose GPU sem frontend → UI “sumiu”.  
 - API com role errada fazendo warmup → VRAM desperdiçada.  
