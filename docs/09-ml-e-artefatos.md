@@ -26,13 +26,7 @@ flowchart LR
     A1[audio_spoofing_detection] --> A2[df_arena / wedefense / sls / tfcl]
     A2 --> A3[LR calibrado]
   end
-  subgraph Face[Facial]
-    F1[PAD] --> F2[MiniFASNet]
-    F3[moe_ffd] --> F4[MoE forgery]
-  end
-  subgraph Video[Vídeo ML]
-    V1[videofact / stil / lowres]
-  end
+ 
 ```
 
 Todas acima (lista GPU) usam fila **`gpu`** — ver `core/gpu_inference.py`.
