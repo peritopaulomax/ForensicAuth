@@ -9,7 +9,7 @@ Documento técnico para peritos, e administradores que precisam entender **como 
 A cadeia de custódia responde a três perguntas forenses:
 
 1. **O que aconteceu?** — upload, derivado salvo, compartilhamento, fechamento, exclusão, importação VCP, etc.
-2. **Quem fez?** — usuário autenticado (`user_id`) no momento do evento.
+2. **Quem fez?** — usuário autenticado (`user_id`)honestas no momento do evento.
 3. **Com que integridade?** — hashes SHA-256 dos bytes envolvidos + encadeamento criptográfico + assinatura Ed25519 da instalação.
 
 Registros são **somente inserção** (append-only). A aplicação não reescreve elos antigos em operação normal.
@@ -220,7 +220,7 @@ Ver: [PACOTE-VERIFICATION-CASE-PACKAGE.md](PACOTE-VERIFICATION-CASE-PACKAGE.md).
 
 ---
 
-## 13. Resumo para o perito
+## 13. Resumo
 
 - **Cadeia** = diário encadeado por hash; detecta adulteração do log.
 - **Assinatura** = carimbo criptográfico da instalação sobre cada digest.
