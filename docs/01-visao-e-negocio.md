@@ -2,31 +2,31 @@
 
 ## O que é
 
-**ForensicAuth** (repositório VA Suite) é uma plataforma web **local/offline** para peritos criminais analisarem autenticidade e manipulação de **imagem, áudio, vídeo e PDF**, com:
+**ForensicAuth**  é uma plataforma web **local/offline** para peritos criminais analisarem autenticidade e manipulação de **imagem, áudio, vídeo e PDF**, com:
 
 - organização por **casos** e **evidências**;
 - execução de **técnicas forenses** (clássicas e ML);
 - **cadeia de custódia digital** (hashes + elos encadeados + assinatura Ed25519);
 - transferência de casos (**VCP** / Peritus).
 
-Não há (e não está no produto) **laudo PDF oficial unificado**. Cada técnica entrega seus artefatos; a peça de transferência entre instâncias é o VCP.
+Cada técnica entrega seus artefatos; a peça de transferência entre instâncias é o VCP.
 
-Analogia: uma **sala de perícia** com prateleira de evidências, instrumentos (plugins), um scanner GPU compartilhado e um livro de protocolo lacrado (custódia).
+Analogia: uma **laboratório** de evidências, instrumentos (plugins), motores GPU compartilhado e um livro de protocolo/custódia.
 
 ## Problema que resolve
 
-Unificar dezenas de métodos espalhados em notebooks/legados numa aplicação multiusuário, auditável e reprodutível, sem depender de APIs de nuvem de modelo (RNF-01).
+Unificar dezenas de métodos espalhados em notebooks/legados numa aplicação multiusuário, auditável e reprodutível, sem depender de APIs de nuvem de modelo externas e fora do domínio da organização.
 
 ## Quem usa
 
 | Perfil | Role | Faz |
 |--------|------|-----|
-| **Admin** | `admin` | Usuários, visão ampla de auditoria |
+| **Admin** | `admin` | Usuário com visão ampla de auditoria |
 | **Perito** | `perito` | Casos, uploads, técnicas, shares, fechamento, VCP |
 
-Colaboração: **CaseShare** (viewer/editor). Não existe perfil “analista”.
+Colaboração: **CaseShare** (viewer/editor).
 
-## Jornada típica do perito
+## Fluxo
 
 ```mermaid
 flowchart LR
@@ -55,12 +55,11 @@ flowchart LR
 
 Fonte: [`specs/00-overview.md`](specs/00-overview.md).
 
-## O que o produto *não* é
+## O que o produto *não* faz
 
 - SaaS com modelos na nuvem  
-- Microserviços por técnica  
-- Gerador de **laudo PDF institucional**  
-- Sistema que “lacra” **todo** job exploratório na custódia  
+- Gerador de **laudo**  
+- Registro de **todo** job exploratório na custódia, apenas derivados  
 
 ## Como verificar
 
