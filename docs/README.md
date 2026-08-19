@@ -2,7 +2,7 @@
 
 Manual pedagógico do sistema. Público: quem vai contribuir código ou operar a stack.
 
-> Specs SDD (`docs/specs/`) descrevem contratos; este manual explica *como pensar e operar*.
+> Specs SDD (`docs/specs/`) descrevem contrato.
 
 ## Ordem de leitura sugerida
 
