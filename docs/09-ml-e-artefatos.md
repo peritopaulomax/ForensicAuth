@@ -2,13 +2,13 @@
 
 ## O que é
 
-O ForensicAuth faz **inferência local** com pesos em `models/` e, para algumas técnicas, **calibração LR / typicality** com populações em **`reference_data/`** (não em `config/` de protocolo).
+O ForensicAuth faz **inferência local** com pesos em `models/` e, para algumas técnicas, **calibração LR / typicality** com populações em **`reference_data/`**.
 
-## Onde vive
+## Onde está
 
 | Artefato | Path |
 |----------|------|
-| Checkpoints | `models/` (sepael, safire, pad, moe_ffd, videofact, spoofing, IMDL/TruFor, …) |
+| Checkpoints | `models/` (sepael, spoofing, IMDL/TruFor, …) |
 | Catálogos LR | `reference_data/audio_spoofing/`, `reference_data/synthetic_image/` |
 | Código 1P ML | `src/backend/forensics/*` |
 | Código 3P | `vendor/*` |
