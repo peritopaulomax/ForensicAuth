@@ -10,7 +10,7 @@ O **Verification Case Package (VCP)** é o formato de transferência entre insta
 
 | Objetivo | Como o VCP atende |
 |----------|-------------------|
-| Transferir caso completo para outro órgão | UUIDs, cadeia e hashes preservados |
+| Transferir caso completo para outro órgão/instancia | UUIDs, cadeia e hashes preservados |
 | Auditoria offline | Validar sem gravar (`validate`) |
 | Disaster recovery | Restaurar caso em nova instalação |
 | Substituir tombstone | Reimportar caso excluido (soft-delete) com audit trail |
