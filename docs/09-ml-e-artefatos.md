@@ -45,7 +45,7 @@ escalas de logit entre detectores; XGBoost permanece sem scaler. Cache LR inclui
 - Atualizar só com pin/teste e consciência de licença.  
 - Ter vendor ≠ técnica ativa (standby).
 
-Lista exemplificativa: `SAFE`, `SAFIRE-main`, `df_arena_1b`, `wedefense`, `sls_asvspoof`, `tfcl`, `MoE-FFD`, `videofact-wacv-2024`, `truebees_deepfake_detectors`, …
+Lista exemplificativa: `df_arena_1b`, `wedefense`, …
 
 ## Warmup e papéis de processo
 
