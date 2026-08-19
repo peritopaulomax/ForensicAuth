@@ -13,21 +13,49 @@ from services.job_service import JobService
 
 def _execute_job(self, job_id: str) -> dict:
     """Shared execution logic for CPU and GPU forensic analysis tasks."""
+    from app.config import get_settings
+    from core.gpu_inference import GpuVramExhausted, cuda_memory_snapshot
+
     db = SessionLocal()
     try:
         service = JobService(db)
         job = service.get_job(uuid.UUID(job_id))
         technique = job.technique
+        settings = get_settings()
 
         def _run() -> object:
             return service.run_job(uuid.UUID(job_id))
 
         if technique in ML_GPU_TECHNIQUES:
+            # Pre-check: sem VRAM minima, re-enfileira sem nem tentar — outro
+            # worker GPU (ou o mesmo, ja livre) pega a task no retry.
+            snap = cuda_memory_snapshot()
+            free_mb = snap.get("free_mb")
+            if (
+                settings.GPU_AVAILABLE
+                and free_mb is not None
+                and free_mb < settings.GPU_MIN_FREE_MB
+                and self.request.retries < self.max_retries
+            ):
+                raise self.retry(
+                    countdown=45,
+                    exc=GpuVramExhausted(
+                        f"VRAM livre ({free_mb} MiB) abaixo do minimo "
+                        f"({settings.GPU_MIN_FREE_MB} MiB); aguardando GPU liberar"
+                    ),
+                )
             with gpu_distributed_lock(blocking=True) as acquired:
                 if not acquired:
                     raise self.retry(countdown=30, exc=RuntimeError("GPU lock timeout"))
                 with ml_gpu_job_slot(technique):
-                    job = _run()
+                    try:
+                        job = _run()
+                    except GpuVramExhausted as exc:
+                        # OOM persistiu apos purge+retry no pipeline: devolve a
+                        # task para a fila para outra GPU (ou esta, ja livre).
+                        if self.request.retries < self.max_retries:
+                            raise self.retry(countdown=45, exc=exc) from exc
+                        raise
         else:
             job = _run()
 

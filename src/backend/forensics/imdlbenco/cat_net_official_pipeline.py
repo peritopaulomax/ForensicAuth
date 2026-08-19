@@ -255,7 +255,7 @@ def run_cat_net_official_analysis(
         def _run(device):
             return _infer_official(evidence_path, device)
 
-        payload, device = run_with_device_fallback(_run, allow_cpu_fallback=True)
+        payload, device = run_with_device_fallback(_run)
         gpu_fallback_reason = pop_gpu_fallback_reason()
         if device.type == "cpu" and gpu_fallback_reason:
             gpu_fallback_warning = (

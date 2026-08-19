@@ -420,7 +420,6 @@ def run_safire_analysis(
             _run,
             on_fallback=clear_predictor_cache,
             on_before_cpu_fallback=_on_gpu_oom,
-            allow_cpu_fallback=True,
         )
         gpu_fallback_reason = pop_gpu_fallback_reason()
         if result.inference_device == "cpu" and gpu_fallback_reason:

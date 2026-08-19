@@ -251,7 +251,6 @@ def run_trufor_official_analysis(
             _run,
             on_fallback=lambda: evict_cache_keys_on_device(getattr(_load_model, "_cache", {})),
             on_before_cpu_fallback=_on_gpu_oom,
-            allow_cpu_fallback=True,
         )
         used_cpu_fallback = device.type == "cpu"
         gpu_fallback_reason = pop_gpu_fallback_reason()

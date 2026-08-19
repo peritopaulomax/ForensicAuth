@@ -213,45 +213,75 @@ def purge_foreign_gpu_model_caches(*, include_trufor: bool = True) -> None:
     release_gpu_memory()
 
 
+class GpuVramExhausted(RuntimeError):
+    """GPU OOM persisted even after purging resident model caches and retrying.
+
+    The Celery task layer catches this to requeue the job on another GPU
+    worker instead of silently degrading to CPU.
+    """
+
+
+def _cpu_fallback_allowed(allow_cpu_fallback: bool | None) -> bool:
+    """Explicit arg wins; otherwise the GPU_ALLOW_CPU_FALLBACK setting decides."""
+    if allow_cpu_fallback is not None:
+        return allow_cpu_fallback
+    try:
+        from app.config import get_settings
+
+        return bool(get_settings().GPU_ALLOW_CPU_FALLBACK)
+    except Exception:
+        return False
+
+
 def run_with_device_fallback(
     run_fn: Callable[[Any], T],
     *,
     on_fallback: Callable[[], None] | None = None,
     on_before_cpu_fallback: Callable[[str], None] | None = None,
-    allow_cpu_fallback: bool = True,
+    allow_cpu_fallback: bool | None = None,
 ) -> tuple[T, Any]:
-    """Run inference on CUDA first; retry on CPU after CUDA/OOM failures."""
+    """Run inference on CUDA; on OOM purge caches and retry GPU once before
+    falling back to CPU (only when the GPU_ALLOW_CPU_FALLBACK policy allows)."""
     import torch
 
     global _last_gpu_fallback_reason
     _last_gpu_fallback_reason = None
 
     device = resolve_inference_device()
-    try:
-        return run_fn(device), device
-    except RuntimeError as exc:
-        if device.type != "cuda" or not is_cuda_oom_or_device_error(exc):
-            raise
-        _last_gpu_fallback_reason = str(exc)
-        logger.warning("GPU inference failed; falling back to CPU: %s", exc)
-        if not allow_cpu_fallback:
+    cpu_allowed = _cpu_fallback_allowed(allow_cpu_fallback)
+    gpu_attempted = False
+    while True:
+        try:
+            return run_fn(device), device
+        except RuntimeError as exc:
+            if device.type != "cuda" or not is_cuda_oom_or_device_error(exc):
+                raise
+            _last_gpu_fallback_reason = str(exc)
+            if not gpu_attempted:
+                # First OOM: purge resident model caches and retry the same GPU once.
+                gpu_attempted = True
+                logger.warning("GPU OOM; purging resident caches and retrying on GPU: %s", exc)
+                purge_foreign_gpu_model_caches(include_trufor=True)
+                continue
+            if not cpu_allowed:
+                purge_foreign_gpu_model_caches(include_trufor=True)
+                raise GpuVramExhausted(
+                    "VRAM insuficiente na GPU mesmo apos purge de caches. "
+                    "O job sera re-enfileirado para outra GPU livre; "
+                    "fallback para CPU desabilitado (GPU_ALLOW_CPU_FALLBACK=false). "
+                    f"Detalhe CUDA: {exc}"
+                ) from exc
+            logger.warning("GPU inference failed; falling back to CPU: %s", exc)
+            if on_before_cpu_fallback is not None:
+                on_before_cpu_fallback(str(exc))
             purge_foreign_gpu_model_caches(include_trufor=True)
-            raise RuntimeError(
-                "VRAM insuficiente para TruFor full-res na GPU. "
-                "Aguarde outros jobs ML terminarem ou reinicie o backend para liberar a GPU. "
-                f"Detalhe CUDA: {exc}"
-            ) from exc
-        if on_before_cpu_fallback is not None:
-            on_before_cpu_fallback(str(exc))
-        purge_foreign_gpu_model_caches(include_trufor=True)
-        if on_fallback is not None:
-            on_fallback()
-        device = torch.device("cpu")
-        return run_fn(device), device
-    finally:
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+            if on_fallback is not None:
+                on_fallback()
+            device = torch.device("cpu")
+        finally:
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
 
 def evict_cache_keys_on_device(cache: dict, device_label: str = "cuda") -> None:
