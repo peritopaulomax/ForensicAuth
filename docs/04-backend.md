@@ -120,7 +120,7 @@ Motor (forensics/... ou vendor/...)
     → algoritmo / modelo
 ```
 
-Exemplos de nomes ativos: `prnu`, `jpeg_ghosts`, `synthetic_image_detection`, `audio_spoofing_detection`, `isomedia_parser`, `pdf_forensic_extract`, `presentation_attack_detection`, `moe_ffd`, …
+Exemplos de nomes ativos: `prnu`, `jpeg_ghosts`, `synthetic_image_detection`, `audio_spoofing_detection`, `isomedia_parser`, `pdf_forensic_extract`, …
 
 Guia para nova técnica: [`developer/03-scaffold-technique.md`](developer/03-scaffold-technique.md).
 
