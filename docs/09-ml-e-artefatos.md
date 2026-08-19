@@ -23,7 +23,7 @@ flowchart LR
     S2 --> S3[LR / typicality opcional]
   end
   subgraph Audio[Áudio spoofing]
-    A1[audio_spoofing_detection] --> A2[df_arena / wedefense / sls / tfcl]
+    A1[audio_spoofing_detection] --> A2[df_arena / wedefense ]
     A2 --> A3[LR calibrado]
   end
  
