@@ -48,7 +48,7 @@ Definidas em `src/App.tsx` (paths aproximados):
 
 ## Technique registry (fluxo UI → API)
 
-O mapa **técnica → página React** vive em `src/frontend/src/config/techniqueRegistry.tsx`.
+O mapa **técnica → página React** está em `src/frontend/src/config/techniqueRegistry.tsx`.
 
 ```mermaid
 flowchart TB
