@@ -72,7 +72,7 @@ Produção: [`public/INSTALACAO-PRODUCAO-LINUX.md`](public/INSTALACAO-PRODUCAO-L
 | `docker-compose.dev.yml` | Só Postgres/Redis para dev host |
 | `Dockerfile` / `Dockerfile.gpu` / `Dockerfile.prod` | Imagens |
 
-> Calibração LR/typicality: ativos em **`reference_data/`** (não em `config/` de protocolo).
+> Calibração LR/typicality: ativos em **`reference_data/`**.
 
 ## Redis — papéis
 
