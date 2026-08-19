@@ -184,7 +184,7 @@ Reabertura gera novo elo auditado. Manifestos antigos permanecem verificáveis.
 | Importar VCP adulterado | Validação VCP falha (hashes, cadeia, assinaturas) antes de gravar |
 | Reimportar caso sem autorização | Conflito de protocolo/ID; tombstone exige purge auditado |
 
-### Limitações honestas
+### Limitações
 
 - **Comprometimento root + chave Ed25519:** atacante com DB, disco e chave privada pode fabricar elos **aparentemente** válidos. Mitigação: HSM, segregação de duties, backup WORM, auditoria externa.
 - **PostgreSQL sem REVOKE:** imutabilidade depende da aplicação; recomenda-se política de banco em produção.
