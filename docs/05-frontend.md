@@ -20,12 +20,7 @@ Produção: imagem nginx no Compose (`frontend` service).
 
 ```mermaid
 flowchart LR
-  B[AuthBootstrap] --> M[GET /auth/me]
-  M -->|ok| S[authStore com user]
-  M -->|401| L[/login]
-  L --> P[POST /auth/login]
-  P --> T[localStorage va_access_token]
-  T --> S
+  
 ```
 
 Arquivos: `store/authStore.ts`, `services/auth.ts`, `services/api.ts` (interceptor Bearer), `ProtectedRoute`.
