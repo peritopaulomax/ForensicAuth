@@ -60,7 +60,7 @@ flowchart TB
   JOB --> UI[mapas / scores / LR]
 ```
 
-**Regra de ouro:** o `name` do plugin no backend deve casar (ou ter alias) com o ID no registry. Alias histórico: `sepael` → `synthetic_image_detection` (`core/technique_ids.py`).
+**Regra:** o `name` do plugin no backend deve casar (ou ter alias) com o ID no registry.
 
 ### Cards de mídia e hub de áudio
 
@@ -79,7 +79,7 @@ Pasta `src/frontend/src/services/`: `api.ts`, `auth.ts`, `cases.ts`, `evidence.t
 ## Testes de frontend
 
 - Unit: Vitest  
-- E2E: Playwright em `src/frontend/e2e/` (catálogo sintético atual: `synthetic-image-detectors.spec.ts`; specs CLIDE/DeeCLIP/FSD antigos removidos)  
+- E2E: Playwright em `src/frontend/e2e/` (catálogo sintético atual: `synthetic-image-detectors.spec.ts`)  
 
 
 ## Como verificar
@@ -89,7 +89,7 @@ Pasta `src/frontend/src/services/`: `api.ts`, `auth.ts`, `cases.ts`, `evidence.t
 3. Abrir Network: requests com `Authorization: Bearer …`.  
 4. Confirmar que uma técnica da UI aparece em `/analysis/techniques`.
 
-## Armadilhas
+## Atenção
 
 - Token em `localStorage` → risco XSS; manter CSP e higiene de deps.  
 - Registry dessincronizado → página 404 ou técnica “sumida”.  
