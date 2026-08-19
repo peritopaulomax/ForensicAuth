@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -18,6 +20,8 @@ from models.evidence import Evidence
 from services.case_lifecycle_service import ForensicManifestBuilder
 from services.custody_service import CustodyService
 from services.custody_signing_service import CustodySigningService
+
+_FILE_HASH_WORKERS = max(1, min(16, int(os.environ.get("FORENSIC_FILE_HASH_WORKERS", "8"))))
 
 
 def _file_sha256(path: Path) -> str | None:
@@ -34,6 +38,24 @@ def _canonical_details(details: Any) -> dict:
     if not details:
         return {}
     return json.loads(json.dumps(details, sort_keys=True, default=str))
+
+
+def _disk_hashes_for_evidences(evidences: list[Evidence]) -> dict[str, str | None]:
+    """Parallel SHA-256 of evidence files on disk (one read per evidence)."""
+
+    def _hash_one(ev: Evidence) -> tuple[str, str | None]:
+        path = Path(ev.file_path)
+        if not path.is_file():
+            return str(ev.id), None
+        return str(ev.id), _file_sha256(path)
+
+    if not evidences:
+        return {}
+
+    workers = min(_FILE_HASH_WORKERS, len(evidences))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        pairs = list(pool.map(_hash_one, evidences))
+    return dict(pairs)
 
 
 class ForensicIntegrityService:
@@ -77,10 +99,12 @@ class ForensicIntegrityService:
             .filter(Evidence.case_id == case_id, Evidence.deleted_at.is_(None))
             .all()
         )
+        disk_hashes = _disk_hashes_for_evidences(evidences)
+        files_checked = len(evidences)
+
         for ev in evidences:
-            files_checked += 1
-            path = Path(ev.file_path)
-            if not path.is_file():
+            disk_hash = disk_hashes.get(str(ev.id))
+            if disk_hash is None:
                 missing_files.append(
                     {
                         "evidence_id": str(ev.id),
@@ -89,7 +113,6 @@ class ForensicIntegrityService:
                     }
                 )
                 continue
-            disk_hash = _file_sha256(path)
             if disk_hash != ev.sha256:
                 hash_mismatch.append(
                     {
@@ -129,18 +152,16 @@ class ForensicIntegrityService:
                     None,
                 )
                 if out_ev:
-                    path = Path(out_ev.file_path)
-                    if path.is_file():
-                        disk = _file_sha256(path)
-                        if disk and disk != rec.sha256_output:
-                            hash_mismatch.append(
-                                {
-                                    "evidence_id": str(out_ev.id),
-                                    "expected": rec.sha256_output,
-                                    "actual": disk,
-                                    "source": "derivative_saved_record",
-                                }
-                            )
+                    disk = disk_hashes.get(str(out_ev.id))
+                    if disk and disk != rec.sha256_output:
+                        hash_mismatch.append(
+                            {
+                                "evidence_id": str(out_ev.id),
+                                "expected": rec.sha256_output,
+                                "actual": disk,
+                                "source": "derivative_saved_record",
+                            }
+                        )
 
         for ev in evidences:
             meta = ev.extra_metadata or {}

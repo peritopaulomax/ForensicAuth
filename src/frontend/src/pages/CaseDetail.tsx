@@ -26,18 +26,16 @@ import {
 import CaseAnalysisPanels from "@/components/CaseAnalysisPanels";
 import CustodyPanel from "@/components/CustodyPanel";
 import DerivativesPanel from "@/components/DerivativesPanel";
+import EvidenceListPagination from "@/components/EvidenceListPagination";
+import ForensicIntegrityBanner from "@/components/ForensicIntegrityBanner";
 import CaseReferencesPanel from "@/components/CaseReferencesPanel";
 import EvidenceFilePreview from "@/components/EvidenceFilePreview";
 import FileListViewHeader from "@/components/FileListViewHeader";
 import { fileTypeIcon } from "@/lib/fileTypeIcons";
 import { EVIDENCE_TYPE_LABELS, groupEvidencesByType } from "@/lib/evidenceByType";
+import { paginateItems } from "@/lib/evidencePagination";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
 import api from "@/services/api";
-import {
-  verifyCaseForensic,
-  forensicFailureSummary,
-  type ForensicIntegrityReport,
-} from "@/services/audit";
 import type { CaseDetail, Evidence, AudioTechnicalMetadata } from "@/types/api";
 import {
   audioMetaFromEvidence,
@@ -125,21 +123,8 @@ export default function CaseDetail() {
   const [custodyFilterEvidenceId, setCustodyFilterEvidenceId] = useState<string | null>(null);
   const [audioMetaById, setAudioMetaById] = useState<Record<string, AudioTechnicalMetadata>>({});
   const [evidenceViewMode, setEvidenceViewMode] = useFileListViewMode();
-  const [forensicReport, setForensicReport] = useState<ForensicIntegrityReport | null>(null);
-  const [forensicLoading, setForensicLoading] = useState(false);
-
-  const refreshForensicIntegrity = useCallback(async () => {
-    if (!caseId) return;
-    setForensicLoading(true);
-    try {
-      const report = await verifyCaseForensic(caseId);
-      setForensicReport(report);
-    } catch {
-      setForensicReport(null);
-    } finally {
-      setForensicLoading(false);
-    }
-  }, [caseId]);
+  const [forensicRefreshToken, setForensicRefreshToken] = useState(0);
+  const [evidencePageByType, setEvidencePageByType] = useState<Record<string, number>>({});
 
   const { types: evidenceTypes, grouped: evidencesByType } = useMemo(
     () => groupEvidencesByType(evidences),
@@ -295,8 +280,8 @@ export default function CaseDetail() {
   }, [loadAll]);
 
   useEffect(() => {
-    void refreshForensicIntegrity();
-  }, [refreshForensicIntegrity]);
+    setEvidencePageByType({});
+  }, [caseId, evidences.length]);
 
   const isFullyClosed = caseData?.status === "fechado";
   const isClosurePending = caseData?.status === "fechamento_pendente";
@@ -321,7 +306,7 @@ export default function CaseDetail() {
       const result = await closeCase(caseId, "system");
       setClosureStatus(result.closure_status);
       await loadAll();
-      void refreshForensicIntegrity();
+      setForensicRefreshToken((t) => t + 1);
       setShowCloseModal(false);
     } catch (err: any) {
       setError(err.response?.data?.detail || "Erro ao fechar caso");
@@ -335,7 +320,7 @@ export default function CaseDetail() {
     try {
       await reopenCase(caseId);
       await loadAll();
-      void refreshForensicIntegrity();
+      setForensicRefreshToken((t) => t + 1);
     } catch (err: any) {
       setError(err.response?.data?.detail || "Erro ao reabrir caso");
     }
@@ -396,7 +381,7 @@ export default function CaseDetail() {
       setUploadProgress({});
       if (fileInputRef.current) fileInputRef.current.value = "";
       if (uploadSucceeded) {
-        void refreshForensicIntegrity();
+        setForensicRefreshToken((t) => t + 1);
       }
     }
   }
@@ -739,81 +724,13 @@ export default function CaseDetail() {
         </div>
       )}
 
-      {(forensicLoading || forensicReport) && (
-        <div
-          data-testid="forensic-integrity-banner"
-          style={{
-            marginBottom: "1rem",
-            padding: "0.75rem 1rem",
-            borderRadius: "6px",
-            fontSize: "0.85rem",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "1rem",
-            flexWrap: "wrap",
-            background: forensicLoading
-              ? "#fffbeb"
-              : forensicReport?.valid
-                ? "#ecfdf5"
-                : "#fef2f2",
-            color: forensicLoading
-              ? "#92400e"
-              : forensicReport?.valid
-                ? "#065f46"
-                : "#991b1b",
-            border: `1px solid ${
-              forensicLoading
-                ? "#fde68a"
-                : forensicReport?.valid
-                  ? "#a7f3d0"
-                  : "#fecaca"
-            }`,
-          }}
-        >
-          <span>
-            {forensicLoading ? (
-              "Verificando integridade forense do caso…"
-            ) : forensicReport?.valid ? (
-              <>
-                <strong>Integridade verificada</strong>
-                {" — "}
-                cadeia, assinaturas e arquivos conferidos
-                {forensicReport.generated_at && (
-                  <>
-                    {" "}
-                    (
-                    {new Date(forensicReport.generated_at).toLocaleString("pt-BR")}
-                    )
-                  </>
-                )}
-              </>
-            ) : (
-              <>
-                <strong>Integridade comprometida:</strong>{" "}
-                {forensicReport ? forensicFailureSummary(forensicReport) : "falha na verificacao"}
-              </>
-            )}
-          </span>
-          {!forensicLoading && forensicReport && !forensicReport.valid && (
-            <button
-              type="button"
-              onClick={() => switchTab("custodia")}
-              style={{
-                padding: "0.35rem 0.75rem",
-                background: "#fff",
-                color: "#991b1b",
-                border: "1px solid #fecaca",
-                borderRadius: "6px",
-                cursor: "pointer",
-                fontSize: "0.8rem",
-                fontWeight: 600,
-              }}
-            >
-              Ver custodia
-            </button>
-          )}
-        </div>
+      {caseId && (
+        <ForensicIntegrityBanner
+          caseId={caseId}
+          enabled={!loading}
+          refreshToken={forensicRefreshToken}
+          onOpenCustody={() => switchTab("custodia")}
+        />
       )}
 
       <div
@@ -1115,7 +1032,11 @@ export default function CaseDetail() {
         </div>
       ) : evidenceViewMode === "grid" ? (
         <div>
-          {evidenceTypes.map((fileType) => (
+          {evidenceTypes.map((fileType) => {
+            const sectionEvs = evidencesByType[fileType];
+            const sectionPage = evidencePageByType[fileType] ?? 0;
+            const paged = paginateItems(sectionEvs, sectionPage);
+            return (
             <section key={fileType} style={{ marginBottom: "1.5rem" }}>
               <h3
                 style={{
@@ -1128,8 +1049,17 @@ export default function CaseDetail() {
                 }}
               >
                 {fileTypeIcon(fileType)} {EVIDENCE_TYPE_LABELS[fileType] || fileType} (
-                {evidencesByType[fileType].length})
+                {sectionEvs.length})
               </h3>
+              <EvidenceListPagination
+                page={paged.page}
+                pageCount={paged.pageCount}
+                total={paged.total}
+                pageSize={paged.pageSize}
+                onPageChange={(nextPage) =>
+                  setEvidencePageByType((prev) => ({ ...prev, [fileType]: nextPage }))
+                }
+              />
               <div
                 style={{
                   border: "1px solid #e5e7eb",
@@ -1141,7 +1071,7 @@ export default function CaseDetail() {
                   ...fileGridContainerStyle,
                 }}
               >
-          {evidencesByType[fileType].map((ev) => {
+          {paged.slice.map((ev) => {
             const audioMeta =
               ev.file_type === "audio"
                 ? mergeAudioMeta(audioMetaById[ev.id], audioMetaFromEvidence(ev.extra_metadata))
@@ -1284,12 +1214,15 @@ export default function CaseDetail() {
           })}
               </div>
             </section>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div>
           {evidenceTypes.map((fileType) => {
             const sectionEvs = evidencesByType[fileType];
+            const sectionPage = evidencePageByType[fileType] ?? 0;
+            const paged = paginateItems(sectionEvs, sectionPage);
             const isAudioSection = fileType === "audio";
             const evidenceGridColumns = isAudioSection
               ? "40px minmax(120px, 1.3fr) 72px 88px 80px 68px minmax(70px, 0.9fr) 72px 130px 76px 72px"
@@ -1317,6 +1250,15 @@ export default function CaseDetail() {
                   {fileTypeIcon(fileType)} {EVIDENCE_TYPE_LABELS[fileType] || fileType} (
                   {sectionEvs.length})
                 </h3>
+                <EvidenceListPagination
+                  page={paged.page}
+                  pageCount={paged.pageCount}
+                  total={paged.total}
+                  pageSize={paged.pageSize}
+                  onPageChange={(nextPage) =>
+                    setEvidencePageByType((prev) => ({ ...prev, [fileType]: nextPage }))
+                  }
+                />
                 <div
                   style={{
                     border: "1px solid #e5e7eb",
@@ -1363,7 +1305,7 @@ export default function CaseDetail() {
               maxHeight: caseEvidenceListMaxHeight,
             }}
           >
-          {sectionEvs.map((ev) => {
+          {paged.slice.map((ev) => {
             const audioMeta =
               ev.file_type === "audio"
                 ? mergeAudioMeta(audioMetaById[ev.id], audioMetaFromEvidence(ev.extra_metadata))

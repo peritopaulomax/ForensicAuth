@@ -1,8 +1,10 @@
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import EvidenceFileGrid from "@/components/EvidenceFileGrid";
 import EvidenceFilePreview from "@/components/EvidenceFilePreview";
+import EvidenceListPagination from "@/components/EvidenceListPagination";
 import FileListSortToggle from "@/components/FileListSortToggle";
 import FileListViewHeader from "@/components/FileListViewHeader";
+import { paginateItems } from "@/lib/evidencePagination";
 import { useFileListSortMode } from "@/lib/fileListSortMode";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
 import { sortEvidenceItems } from "@/lib/sortEvidenceItems";
@@ -52,6 +54,12 @@ export default function SelectableEvidenceList({
     () => (showSort ? sortEvidenceItems(items, sortMode) : items),
     [items, showSort, sortMode],
   );
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    setPage(0);
+  }, [items.length, sortMode]);
+  const paged = paginateItems(sortedItems, page);
+  const visibleItems = paged.slice;
 
   if (items.length === 0) {
     return <p style={{ color: "#9ca3af", fontSize: "0.85rem", margin: 0 }}>{emptyMessage}</p>;
@@ -69,7 +77,7 @@ export default function SelectableEvidenceList({
         gap: "0.4rem",
       }}
     >
-      {sortedItems.map((ev) => {
+      {visibleItems.map((ev) => {
         const selected = isSelected(ev);
         const meta = ev.extra_metadata || {};
         const procedure = meta.procedure_summary as string | undefined;
@@ -125,7 +133,7 @@ export default function SelectableEvidenceList({
 
   const gridBody = (
     <EvidenceFileGrid
-      items={sortedItems}
+      items={visibleItems}
       selected={(ev) => isSelected(ev as Evidence)}
       onSelect={(ev) => onSelect(ev.id, source)}
       maxHeight={imageSelectorListMaxHeight}
@@ -148,8 +156,23 @@ export default function SelectableEvidenceList({
     />
   );
 
+  const pagination = (
+    <EvidenceListPagination
+      page={paged.page}
+      pageCount={paged.pageCount}
+      total={paged.total}
+      pageSize={paged.pageSize}
+      onPageChange={setPage}
+    />
+  );
+
   if (!showToggle) {
-    return viewMode === "grid" ? gridBody : listBody;
+    return (
+      <>
+        {pagination}
+        {viewMode === "grid" ? gridBody : listBody}
+      </>
+    );
   }
 
   return (
@@ -161,6 +184,7 @@ export default function SelectableEvidenceList({
       >
         {headerLeft}
       </FileListViewHeader>
+      {pagination}
       {viewMode === "grid" ? gridBody : listBody}
     </div>
   );

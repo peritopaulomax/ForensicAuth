@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import api from "@/services/api";
 import {
   fetchEvidenceThumbnailUrl,
@@ -18,10 +18,38 @@ export default function EvidenceThumbnail({
   showPlayBadge = false,
   size = 40,
 }: EvidenceThumbnailProps) {
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(() => Boolean(getCachedEvidenceThumbnailUrl(evidenceId)));
   const [url, setUrl] = useState<string | null>(() => getCachedEvidenceThumbnailUrl(evidenceId) ?? null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
+    if (visible) return;
+    const el = rootRef.current;
+    if (!el) return;
+
+    const cached = getCachedEvidenceThumbnailUrl(evidenceId);
+    if (cached) {
+      setVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "120px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [evidenceId, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+
     let cancelled = false;
     const cached = getCachedEvidenceThumbnailUrl(evidenceId);
     if (cached) {
@@ -45,7 +73,22 @@ export default function EvidenceThumbnail({
     return () => {
       cancelled = true;
     };
-  }, [evidenceId]);
+  }, [evidenceId, visible]);
+
+  const placeholder = (
+    <span
+      style={{
+        width: size,
+        height: size,
+        display: "inline-block",
+        background: "#f3f4f6",
+        borderRadius: 4,
+        border: "1px solid #e5e7eb",
+        flexShrink: 0,
+      }}
+      aria-hidden
+    />
+  );
 
   if (error) {
     return <span style={{ fontSize: "1.1rem" }}>{fallback}</span>;
@@ -53,26 +96,18 @@ export default function EvidenceThumbnail({
 
   if (!url) {
     return (
-      <span
-        style={{
-          width: size,
-          height: size,
-          display: "inline-block",
-          background: "#f3f4f6",
-          borderRadius: 4,
-          border: "1px solid #e5e7eb",
-          flexShrink: 0,
-        }}
-        aria-hidden
-      />
+      <span ref={rootRef} style={{ display: "inline-flex", flexShrink: 0 }}>
+        {placeholder}
+      </span>
     );
   }
 
   return (
-    <span style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
+    <span ref={rootRef} style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
       <img
         src={url}
         alt="thumbnail"
+        loading="lazy"
         style={{
           width: `${size}px`,
           height: `${size}px`,

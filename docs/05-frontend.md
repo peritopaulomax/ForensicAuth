@@ -41,7 +41,7 @@ Definidas em `src/App.tsx` (paths aproximados):
 |------|--------|
 | `/login`, `/primeiro-acesso` | Público |
 | `/`, `/dashboard` | Lista / dashboard de casos |
-| `/cases/new`, `/cases/:caseId` | CRUD / detalhe (banner de integridade forense ao abrir) |
+| `/cases/new`, `/cases/:caseId` | CRUD / detalhe (banner de integridade + paginação de evidências) |
 | `/analysis`, `/analysis/run` | Hubs de análise |
 | `/cases/:caseId/analysis/...` | Técnica, grupos IMDL/mídia, áudio |
 | `/users` | Admin |
