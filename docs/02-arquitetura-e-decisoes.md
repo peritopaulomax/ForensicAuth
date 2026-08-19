@@ -91,7 +91,7 @@ sequenceDiagram
 | Risco | Nível | Mitigação |
 |-------|-------|-----------|
 | Worker GPU ausente | Alto | Monitorar fila; Compose GPU |
-| Redis down | Crítico | Health + restart; dev SQLite usa thread (semântica diferente) |
+| Redis down | Crítico | Health + restart;  |
 | Alterar `forensics/`/`vendor/` | Crítico | Teste de equivalência + aprovação |
 
 ## Como verificar
