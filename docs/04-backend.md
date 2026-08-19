@@ -163,7 +163,7 @@ curl -s http://127.0.0.1:8000/health
 
 Listar plugins ativos: autenticar e chamar `/api/v1/analysis/techniques`, ou inspecionar `PluginRegistry` / `STANDBY_PLUGIN_NAMES`.
 
-## Armadilhas
+## Atenção
 
 - Spec antiga pode citar `adapters/` → no código é `core/plugins/`.  
 - Sem Redis + worker, jobs em Postgres ficam `pending`.  
