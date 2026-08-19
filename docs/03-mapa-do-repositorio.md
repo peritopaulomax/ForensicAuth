@@ -15,7 +15,6 @@ VA-Suite/
 ├── scripts/technique/  # Scaffold de novas técnicas
 ├── docs/            # Este manual + public/deploy/developer/specs
 ├── tests/           # unit, integration, specs MD
-├── knowledge/ summaries/ brains/  # Memória de agentes
 ├── docker-compose*.yml
 ├── environment.yml  # conda name: forensicauth
 ├── requirements.txt | requirements-gpu.txt
