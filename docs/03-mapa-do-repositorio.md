@@ -21,8 +21,6 @@ VA-Suite/
 └── AGENTS.md        # Regras absolutas do projeto
 ```
 
-**Não usar na raiz:** `uploads/`, `results/` soltos — preferir `data/`. Material morto: `LIXEIRA/` (gitignored), se existir.
-
 ## Diretórios por criticidade
 
 | Path | Criticidade | Notas |
@@ -50,18 +48,12 @@ VA-Suite/
 |---------|---------|
 | `AGENTS.md` | Regras (custódia, forensics intocável, specs) |
 | `src/backend/core/forensic_plugin.py` | Contrato de técnica |
-| `src/backend/core/plugin_registry.py` | O que está ativo vs standby |
+| `src/backend/core/plugin_registry.py` | Ativo vs standby |
 | `src/backend/services/job_service.py` | Execução |
 | `src/backend/services/custody_service.py` | Cadeia |
 | `src/frontend/src/config/techniqueRegistry.tsx` | UI das técnicas |
 | `docs/specs/00-overview.md` | Comportamento |
 
-## Docs humanas vs memória de agente
-
-| Pasta | Para humanos? | Para agentes? |
-|-------|---------------|---------------|
-| `docs/` (este manual + public/…) | Sim | Apoio |
-| `knowledge/` `summaries/` `brains/` | Não (secundário) | Sim |
 
 ## Como verificar
 
