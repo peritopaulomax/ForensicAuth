@@ -140,6 +140,8 @@ Escopo: **auditoria ampliada do caso**. Só retorna `valid: true` se **tudo** ab
 
 Uso: relatório de verificação, auditoria externa, decisão de confiar no caso antes de exportar VCP.
 
+Na interface web, ao abrir um caso (`/cases/:id`), a **verificação forense completa** é disparada automaticamente em segundo plano; o banner no topo do detalhe do caso exibe o status (verificando / OK / comprometido) sem bloquear o carregamento da tela. A aba **Custódia** continua oferecendo verificação manual e relatório detalhado.
+
 ### 6.3 Verificar registro (unitário)
 
 Valida um único elo: hash + assinatura daquele registro.

@@ -25,7 +25,7 @@ Manual pedagógico do sistema. Público: quem vai contribuir código ou operar a
 | 2 | Criar caso e upload de imagem de teste | Evidência com `sha256` no detalhe do caso |
 | 3 | Rodar uma técnica **CPU** (ex.: metadata / ELA) | Job `completed` + artefato em `data/results/` |
 | 4 | Entender plugins: ler `ForensicPlugin` + um adapter | Código em `core/forensic_plugin.py` |
-| 5 | Ver custódia e verify | Aba custódia / `audit/verify-case-forensic` |
+| 5 | Ver custódia e verify | Banner de integridade ao abrir o caso; aba custódia / `audit/verify-case-forensic` |
 | 6 | (Opcional GPU) subir `worker-gpu` e uma técnica ML | `/api/v1/analysis/gpu-queue` |
 | 7 | Rodar testes default + ler AGENTS.md Regra 8 | `pytest … -m "not weights and not gpu"` |
 O que o repositório usa

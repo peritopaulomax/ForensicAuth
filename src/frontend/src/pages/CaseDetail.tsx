@@ -33,6 +33,11 @@ import { fileTypeIcon } from "@/lib/fileTypeIcons";
 import { EVIDENCE_TYPE_LABELS, groupEvidencesByType } from "@/lib/evidenceByType";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
 import api from "@/services/api";
+import {
+  verifyCaseForensic,
+  forensicFailureSummary,
+  type ForensicIntegrityReport,
+} from "@/services/audit";
 import type { CaseDetail, Evidence, AudioTechnicalMetadata } from "@/types/api";
 import {
   audioMetaFromEvidence,
@@ -120,6 +125,21 @@ export default function CaseDetail() {
   const [custodyFilterEvidenceId, setCustodyFilterEvidenceId] = useState<string | null>(null);
   const [audioMetaById, setAudioMetaById] = useState<Record<string, AudioTechnicalMetadata>>({});
   const [evidenceViewMode, setEvidenceViewMode] = useFileListViewMode();
+  const [forensicReport, setForensicReport] = useState<ForensicIntegrityReport | null>(null);
+  const [forensicLoading, setForensicLoading] = useState(false);
+
+  const refreshForensicIntegrity = useCallback(async () => {
+    if (!caseId) return;
+    setForensicLoading(true);
+    try {
+      const report = await verifyCaseForensic(caseId);
+      setForensicReport(report);
+    } catch {
+      setForensicReport(null);
+    } finally {
+      setForensicLoading(false);
+    }
+  }, [caseId]);
 
   const { types: evidenceTypes, grouped: evidencesByType } = useMemo(
     () => groupEvidencesByType(evidences),
@@ -274,6 +294,10 @@ export default function CaseDetail() {
     loadAll();
   }, [loadAll]);
 
+  useEffect(() => {
+    void refreshForensicIntegrity();
+  }, [refreshForensicIntegrity]);
+
   const isFullyClosed = caseData?.status === "fechado";
   const isClosurePending = caseData?.status === "fechamento_pendente";
   const isLocked = isFullyClosed || isClosurePending;
@@ -297,6 +321,7 @@ export default function CaseDetail() {
       const result = await closeCase(caseId, "system");
       setClosureStatus(result.closure_status);
       await loadAll();
+      void refreshForensicIntegrity();
       setShowCloseModal(false);
     } catch (err: any) {
       setError(err.response?.data?.detail || "Erro ao fechar caso");
@@ -310,6 +335,7 @@ export default function CaseDetail() {
     try {
       await reopenCase(caseId);
       await loadAll();
+      void refreshForensicIntegrity();
     } catch (err: any) {
       setError(err.response?.data?.detail || "Erro ao reabrir caso");
     }
@@ -325,6 +351,7 @@ export default function CaseDetail() {
     fileArray.forEach((f) => (newProgress[f.name] = 0));
     setUploadProgress(newProgress);
 
+    let uploadSucceeded = false;
     try {
       const settled = await Promise.allSettled(
         fileArray.map(async (file) => {
@@ -343,6 +370,7 @@ export default function CaseDetail() {
 
       if (successful.length > 0) {
         setEvidences((prev) => [...successful.map((item) => item.evidence), ...prev]);
+        uploadSucceeded = true;
       }
 
       if (failed.length === 0) {
@@ -359,6 +387,7 @@ export default function CaseDetail() {
         ));
         setEvidences(latest);
         setError(recovered.length > 0 ? "" : uploadFailureMessage(failed[0].reason));
+        if (recovered.length > 0) uploadSucceeded = true;
       }
     } catch (err: unknown) {
       setError(uploadFailureMessage(err));
@@ -366,6 +395,9 @@ export default function CaseDetail() {
       setUploading(false);
       setUploadProgress({});
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (uploadSucceeded) {
+        void refreshForensicIntegrity();
+      }
     }
   }
 
@@ -704,6 +736,83 @@ export default function CaseDetail() {
           }}
         >
           {error}
+        </div>
+      )}
+
+      {(forensicLoading || forensicReport) && (
+        <div
+          data-testid="forensic-integrity-banner"
+          style={{
+            marginBottom: "1rem",
+            padding: "0.75rem 1rem",
+            borderRadius: "6px",
+            fontSize: "0.85rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "1rem",
+            flexWrap: "wrap",
+            background: forensicLoading
+              ? "#fffbeb"
+              : forensicReport?.valid
+                ? "#ecfdf5"
+                : "#fef2f2",
+            color: forensicLoading
+              ? "#92400e"
+              : forensicReport?.valid
+                ? "#065f46"
+                : "#991b1b",
+            border: `1px solid ${
+              forensicLoading
+                ? "#fde68a"
+                : forensicReport?.valid
+                  ? "#a7f3d0"
+                  : "#fecaca"
+            }`,
+          }}
+        >
+          <span>
+            {forensicLoading ? (
+              "Verificando integridade forense do caso…"
+            ) : forensicReport?.valid ? (
+              <>
+                <strong>Integridade verificada</strong>
+                {" — "}
+                cadeia, assinaturas e arquivos conferidos
+                {forensicReport.generated_at && (
+                  <>
+                    {" "}
+                    (
+                    {new Date(forensicReport.generated_at).toLocaleString("pt-BR")}
+                    )
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <strong>Integridade comprometida:</strong>{" "}
+                {forensicReport ? forensicFailureSummary(forensicReport) : "falha na verificacao"}
+              </>
+            )}
+          </span>
+          {!forensicLoading && forensicReport && !forensicReport.valid && (
+            <button
+              type="button"
+              onClick={() => switchTab("custodia")}
+              style={{
+                padding: "0.35rem 0.75rem",
+                background: "#fff",
+                color: "#991b1b",
+                border: "1px solid #fecaca",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+              }}
+            >
+              Ver custodia
+            </button>
+          )}
         </div>
       )}
 

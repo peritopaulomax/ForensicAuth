@@ -4,6 +4,7 @@ import {
   listAuditRecords,
   verifyCaseChain,
   verifyCaseForensic,
+  forensicFailureSummary,
   downloadForensicReport,
   downloadCustodyNarrativeReport,
   verifyRecord,
@@ -41,27 +42,6 @@ function actorLabel(rec: CustodyRecord): string | null {
   const username = details.actor_username;
   if (typeof username === "string" && username.trim()) return username;
   return null;
-}
-
-function forensicFailureSummary(report: ForensicIntegrityReport): string | null {
-  if (report.valid) return null;
-  const parts: string[] = [];
-  if (!report.chain.valid) parts.push("cadeia de custodia");
-  const invalidSigs = report.signatures.invalid.length;
-  if (invalidSigs > 0) {
-    parts.push(
-      `${invalidSigs} assinatura(s) Ed25519 invalida(s) (chave do sistema ou registro alterado)`
-    );
-  }
-  if (report.files.missing.length > 0 || report.files.hash_mismatch.length > 0) {
-    parts.push("arquivos de evidencia");
-  }
-  if (report.provenance.issues.length > 0) parts.push("proveniencia");
-  const badClosures = report.closures.filter(
-    (c) => !c.signatures_valid || !c.manifest_valid
-  );
-  if (badClosures.length > 0) parts.push("fechamento(s) do caso");
-  return parts.length > 0 ? parts.join("; ") : "falha nao especificada";
 }
 
 export default function CustodyPanel({
