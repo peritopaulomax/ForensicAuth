@@ -1,26 +1,25 @@
 # Documentação humana — ForensicAuth (VA Suite)
 
-Manual pedagógico do sistema. Público: quem está começando no projeto e quem vai contribuir código ou operar a stack.
+Manual pedagógico do sistema. Público: quem vai contribuir código ou operar a stack.
 
-> Memória de agentes (`knowledge/`, `summaries/`, `brains/`) **não** substitui este manual.
 > Specs SDD (`docs/specs/`) descrevem contratos; este manual explica *como pensar e operar*.
 
 ## Ordem de leitura sugerida
 
-1. [01 — Visão e negócio](01-visao-e-negocio.md) — o que o produto faz  
-2. [02 — Arquitetura e decisões](02-arquitetura-e-decisoes.md) — como as peças se encaixam  
-3. [03 — Mapa do repositório](03-mapa-do-repositorio.md) — onde está cada coisa  
+1. [01 — Visão e negócio](01-visao-e-negocio.md)   
+2. [02 — Arquitetura e decisões](02-arquitetura-e-decisoes.md) 
+3. [03 — Mapa do repositório](03-mapa-do-repositorio.md) 
 4. [04 — Backend](04-backend.md) — API, serviços, plugins, jobs  
 5. [05 — Frontend](05-frontend.md) — UI, rotas, chamadas à API  
 6. [06 — Dados e integrações](06-dados-e-integracoes.md) — DB, FS, VCP, Peritus  
 7. [07 — Operação e setup](07-operacao-e-setup.md) — instalar, Docker, workers  
 8. [09 — ML e artefatos](09-ml-e-artefatos.md) — pesos, vendor, LR  
 9. [10 — Testes e qualidade](10-testes-e-qualidade.md)  
-10. [08 — Glossário e armadilhas](08-glossario-e-armadilhas.md) — consultar sob demanda  
+10. [08 — Glossário e armadilhas](08-glossario-e-armadilhas.md) 
 
-## Roteiro — primeira semana
+## Roteiro 
 
-| Dia | Objetivo | Como verificar |
+| Ação | Objetivo | Como verificar |
 |-----|----------|----------------|
 | 1 | Subir API + FE (ou Compose) e fazer login | `GET /health`; tela `/login` |
 | 2 | Criar caso e upload de imagem de teste | Evidência com `sha256` no detalhe do caso |
