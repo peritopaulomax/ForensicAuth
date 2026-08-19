@@ -308,4 +308,4 @@ Requer autenticação JWT. Import exige perfil que pode criar casos (perito/admi
 
 ---
 
-**Ver também:** [Cadeia de custódia](CADEIA-CUSTODIA-E-VERIFICACAO-FORENSE.md) · [Instalação](INSTALACAO-PRODUCAO-LINUX.md) · [Arquitetura](arquitetura-forensicauth.html)
+**Ver também:** [Cadeia de custódia](CADEIA-CUSTODIA-E-VERIFICACAO-FORENSE.md) · [Instalação](../deploy/INSTALACAO-PROD-WORKERS.md) · [Arquitetura](arquitetura-forensicauth.html)

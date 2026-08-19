@@ -60,7 +60,7 @@ docker compose -f docker-compose.gpu.yml up -d
 # app + worker-cpu + worker-gpu; sem frontend — combine com FE local ou outro compose
 ```
 
-Produção: [`public/INSTALACAO-PRODUCAO-LINUX.md`](public/INSTALACAO-PRODUCAO-LINUX.md), [`deploy/ENV-PRODUCTION-TEMPLATE.md`](deploy/ENV-PRODUCTION-TEMPLATE.md), `docker-compose.prod.yml`.
+Produção: [`deploy/INSTALACAO-PROD-WORKERS.md`](deploy/INSTALACAO-PROD-WORKERS.md), [`deploy/ENV-PRODUCTION-TEMPLATE.md`](deploy/ENV-PRODUCTION-TEMPLATE.md), `docker-compose.prod.yml`.
 
 ## Docker / Compose — o que é
 

@@ -1575,7 +1575,7 @@ sudo journalctl -u forensicauth-gpu-prod1-3090.service -f
 
 Dentro de `/opt/forensicauth`:
 
-- `docs/public/INSTALACAO-PRODUCAO-LINUX.md`
+- `docs/deploy/INSTALACAO-PROD-WORKERS.md` (este roteiro)
 - `docs/deploy/WORKER-REMOTE.md`
 - `docs/deploy/MIGRATION-GPU.md`
 - `docs/deploy/ENV-PRODUCTION-TEMPLATE.md`

@@ -45,8 +45,8 @@ O que o repositório usa
 ## Outras pastas em `docs/` 
 | Pasta | Público | Conteúdo |
 |-------|---------|----------|
-| [`public/`](public/) | Ops / peritos | Instalação Linux, custódia, VCP |
-| [`deploy/`](deploy/) | SRE | Env produção, worker GPU remoto, migração GPU |
+| [`public/`](public/) | Ops / peritos | Custódia, VCP, arquitetura |
+| [`deploy/`](deploy/) | SRE | Instalação produção, env, workers GPU remoto, migração GPU |
 | [`developer/`](developer/) | Contribuidores | Visão, guia, scaffold de técnicas |
 | [`specs/`](specs/) | Devs / SDD | Overview e módulos |
 | [`references/`](references/) | Científico | Papers IMDL etc. |
