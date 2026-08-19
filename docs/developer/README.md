@@ -4,7 +4,7 @@ Este diretório complementa as **especificações formais** em [`docs/specs/`](.
 
 | Documento | Público | Conteúdo |
 |-----------|---------|----------|
-| [**01-visao-geral.md**](01-visao-geral.md) | Gestor, perito técnico, novo dev | Blocos funcionais, jornada do usuário, diagramas de alto nível |
+| [**01-visao-geral.md**](01-visao-geral.md) | Gestor, perito, novo dev | Blocos funcionais, jornada do usuário, diagramas de alto nível |
 | [**02-guia-contribuidor.md**](02-guia-contribuidor.md) | Contribuidor ativo | Estrutura de pastas, fluxos de código, como estender técnicas e testes |
 | [**03-scaffold-technique.md**](03-scaffold-technique.md) | Quem cria técnica via scaffold | YAML completo, roles, cards (`group_id`), ensemble Wave 2 |
 | [**04** mediana](04-scaffold-example-median-denoise.md) | Tutorial | Template `medium` |
