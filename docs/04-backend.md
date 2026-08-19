@@ -132,7 +132,7 @@ Guia para nova técnica: [`developer/03-scaffold-technique.md`](developer/03-sca
 - assinatura Ed25519 opcional/configurada  
 - API: `audit` + verify forense  
 
-Leitura humana aprofundada: [`public/CADEIA-CUSTODIA-E-VERIFICACAO-FORENSE.md`](public/CADEIA-CUSTODIA-E-VERIFICACAO-FORENSE.md).
+Leitura aprofundada: [`public/CADEIA-CUSTODIA-E-VERIFICACAO-FORENSE.md`](public/CADEIA-CUSTODIA-E-VERIFICACAO-FORENSE.md).
 
 ## Serviços (mapa mental)
 
