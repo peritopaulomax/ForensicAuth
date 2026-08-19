@@ -64,15 +64,6 @@ Build pesado de referências: variável `FORENSICAUTH_REFERENCE_BUILD_DIR` (fora
 
 `MODELS_DIR`, paths de reference data na config, flags de disponibilidade por plugin (`is_runtime_available` quando existir).
 
-## Armadilhas
-
-| Armadilha | Efeito |
-|-----------|--------|
-| Pesos só na máquina da API | Worker não acha checkpoint |
-| Typicality com leak de split | Métricas otimistas demais |
-| Meta logistic sem z-score / LogReg cru | Detector de maior escala domina o ensemble |
-| Rodar vários workers GPU `-c N` | OOM / corrupção de contexto |
-| Alterar vendor “só um pouquinho” | Quebra equivalência forense |
 
 ## Papers / referências
 
