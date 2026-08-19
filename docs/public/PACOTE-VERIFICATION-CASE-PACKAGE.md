@@ -1,6 +1,6 @@
 # Verification Case Package (VCP) — estrutura e funcionamento
 
-O **Verification Case Package (VCP)** é o formato de transferência forense entre instalações **ForensicAuth**. É um arquivo ZIP (convenção de nome: `caso-{protocolo}.vcp.zip`) que contém metadados, cadeia de custódia, fechamentos, chave pública de assinatura e **todos os binários** referenciados, endereçados por SHA-256.
+O **Verification Case Package (VCP)** é o formato de transferência entre instalações **ForensicAuth**. É um arquivo ZIP (convenção de nome: `caso-{protocolo}.vcp.zip`) que contém metadados, cadeia de custódia, fechamentos, chave pública de assinatura e **todos os binários** referenciados, endereçados por SHA-256.
 
 **Versão de schema atual:** `vcp_schema_version: "1"`
 
