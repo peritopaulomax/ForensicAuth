@@ -21,7 +21,7 @@ PYTHONPATH=src/backend pytest tests/unit tests/integration -m "not weights and n
 
 Suite completa / pesos: [`developer/02-guia-contribuidor.md`](developer/02-guia-contribuidor.md) § testes.
 
-## Política forense (obrigatória)
+## Política
 
 Qualquer mudança em `src/backend/forensics/` ou `vendor/` exige:
 
@@ -29,7 +29,7 @@ Qualquer mudança em `src/backend/forensics/` ou `vendor/` exige:
 2. Erro zero ou tolerância **aprovada**  
 3. Aprovação explícita antes de merge  
 
-Ver `AGENTS.md` Regra 8 e Regra 4 (só avançar com testes verdes).
+Ver `AGENTS.md` Regra 8 e Regra 4 (testes verdes).
 
 ## TDD / SDD no projeto
 
@@ -49,11 +49,6 @@ Specs de módulo: `docs/specs/modules/02` … `15`.
 | Custody | testes de cadeia / verify |
 | FE | Vitest + Playwright smoke login |
 
-## Armadilhas
-
-- “CI verde” sem markers `weights` **não** prova detectores ML.  
-- Spec MD verde na cabeça ≠ teste automatizado.  
-- Mockar hash/custódia demais esconde regressões probatórias.
 
 ## Índice
 
