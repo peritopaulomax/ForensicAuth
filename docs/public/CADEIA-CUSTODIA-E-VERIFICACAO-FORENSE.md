@@ -140,7 +140,7 @@ Escopo: **auditoria ampliada do caso**. Só retorna `valid: true` se **tudo** ab
 
 Uso: relatório de verificação, auditoria externa, decisão de confiar no caso antes de exportar VCP.
 
-Na interface web, ao abrir um caso (`/cases/:id`), a **verificação forense completa** é disparada automaticamente em segundo plano (após o carregamento do caso, via `requestIdleCallback`); o banner no topo exibe o status sem bloquear a UI. Casos com milhares de evidências usam **paginação na lista** (80 itens por página) para evitar travamento do navegador; no servidor, os hashes dos arquivos são calculados em **paralelo** (`FORENSIC_FILE_HASH_WORKERS`, padrão 8).
+Na interface web, ao abrir um caso (`/cases/:id`), a **verificação forense completa** é disparada automaticamente em segundo plano (após o carregamento do caso, via `requestIdleCallback`); o banner no topo exibe o status sem bloquear a UI; no servidor, os hashes dos arquivos são calculados em **paralelo** (`FORENSIC_FILE_HASH_WORKERS`, padrão 8).
 
 ### 6.3 Verificar registro (unitário)
 
