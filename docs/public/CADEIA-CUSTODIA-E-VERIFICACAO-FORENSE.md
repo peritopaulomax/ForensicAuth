@@ -24,6 +24,7 @@ Registros são **somente inserção** (append-only). A aplicação não reescrev
 |-----------------|---------------------|-------------|
 | Upload de evidência original | Sim | `evidence_upload` |
 | Exclusão de evidência (soft-delete) | Sim | `evidence_deleted` |
+| Exclusão de derivado em cascata | Sim | `evidence_deleted` com `deletion_reason: parent_deleted` |
 | Exclusão de caso | Sim | `case_deleted` |
 | Executar análise para preview | **Não** | — |
 | Salvar derivado ao caso | Sim | `derivative_saved` |
@@ -140,11 +141,39 @@ Escopo: **auditoria ampliada do caso**. Só retorna `valid: true` se **tudo** ab
 
 Uso: relatório de verificação, auditoria externa, decisão de confiar no caso antes de exportar VCP.
 
-Na interface web, ao abrir um caso (`/cases/:id`), a **verificação forense completa** é disparada automaticamente em segundo plano (após o carregamento do caso, via `requestIdleCallback`); o banner no topo exibe o status sem bloquear a UI; no servidor, os hashes dos arquivos são calculados em **paralelo** (`FORENSIC_FILE_HASH_WORKERS`, padrão 8).
+Na interface web, ao abrir um caso (`/cases/:id`), a **verificação forense completa** é disparada automaticamente em segundo plano (após o carregamento do caso, via `requestIdleCallback`); o banner no topo exibe o status sem bloquear a UI. Casos **ainda sem eventos de custódia** (recém-criados, sem evidências) passam como íntegros — a ausência de cadeia/selo é o estado inicial esperado, não corrupção. Casos com milhares de evidências usam **paginação na lista** (80 itens por página) para evitar travamento do navegador; no servidor, os hashes dos arquivos são calculados em **paralelo** (`FORENSIC_FILE_HASH_WORKERS`, padrão 8).
 
 ### 6.3 Verificar registro (unitário)
 
 Valida um único elo: hash + assinatura daquele registro.
+
+---
+
+## 6.4 Exclusão de evidências e derivados
+
+A exclusão é **soft-delete auditado**: o arquivo sai do disco, a linha permanece no banco marcada (`deleted_at` / `deleted_by`) e um elo `evidence_deleted` entra na cadeia com autor, SHA-256 e caminho original.
+
+**Derivados não caem automaticamente.** Um derivado promovido já é artefato custodiado (`derivative_saved`), com proveniência autossuficiente no próprio elo. Excluir o insumo não invalida esse registro nem apaga o derivado.
+
+Antes de confirmar, a interface consulta o impacto (`POST /cases/{id}/evidences/deletion-preview`) e apresenta:
+
+| Situação | Comportamento |
+|----------|---------------|
+| Derivado cujos insumos ativos estão **todos** no escopo da exclusão | Elegível a cascata (`exclusive: true`) — opt-in explícito do perito |
+| Derivado que também deriva de insumo preservado | **Mantido**, com os insumos retidos listados no aviso |
+| Cadeia de derivação (derivado de derivado) | O fecho transitivo entra na cascata quando cada elo é exclusivo |
+
+Campos de auditoria em `details` do elo `evidence_deleted`:
+
+| Campo | Significado |
+|-------|-------------|
+| `deletion_reason` | `user_request` (ato direto) ou `parent_deleted` (removido em cascata) |
+| `parent_evidence_ids` | Em cascata: insumos que motivaram a remoção |
+| `dependent_derivatives_deleted` | No elo do alvo: derivados que caíram com ele |
+
+A **verificação forense continua válida** após exclusão: os blocos de arquivos e proveniência auditam apenas evidências ativas, então um arquivo legitimamente excluído não gera `files.missing`. Apagar o arquivo **por fora** do sistema (sem soft-delete) continua sendo detectado.
+
+Derivados cujo insumo foi excluído aparecem na aba Derivados marcados como **"insumo excluído"** — sinalização, não erro de integridade.
 
 ---
 
@@ -219,6 +248,8 @@ Ver: [PACOTE-VERIFICATION-CASE-PACKAGE.md](PACOTE-VERIFICATION-CASE-PACKAGE.md).
 | `GET /api/v1/audit/verify-case-forensic/{case_id}/report` | Relatório HTML/JSON |
 | `GET /api/v1/audit/verify/{record_id}` | Verificar um registro |
 | `GET /api/v1/audit/signing-keys` | Chave pública para verificação offline |
+| `POST /api/v1/cases/{case_id}/evidences/deletion-preview` | Impacto da exclusão (dependentes) |
+| `POST /api/v1/cases/{case_id}/evidences/delete` | Exclusão em lote com cascata opcional |
 
 ---
 
@@ -227,4 +258,5 @@ Ver: [PACOTE-VERIFICATION-CASE-PACKAGE.md](PACOTE-VERIFICATION-CASE-PACKAGE.md).
 - **Cadeia** = diário encadeado por hash; detecta adulteração do log.
 - **Assinatura** = carimbo criptográfico da instalação sobre cada digest.
 - **Verificação forense** = cadeia + assinaturas + arquivos reais + proveniência + fechamentos.
+- **Exclusão** = soft-delete auditado; derivados só caem por opt-in e apenas quando exclusivos.
 - **Confiança operacional** = chave Ed25519 persistente, backup, TLS, controle de acesso e política de imutabilidade no banco.

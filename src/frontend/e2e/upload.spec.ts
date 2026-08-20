@@ -97,6 +97,8 @@ test.describe("Upload", () => {
           file_type: "imagem",
           mime_type: "image/jpeg",
           sha256: "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1",
+          extra_metadata: { questioned_group_label: "Lote E2E" },
+          group_label: "Lote E2E",
           uploaded_by: "1",
           created_at: "2026-05-30T00:00:00",
         }),
@@ -112,6 +114,8 @@ test.describe("Upload", () => {
     await page.click('text=Caso Upload Test');
     await page.waitForURL("/cases/case-1");
     await expect(page.locator("h1")).toContainText("Caso Upload Test");
+
+    await page.fill('input[placeholder="Ex.: Camera A, Lote 1"]', "Lote E2E");
 
     const buffer = Buffer.from("\xff\xd8\xff\xe0\x00\x10JFIF");
     await page.setInputFiles('input[type="file"]', {

@@ -28,6 +28,11 @@ function ForensicIntegrityBanner({
     setLoading(true);
     try {
       const next = await verifyCaseForensic(caseId);
+      // Ignore incomplete payloads (proxy/mock/error bodies) to avoid UI crash.
+      if (!next || typeof next.valid !== "boolean") {
+        setReport(null);
+        return;
+      }
       setReport(next);
     } catch {
       setReport(null);

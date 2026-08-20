@@ -79,6 +79,49 @@ export interface Evidence {
   extra_metadata: Record<string, unknown>;
   uploaded_by: string;
   created_at: string;
+  /** Rotulo de agrupamento (questionados ou referencias, conforme o endpoint). */
+  group_label?: string;
+}
+
+export interface DeletionTarget {
+  evidence_id: string;
+  original_filename: string;
+  file_type: string;
+  is_derived: boolean;
+  technique: string | null;
+  artifact_role: string | null;
+  derivation_group_id: string;
+}
+
+export interface DependentParent {
+  evidence_id: string;
+  role: string;
+  original_filename: string;
+  in_scope: boolean;
+}
+
+export interface DependentDerivative extends DeletionTarget {
+  /** Todos os insumos ativos estao no escopo da exclusao (elegivel a cascade). */
+  exclusive: boolean;
+  parents: DependentParent[];
+  retained_parents: string[];
+}
+
+export interface EvidenceDeletionPreview {
+  case_id: string;
+  targets: DeletionTarget[];
+  dependents: DependentDerivative[];
+  dependent_count: number;
+  cascade_count: number;
+  retained_count: number;
+  package_count: number;
+}
+
+export interface EvidenceDeletionResult {
+  deleted: string[];
+  dependents_deleted: string[];
+  retained_dependents: DependentDerivative[];
+  failed: { evidence_id: string; detail: string }[];
 }
 
 export interface AudioTechnicalMetadata {

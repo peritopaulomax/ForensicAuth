@@ -9,6 +9,7 @@ import {
 } from "@/services/cases";
 import CaseExportVcpModal from "@/components/CaseExportVcpModal";
 import CaseExportPeritusModal from "@/components/CaseExportPeritusModal";
+import ConfirmDestructiveDeleteModal from "@/components/ConfirmDestructiveDeleteModal";
 import PeritusFilesPanel from "@/components/PeritusFilesPanel";
 import { listPeritusFiles, type PeritusFileEntry } from "@/services/peritus";
 import { filterPeritusAnalyzable } from "@/lib/peritusAnalysis";
@@ -22,6 +23,8 @@ import {
   listCaseReferences,
   listCaseAudioMetadata,
   uploadEvidence,
+  updateEvidenceGroupLabel,
+  bulkUpdateEvidenceGroupLabel,
 } from "@/services/evidence";
 import CaseAnalysisPanels from "@/components/CaseAnalysisPanels";
 import CustodyPanel from "@/components/CustodyPanel";
@@ -34,9 +37,18 @@ import FileListViewHeader from "@/components/FileListViewHeader";
 import { fileTypeIcon } from "@/lib/fileTypeIcons";
 import { EVIDENCE_TYPE_LABELS, groupEvidencesByType } from "@/lib/evidenceByType";
 import { paginateItems } from "@/lib/evidencePagination";
+import {
+  groupQuestionedByLabel,
+  questionedGroupLabel,
+  uniqueQuestionedLabels,
+} from "@/lib/questionedGroupLabel";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
-import api from "@/services/api";
-import type { CaseDetail, Evidence, AudioTechnicalMetadata } from "@/types/api";
+import type {
+  CaseDetail,
+  Evidence,
+  AudioTechnicalMetadata,
+  EvidenceDeletionResult,
+} from "@/types/api";
 import {
   audioMetaFromEvidence,
   formatAudioBitDepth,
@@ -46,6 +58,7 @@ import {
   mergeAudioMeta,
 } from "@/lib/audioMetadataFormat";
 import { techniqueHasDedicatedPage } from "@/utils/caseAnalysisNav";
+import { parseApiError } from "@/lib/apiErrors";
 import {
   caseEvidenceListMaxHeight,
   fileGridContainerStyle,
@@ -65,11 +78,6 @@ function formatBytes(bytes: number): string {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-}
-
-function uploadFailureMessage(reason: unknown): string {
-  const maybeAxios = reason as { response?: { data?: { detail?: string } } };
-  return maybeAxios.response?.data?.detail || "Erro ao fazer upload";
 }
 
 function matchesUploadedFile(evidence: Evidence, files: File[]): boolean {
@@ -94,6 +102,7 @@ export default function CaseDetail() {
   const [closing, setClosing] = useState(false);
   const [closureStatus, setClosureStatus] = useState<ClosureStatus | null>(null);
   const [evidences, setEvidences] = useState<Evidence[]>([]);
+  const [deleteTargets, setDeleteTargets] = useState<Evidence[]>([]);
   const [derivativesCount, setDerivativesCount] = useState(0);
   const [derivativesRefreshKey, setDerivativesRefreshKey] = useState(0);
   const [analysisDerivativeTypes, setAnalysisDerivativeTypes] = useState<string[]>([]);
@@ -125,6 +134,9 @@ export default function CaseDetail() {
   const [evidenceViewMode, setEvidenceViewMode] = useFileListViewMode();
   const [forensicRefreshToken, setForensicRefreshToken] = useState(0);
   const [evidencePageByType, setEvidencePageByType] = useState<Record<string, number>>({});
+  const [uploadGroupLabel, setUploadGroupLabel] = useState("");
+  const [bulkLabelInput, setBulkLabelInput] = useState("");
+  const [labelBusy, setLabelBusy] = useState(false);
 
   const { types: evidenceTypes, grouped: evidencesByType } = useMemo(
     () => groupEvidencesByType(evidences),
@@ -181,17 +193,17 @@ export default function CaseDetail() {
       }
       {
         const refCounts: Partial<Record<string, number>> = {};
-        for (const g of refs.global_groups) {
+        for (const g of refs.global_groups ?? []) {
           const t = g.reference_type;
           if (!t) continue;
-          refCounts[t] = (refCounts[t] ?? 0) + g.files.length;
+          refCounts[t] = (refCounts[t] ?? 0) + (g.files?.length ?? 0);
         }
         setAnalysisGlobalRefCounts(refCounts);
         setAnalysisGlobalRefTypes(Object.keys(refCounts));
       }
       setReferencesCount(
-        refs.groups.reduce((n, g) => n + g.files.length, 0) +
-          refs.global_groups.reduce((n, g) => n + g.files.length, 0),
+        (refs.groups ?? []).reduce((n, g) => n + (g.files?.length ?? 0), 0) +
+          (refs.global_groups ?? []).reduce((n, g) => n + (g.files?.length ?? 0), 0),
       );
       if (c.storage_mode === "peritus") {
         listPeritusFiles(caseId)
@@ -220,7 +232,7 @@ export default function CaseDetail() {
         setAudioMetaById({});
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Erro ao carregar caso");
+      setError(parseApiError(err, "Erro ao carregar caso"));
     } finally {
       setLoading(false);
     }
@@ -259,16 +271,16 @@ export default function CaseDetail() {
           setAnalysisDerivativeTypes(Object.keys(derCounts));
 
           const refCounts: Partial<Record<string, number>> = {};
-          for (const g of refs.global_groups) {
+          for (const g of refs.global_groups ?? []) {
             const t = g.reference_type;
             if (!t) continue;
-            refCounts[t] = (refCounts[t] ?? 0) + g.files.length;
+            refCounts[t] = (refCounts[t] ?? 0) + (g.files?.length ?? 0);
           }
           setAnalysisGlobalRefCounts(refCounts);
           setAnalysisGlobalRefTypes(Object.keys(refCounts));
           setReferencesCount(
-            refs.groups.reduce((n, g) => n + g.files.length, 0) +
-              refs.global_groups.reduce((n, g) => n + g.files.length, 0),
+            (refs.groups ?? []).reduce((n, g) => n + (g.files?.length ?? 0), 0) +
+              (refs.global_groups ?? []).reduce((n, g) => n + (g.files?.length ?? 0), 0),
           );
         },
       );
@@ -309,7 +321,7 @@ export default function CaseDetail() {
       setForensicRefreshToken((t) => t + 1);
       setShowCloseModal(false);
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Erro ao fechar caso");
+      setError(parseApiError(err, "Erro ao fechar caso"));
     } finally {
       setClosing(false);
     }
@@ -322,12 +334,17 @@ export default function CaseDetail() {
       await loadAll();
       setForensicRefreshToken((t) => t + 1);
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Erro ao reabrir caso");
+      setError(parseApiError(err, "Erro ao reabrir caso"));
     }
   }
 
   async function handleUploadFiles(files: FileList | null) {
     if (!files || !caseId || isLocked) return;
+    const rotulo = uploadGroupLabel.trim();
+    if (!rotulo) {
+      setError("Informe o rotulo do grupo de questionados antes de enviar os arquivos.");
+      return;
+    }
     const fileArray = Array.from(files);
     const previousEvidenceIds = new Set(evidences.map((evidence) => evidence.id));
     setUploading(true);
@@ -340,7 +357,7 @@ export default function CaseDetail() {
     try {
       const settled = await Promise.allSettled(
         fileArray.map(async (file) => {
-          const ev = await uploadEvidence(caseId, file, (percent) => {
+          const ev = await uploadEvidence(caseId, file, rotulo, (percent) => {
             setUploadProgress((prev) => ({ ...prev, [file.name]: percent }));
           });
           return { file, evidence: ev };
@@ -363,7 +380,7 @@ export default function CaseDetail() {
       } else if (successful.length > 0) {
         setError(
           `${successful.length} arquivo(s) enviado(s), ${failed.length} falharam. ` +
-            uploadFailureMessage(failed[0].reason)
+            parseApiError(failed[0].reason, "Erro ao fazer upload")
         );
       } else {
         const latest = filterForensicAuthEvidences(await listCaseEvidences(caseId));
@@ -371,18 +388,100 @@ export default function CaseDetail() {
           !previousEvidenceIds.has(evidence.id) && matchesUploadedFile(evidence, fileArray)
         ));
         setEvidences(latest);
-        setError(recovered.length > 0 ? "" : uploadFailureMessage(failed[0].reason));
+        setError(recovered.length > 0 ? "" : parseApiError(failed[0].reason, "Erro ao fazer upload"));
         if (recovered.length > 0) uploadSucceeded = true;
       }
     } catch (err: unknown) {
-      setError(uploadFailureMessage(err));
+      setError(parseApiError(err, "Erro ao fazer upload"));
     } finally {
       setUploading(false);
       setUploadProgress({});
       if (fileInputRef.current) fileInputRef.current.value = "";
       if (uploadSucceeded) {
         setForensicRefreshToken((t) => t + 1);
+        // Mantem o rotulo preenchido para novos uploads do mesmo grupo.
       }
+    }
+  }
+
+  async function handleRenameEvidenceLabel(ev: Evidence) {
+    if (isLocked || !caseId) return;
+    const current = questionedGroupLabel(ev);
+    const next = window.prompt("Novo rotulo do grupo:", current);
+    if (next == null) return;
+    const rotulo = next.trim();
+    if (!rotulo) {
+      setError("Rotulo nao pode ser vazio.");
+      return;
+    }
+    if (rotulo === current) return;
+    setLabelBusy(true);
+    setError("");
+    try {
+      const updated = await updateEvidenceGroupLabel(ev.id, rotulo);
+      setEvidences((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+      setForensicRefreshToken((t) => t + 1);
+    } catch (err: unknown) {
+      setError(parseApiError(err, "Erro ao alterar rotulo"));
+    } finally {
+      setLabelBusy(false);
+    }
+  }
+
+  async function handleBulkMoveLabel() {
+    if (!caseId || isLocked || selectedIds.size === 0) return;
+    const rotulo = (bulkLabelInput.trim() || uploadGroupLabel.trim());
+    if (!rotulo) {
+      setError("Informe o rotulo de destino para as evidencias selecionadas.");
+      return;
+    }
+    setLabelBusy(true);
+    setError("");
+    try {
+      const updated = await bulkUpdateEvidenceGroupLabel(
+        caseId,
+        Array.from(selectedIds),
+        rotulo,
+      );
+      const byId = new Map(updated.map((e) => [e.id, e]));
+      setEvidences((prev) => prev.map((e) => byId.get(e.id) || e));
+      setSelectedIds(new Set());
+      setBulkLabelInput("");
+      setForensicRefreshToken((t) => t + 1);
+    } catch (err: unknown) {
+      setError(parseApiError(err, "Erro ao alterar rotulo"));
+    } finally {
+      setLabelBusy(false);
+    }
+  }
+
+  async function handleApplyLabelToUnlabeled() {
+    if (!caseId || isLocked) return;
+    const rotulo = uploadGroupLabel.trim();
+    if (!rotulo) {
+      setError("Digite o rotulo acima antes de aplicar.");
+      return;
+    }
+    const unlabeled = evidences.filter((e) => questionedGroupLabel(e) === "Sem rotulo");
+    if (unlabeled.length === 0) {
+      setError("Nao ha questionados sem rotulo para atualizar.");
+      return;
+    }
+    setLabelBusy(true);
+    setError("");
+    try {
+      const updated = await bulkUpdateEvidenceGroupLabel(
+        caseId,
+        unlabeled.map((e) => e.id),
+        rotulo,
+      );
+      const byId = new Map(updated.map((e) => [e.id, e]));
+      setEvidences((prev) => prev.map((e) => byId.get(e.id) || e));
+      setForensicRefreshToken((t) => t + 1);
+    } catch (err: unknown) {
+      setError(parseApiError(err, "Erro ao alterar rotulo"));
+    } finally {
+      setLabelBusy(false);
     }
   }
 
@@ -409,16 +508,28 @@ export default function CaseDetail() {
     }
   }
 
-  async function handleDeleteSelected() {
-    if (!confirm(`Excluir ${selectedIds.size} evidencia(s)?`)) return;
-    try {
-      for (const id of selectedIds) {
-        await api.delete(`/evidences/${id}`);
-      }
-      setEvidences((prev) => prev.filter((e) => !selectedIds.has(e.id)));
-      setSelectedIds(new Set());
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Erro ao excluir");
+  function requestDelete(targets: Evidence[]) {
+    if (targets.length === 0) return;
+    setError("");
+    setDeleteTargets(targets);
+  }
+
+  function handleDeleteSelected() {
+    requestDelete(evidences.filter((e) => selectedIds.has(e.id)));
+  }
+
+  function handleDeleted(result: EvidenceDeletionResult) {
+    const removed = new Set([...result.deleted, ...result.dependents_deleted]);
+    setEvidences((prev) => prev.filter((e) => !removed.has(e.id)));
+    setSelectedIds((prev) => new Set([...prev].filter((id) => !removed.has(id))));
+    if (result.dependents_deleted.length > 0) {
+      setDerivativesRefreshKey((key) => key + 1);
+    }
+    if (result.failed.length > 0) {
+      setError(
+        `Falha ao excluir ${result.failed.length} item(ns): ` +
+          result.failed.map((f) => f.detail).join("; ")
+      );
     }
   }
 
@@ -650,7 +761,8 @@ export default function CaseDetail() {
             )}
           </div>
         </div>
-        {closureStatus && (isClosurePending || closureStatus.required_signers.length > 1) && (
+        {closureStatus &&
+          (isClosurePending || (closureStatus.required_signers?.length ?? 0) > 1) && (
           <div
             style={{
               marginTop: "0.75rem",
@@ -667,7 +779,7 @@ export default function CaseDetail() {
             </strong>
             <p style={{ margin: "0 0 0.5rem", lineHeight: 1.5 }}>{closureStatus.message}</p>
             <ul style={{ margin: 0, paddingLeft: "1.2rem" }}>
-              {closureStatus.required_signers.map((s) => (
+              {(closureStatus.required_signers ?? []).map((s) => (
                 <li key={s.user_id}>
                   {s.username || s.user_id.slice(0, 8)}
                   {s.is_current_user ? " (voce)" : ""} —{" "}
@@ -720,7 +832,7 @@ export default function CaseDetail() {
             marginBottom: "1rem",
           }}
         >
-          {error}
+          {typeof error === "string" ? error : parseApiError(error, "Erro")}
         </div>
       )}
 
@@ -895,6 +1007,65 @@ export default function CaseDetail() {
           Questionados do caso
         </h2>
         {!isLocked ? (
+          <div>
+            <label
+              style={{
+                display: "block",
+                fontSize: "0.82rem",
+                color: "#374151",
+                marginBottom: "0.35rem",
+                maxWidth: 420,
+              }}
+            >
+              Rotulo do grupo
+              <input
+                type="text"
+                list="questioned-group-labels"
+                value={uploadGroupLabel}
+                onChange={(e) => setUploadGroupLabel(e.target.value)}
+                placeholder="Ex.: Camera A, Lote 1"
+                disabled={uploading || labelBusy}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  marginTop: 4,
+                  padding: "0.4rem 0.55rem",
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                  fontSize: "0.85rem",
+                }}
+              />
+            </label>
+            <p style={{ margin: "0 0 0.5rem", fontSize: "0.75rem", color: "#6b7280", maxWidth: 520 }}>
+              Vale para <strong>novos uploads</strong>. Arquivos ja na lista (ex.: &quot;Sem rotulo&quot;)
+              nao mudam sozinho — use o botao abaixo, clique no rotulo da linha, ou selecione
+              e aplique em lote.
+            </p>
+            <datalist id="questioned-group-labels">
+              {uniqueQuestionedLabels(evidences).map((label) => (
+                <option key={label} value={label} />
+              ))}
+            </datalist>
+            {evidences.some((e) => questionedGroupLabel(e) === "Sem rotulo") && (
+              <button
+                type="button"
+                onClick={() => void handleApplyLabelToUnlabeled()}
+                disabled={labelBusy || !uploadGroupLabel.trim()}
+                style={{
+                  marginBottom: "0.75rem",
+                  padding: "0.4rem 0.75rem",
+                  background: uploadGroupLabel.trim() ? "#e0e7ff" : "#f3f4f6",
+                  color: uploadGroupLabel.trim() ? "#3730a3" : "#9ca3af",
+                  border: "1px solid #c7d2fe",
+                  borderRadius: 6,
+                  cursor: labelBusy || !uploadGroupLabel.trim() ? "not-allowed" : "pointer",
+                  fontSize: "0.8rem",
+                  fontWeight: 600,
+                }}
+              >
+                Aplicar este rotulo aos {evidences.filter((e) => questionedGroupLabel(e) === "Sem rotulo").length} sem rotulo
+              </button>
+            )}
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -909,9 +1080,16 @@ export default function CaseDetail() {
               textAlign: "center",
               background: dragOver ? "#f9fafb" : "#fff",
               transition: "all 0.15s ease",
-              cursor: "pointer",
+              cursor: uploadGroupLabel.trim() ? "pointer" : "not-allowed",
+              opacity: uploadGroupLabel.trim() ? 1 : 0.65,
             }}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              if (!uploadGroupLabel.trim()) {
+                setError("Informe o rotulo do grupo de questionados antes de enviar os arquivos.");
+                return;
+              }
+              fileInputRef.current?.click();
+            }}
           >
             <input
               ref={fileInputRef}
@@ -925,8 +1103,11 @@ export default function CaseDetail() {
               <strong>Clique para selecionar</strong> ou arraste arquivos aqui
             </p>
             <p style={{ margin: 0, color: "#9ca3af", fontSize: "0.75rem" }}>
-              Imagens, audio, video e PDF. Limite 500MB por arquivo.
+              {uploadGroupLabel.trim()
+                ? "Imagens, audio, video e PDF. Limite 500MB por arquivo."
+                : "Informe o rotulo acima para habilitar o upload."}
             </p>
+          </div>
           </div>
         ) : (
           <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>
@@ -1012,6 +1193,48 @@ export default function CaseDetail() {
                 >
                   🗑️ Excluir selecionadas
                 </button>
+                {!isLocked && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                    <input
+                      type="text"
+                      list="questioned-group-labels-bulk"
+                      value={bulkLabelInput}
+                      onChange={(e) => setBulkLabelInput(e.target.value)}
+                      placeholder="Mover para rotulo…"
+                      disabled={labelBusy}
+                      style={{
+                        padding: "0.3rem 0.5rem",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: "0.8rem",
+                        width: 160,
+                      }}
+                    />
+                    <datalist id="questioned-group-labels-bulk">
+                      {uniqueQuestionedLabels(evidences).map((label) => (
+                        <option key={label} value={label} />
+                      ))}
+                    </datalist>
+                    <button
+                      type="button"
+                      onClick={() => void handleBulkMoveLabel()}
+                      disabled={labelBusy || !bulkLabelInput.trim()}
+                      style={{
+                        padding: "0.35rem 0.75rem",
+                        background: "#e0e7ff",
+                        color: "#3730a3",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: labelBusy ? "wait" : "pointer",
+                        fontSize: "0.8rem",
+                        fontWeight: 500,
+                        opacity: labelBusy || !bulkLabelInput.trim() ? 0.6 : 1,
+                      }}
+                    >
+                      Aplicar rotulo
+                    </button>
+                  </span>
+                )}
               </>
             )}
           </div>
@@ -1033,9 +1256,8 @@ export default function CaseDetail() {
       ) : evidenceViewMode === "grid" ? (
         <div>
           {evidenceTypes.map((fileType) => {
-            const sectionEvs = evidencesByType[fileType];
-            const sectionPage = evidencePageByType[fileType] ?? 0;
-            const paged = paginateItems(sectionEvs, sectionPage);
+            const sectionEvs = evidencesByType[fileType] ?? [];
+            const labelGroups = groupQuestionedByLabel(sectionEvs);
             return (
             <section key={fileType} style={{ marginBottom: "1.5rem" }}>
               <h3
@@ -1051,13 +1273,29 @@ export default function CaseDetail() {
                 {fileTypeIcon(fileType)} {EVIDENCE_TYPE_LABELS[fileType] || fileType} (
                 {sectionEvs.length})
               </h3>
+              {labelGroups.map((group) => {
+                const pageKey = `${fileType}::${group.group_label}`;
+                const paged = paginateItems(group.files, evidencePageByType[pageKey] ?? 0);
+                return (
+              <div key={pageKey} style={{ marginBottom: "1rem" }}>
+              <h4
+                style={{
+                  fontSize: "0.9rem",
+                  fontWeight: 600,
+                  color: "#1e3a8a",
+                  margin: "0 0 0.4rem",
+                }}
+              >
+                {group.display_label}{" "}
+                <span style={{ fontWeight: 500, color: "#6b7280" }}>({group.files.length})</span>
+              </h4>
               <EvidenceListPagination
                 page={paged.page}
                 pageCount={paged.pageCount}
                 total={paged.total}
                 pageSize={paged.pageSize}
                 onPageChange={(nextPage) =>
-                  setEvidencePageByType((prev) => ({ ...prev, [fileType]: nextPage }))
+                  setEvidencePageByType((prev) => ({ ...prev, [pageKey]: nextPage }))
                 }
               />
               <div
@@ -1152,16 +1390,7 @@ export default function CaseDetail() {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm(`Excluir "${ev.original_filename}"?`)) {
-                          api.delete(`/evidences/${ev.id}`).then(() => {
-                            setEvidences((prev) => prev.filter((x) => x.id !== ev.id));
-                            setSelectedIds((prev) => {
-                              const next = new Set(prev);
-                              next.delete(ev.id);
-                              return next;
-                            });
-                          }).catch(() => setError("Erro ao excluir"));
-                        }
+                        requestDelete([ev]);
                       }}
                       style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
                       title="Excluir"
@@ -1209,10 +1438,36 @@ export default function CaseDetail() {
                     {formatAudioDuration(audioMeta.duration_sec ?? null)}
                   </span>
                 )}
+                {!isLocked && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleRenameEvidenceLabel(ev);
+                    }}
+                    disabled={labelBusy}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: "0.68rem",
+                      color: "#3730a3",
+                      textDecoration: "underline",
+                      padding: 0,
+                      textAlign: "left",
+                    }}
+                    title="Alterar rotulo"
+                  >
+                    Rotulo: {questionedGroupLabel(ev)}
+                  </button>
+                )}
               </div>
             );
           })}
               </div>
+              </div>
+                );
+              })}
             </section>
             );
           })}
@@ -1220,13 +1475,12 @@ export default function CaseDetail() {
       ) : (
         <div>
           {evidenceTypes.map((fileType) => {
-            const sectionEvs = evidencesByType[fileType];
-            const sectionPage = evidencePageByType[fileType] ?? 0;
-            const paged = paginateItems(sectionEvs, sectionPage);
+            const sectionEvs = evidencesByType[fileType] ?? [];
+            const labelGroups = groupQuestionedByLabel(sectionEvs);
             const isAudioSection = fileType === "audio";
             const evidenceGridColumns = isAudioSection
-              ? "40px minmax(120px, 1.3fr) 72px 88px 80px 68px minmax(70px, 0.9fr) 72px 130px 76px 72px"
-              : "40px 1.8fr 100px 100px 140px 80px 76px 72px";
+              ? "40px minmax(120px, 1.3fr) 72px 100px 88px 80px 68px minmax(70px, 0.9fr) 72px 130px 76px 72px"
+              : "40px 1.8fr 100px 120px 140px 80px 76px 72px";
             const metaCell: CSSProperties = {
               fontSize: "0.8rem",
               color: "#6b7280",
@@ -1250,13 +1504,29 @@ export default function CaseDetail() {
                   {fileTypeIcon(fileType)} {EVIDENCE_TYPE_LABELS[fileType] || fileType} (
                   {sectionEvs.length})
                 </h3>
+                {labelGroups.map((group) => {
+                  const pageKey = `${fileType}::${group.group_label}`;
+                  const paged = paginateItems(group.files, evidencePageByType[pageKey] ?? 0);
+                  return (
+                <div key={pageKey} style={{ marginBottom: "1rem" }}>
+                <h4
+                  style={{
+                    fontSize: "0.9rem",
+                    fontWeight: 600,
+                    color: "#1e3a8a",
+                    margin: "0 0 0.4rem",
+                  }}
+                >
+                  {group.display_label}{" "}
+                  <span style={{ fontWeight: 500, color: "#6b7280" }}>({group.files.length})</span>
+                </h4>
                 <EvidenceListPagination
                   page={paged.page}
                   pageCount={paged.pageCount}
                   total={paged.total}
                   pageSize={paged.pageSize}
                   onPageChange={(nextPage) =>
-                    setEvidencePageByType((prev) => ({ ...prev, [fileType]: nextPage }))
+                    setEvidencePageByType((prev) => ({ ...prev, [pageKey]: nextPage }))
                   }
                 />
                 <div
@@ -1285,6 +1555,7 @@ export default function CaseDetail() {
             <span></span>
             <span>Nome</span>
             <span>Tipo</span>
+            <span>Rotulo</span>
             {isAudioSection && (
               <>
                 <span>Taxa</span>
@@ -1357,6 +1628,27 @@ export default function CaseDetail() {
               <span style={{ fontSize: "0.8rem", color: "#6b7280", textTransform: "capitalize" }}>
                 {ev.file_type}
               </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isLocked) void handleRenameEvidenceLabel(ev);
+                }}
+                disabled={isLocked || labelBusy}
+                style={{
+                  ...metaCell,
+                  background: "none",
+                  border: "none",
+                  cursor: isLocked ? "default" : "pointer",
+                  color: "#3730a3",
+                  textDecoration: isLocked ? "none" : "underline",
+                  textAlign: "left",
+                  padding: 0,
+                }}
+                title={isLocked ? questionedGroupLabel(ev) : "Alterar rotulo"}
+              >
+                {questionedGroupLabel(ev)}
+              </button>
               {isAudioSection && (
                 <>
                   <span style={metaCell} title={audioMeta ? formatAudioSampleRate(audioMeta.sample_rate_hz ?? null) : undefined}>
@@ -1429,18 +1721,7 @@ export default function CaseDetail() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (confirm(`Excluir "${ev.original_filename}"?`)) {
-                    api.delete(`/evidences/${ev.id}`).then(() => {
-                      setEvidences((prev) => prev.filter((x) => x.id !== ev.id));
-                      setSelectedIds((prev) => {
-                        const next = new Set(prev);
-                        next.delete(ev.id);
-                        return next;
-                      });
-                    }).catch(() => setError("Erro ao excluir"));
-                  }
-                }}
+                onClick={() => requestDelete([ev])}
                 style={{
                   background: "none",
                   border: "none",
@@ -1459,6 +1740,9 @@ export default function CaseDetail() {
           })}
           </div>
                 </div>
+                </div>
+                  );
+                })}
               </section>
             );
           })}
@@ -1492,6 +1776,17 @@ export default function CaseDetail() {
           isPeritusCase={isPeritusCase}
           filterEvidenceId={custodyFilterEvidenceId}
           onClearFilter={() => setCustodyFilterEvidenceId(null)}
+        />
+      )}
+
+      {caseId && (
+        <ConfirmDestructiveDeleteModal
+          open={deleteTargets.length > 0}
+          caseId={caseId}
+          targets={deleteTargets}
+          kind="evidence"
+          onClose={() => setDeleteTargets([])}
+          onDeleted={handleDeleted}
         />
       )}
 
@@ -1542,11 +1837,13 @@ export default function CaseDetail() {
                 : "Iniciar fechamento do caso"}
             </h3>
             <p style={{ fontSize: "0.9rem", color: "#4b5563", marginBottom: "1rem" }}>
-              {closureStatus && closureStatus.required_signers.length > 1 ? (
+              {closureStatus && (closureStatus.required_signers?.length ?? 0) > 1 ? (
                 <>
                   O manifesto forense sera assinado com Ed25519. O caso so encerra definitivamente
                   apos todos os participantes obrigatorios assinarem (
-                  {closureStatus.required_signers.map((s) => s.username || "participante").join(", ")}
+                  {(closureStatus.required_signers ?? [])
+                    .map((s) => s.username || "participante")
+                    .join(", ")}
                   ). Enquanto houver assinatura pendente, uploads e derivados permanecem bloqueados.
                 </>
               ) : (

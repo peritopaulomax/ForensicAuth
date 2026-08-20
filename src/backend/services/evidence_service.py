@@ -212,7 +212,13 @@ class EvidenceService:
 
         return evidence
 
-    def delete_evidence(self, evidence_id: uuid.UUID, deleted_by: uuid.UUID) -> None:
+    def delete_evidence(
+        self,
+        evidence_id: uuid.UUID,
+        deleted_by: uuid.UUID,
+        deletion_reason: str | None = None,
+        related: Dict[str, Any] | None = None,
+    ) -> None:
         """Soft-delete evidence after logging to custody chain and removing the file."""
         evidence = (
             self.db.query(Evidence)
@@ -222,6 +228,19 @@ class EvidenceService:
         if not evidence:
             raise EvidenceUploadError("Evidencia nao encontrada")
 
+        details: Dict[str, Any] = {
+            "provenance_schema_version": "1",
+            "evidence_id": str(evidence.id),
+            "original_filename": evidence.original_filename,
+            "file_type": evidence.file_type,
+            "file_size": evidence.file_size,
+            "sha256": evidence.sha256,
+            "file_path": evidence.file_path,
+            "deletion_reason": deletion_reason or "user_request",
+        }
+        if related:
+            details.update(related)
+
         custody = CustodyService(self.db)
         custody.create_record(
             record_type="evidence_deleted",
@@ -229,15 +248,7 @@ class EvidenceService:
             evidence_id=evidence.id,
             user_id=deleted_by,
             sha256_input=evidence.sha256,
-            details={
-                "provenance_schema_version": "1",
-                "evidence_id": str(evidence.id),
-                "original_filename": evidence.original_filename,
-                "file_type": evidence.file_type,
-                "file_size": evidence.file_size,
-                "sha256": evidence.sha256,
-                "file_path": evidence.file_path,
-            },
+            details=details,
         )
 
         file_path = Path(evidence.file_path)
@@ -247,3 +258,131 @@ class EvidenceService:
         evidence.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
         evidence.deleted_by = deleted_by
         self.db.commit()
+
+    def delete_evidence_batch(
+        self,
+        case_id: uuid.UUID,
+        evidence_ids: list[uuid.UUID],
+        deleted_by: uuid.UUID,
+        include_dependent_derivatives: bool = False,
+    ) -> Dict[str, Any]:
+        """Exclui alvos e, opcionalmente, derivados exclusivamente dependentes.
+
+        Commit por item: uma falha isolada nao desfaz os elos de custodia ja gravados.
+        Dependentes saem antes dos alvos, para que o elo do alvo liste o que caiu com ele.
+        """
+        from services.evidence_dependents import EvidenceDependentsResolver
+
+        resolver = EvidenceDependentsResolver(self.db)
+        plan = resolver.deletion_plan(case_id, evidence_ids, include_dependent_derivatives)
+        cascade_ids = plan["cascade_ids"]
+        parent_by_dependent = {
+            dependent["evidence_id"]: [
+                parent["evidence_id"] for parent in dependent["parents"] if parent["in_scope"]
+            ]
+            for dependent in plan["dependents"]
+        }
+
+        deleted: list[str] = []
+        dependents_deleted: list[str] = []
+        failed: list[Dict[str, str]] = []
+
+        for dependent_id in cascade_ids:
+            try:
+                self.delete_evidence(
+                    uuid.UUID(dependent_id),
+                    deleted_by=deleted_by,
+                    deletion_reason="parent_deleted",
+                    related={"parent_evidence_ids": parent_by_dependent.get(dependent_id, [])},
+                )
+                dependents_deleted.append(dependent_id)
+            except EvidenceUploadError as exc:
+                failed.append({"evidence_id": dependent_id, "detail": str(exc)})
+            except Exception as exc:  # falha inesperada: descarta o item e segue o lote
+                self.db.rollback()
+                failed.append({"evidence_id": dependent_id, "detail": str(exc)})
+
+        related_targets: Dict[str, Any] = {}
+        if dependents_deleted:
+            related_targets["dependent_derivatives_deleted"] = dependents_deleted
+
+        for evidence_id in evidence_ids:
+            try:
+                self.delete_evidence(
+                    evidence_id,
+                    deleted_by=deleted_by,
+                    deletion_reason="user_request",
+                    related=related_targets or None,
+                )
+                deleted.append(str(evidence_id))
+            except EvidenceUploadError as exc:
+                failed.append({"evidence_id": str(evidence_id), "detail": str(exc)})
+            except Exception as exc:  # falha inesperada: descarta o item e segue o lote
+                self.db.rollback()
+                failed.append({"evidence_id": str(evidence_id), "detail": str(exc)})
+
+        return {
+            "deleted": deleted,
+            "dependents_deleted": dependents_deleted,
+            "retained_dependents": plan["retained_dependents"],
+            "failed": failed,
+        }
+
+    def update_questioned_group_label(
+        self,
+        evidence_id: uuid.UUID,
+        group_label: str,
+        user_id: uuid.UUID,
+    ) -> Evidence:
+        """Update questioned_group_label and register custody event."""
+        from services.evidence_classification import is_case_evidence, questioned_group_label
+
+        rotulo = (group_label or "").strip()
+        if not rotulo:
+            raise EvidenceUploadError("Informe o rotulo do grupo de questionados")
+        if len(rotulo) > 120:
+            raise EvidenceUploadError("Rotulo excede 120 caracteres")
+
+        evidence = (
+            self.db.query(Evidence)
+            .filter(Evidence.id == evidence_id, Evidence.deleted_at.is_(None))
+            .first()
+        )
+        if not evidence:
+            raise EvidenceUploadError("Evidencia nao encontrada")
+        if not is_case_evidence(evidence):
+            raise EvidenceUploadError(
+                "Rotulo de questionados so se aplica a evidencias do caso (nao referencias/derivados)"
+            )
+
+        old_label = questioned_group_label(evidence)
+        if old_label == rotulo:
+            return evidence
+
+        meta = dict(evidence.extra_metadata or {})
+        meta["questioned_group_label"] = rotulo
+        evidence.extra_metadata = meta
+        from sqlalchemy.orm.attributes import flag_modified
+
+        flag_modified(evidence, "extra_metadata")
+        self.db.flush()
+
+        custody = CustodyService(self.db)
+        custody.create_record(
+            record_type="evidence_group_label_changed",
+            case_id=evidence.case_id,
+            evidence_id=evidence.id,
+            user_id=user_id,
+            sha256_input=evidence.sha256,
+            sha256_output=evidence.sha256,
+            details={
+                "provenance_schema_version": "1",
+                "evidence_id": str(evidence.id),
+                "original_filename": evidence.original_filename,
+                "old_group_label": old_label,
+                "new_group_label": rotulo,
+            },
+        )
+        self.db.commit()
+        self.db.refresh(evidence)
+        return evidence

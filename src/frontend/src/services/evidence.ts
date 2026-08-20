@@ -1,5 +1,10 @@
 import api from "@/services/api";
-import type { AudioTechnicalMetadata, Evidence } from "@/types/api";
+import type {
+  AudioTechnicalMetadata,
+  Evidence,
+  EvidenceDeletionPreview,
+  EvidenceDeletionResult,
+} from "@/types/api";
 
 export async function listCaseEvidences(caseId: string): Promise<Evidence[]> {
   const response = await api.get<Evidence[]>(`/cases/${caseId}/evidences`);
@@ -16,16 +21,16 @@ export async function listCaseAudioMetadata(caseId: string): Promise<AudioTechni
 export async function uploadEvidence(
   caseId: string,
   file: File,
+  groupLabel: string,
   onProgress?: (percent: number) => void
 ): Promise<Evidence> {
   const formData = new FormData();
   formData.append("case_id", caseId);
+  formData.append("group_label", groupLabel.trim());
   formData.append("file", file);
 
   const response = await api.post<Evidence>("/evidences/upload", formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
+    // Nao forcar Content-Type: o browser define multipart com boundary.
     onUploadProgress: (progressEvent) => {
       if (onProgress && progressEvent.total) {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -33,7 +38,64 @@ export async function uploadEvidence(
       }
     },
   });
+  const expected = groupLabel.trim();
+  const got =
+    (typeof response.data.group_label === "string" && response.data.group_label.trim()) ||
+    (typeof response.data.extra_metadata?.questioned_group_label === "string"
+      ? String(response.data.extra_metadata.questioned_group_label).trim()
+      : "");
+  if (expected && got !== expected) {
+    throw new Error(
+      `O servidor nao gravou o rotulo "${expected}" (recebido: "${got || "Sem rotulo"}"). ` +
+        "Reinicie a API (uvicorn) para carregar o codigo novo e tente de novo."
+    );
+  }
   return response.data;
+}
+
+export async function updateEvidenceGroupLabel(
+  evidenceId: string,
+  groupLabel: string
+): Promise<Evidence> {
+  const { data } = await api.patch<Evidence>(`/evidences/${evidenceId}/group-label`, {
+    group_label: groupLabel.trim(),
+  });
+  return data;
+}
+
+export async function bulkUpdateEvidenceGroupLabel(
+  caseId: string,
+  evidenceIds: string[],
+  groupLabel: string
+): Promise<Evidence[]> {
+  const { data } = await api.post<Evidence[]>(`/cases/${caseId}/evidences/group-label`, {
+    evidence_ids: evidenceIds,
+    group_label: groupLabel.trim(),
+  });
+  return data;
+}
+
+export async function getEvidenceDeletionPreview(
+  caseId: string,
+  evidenceIds: string[]
+): Promise<EvidenceDeletionPreview> {
+  const { data } = await api.post<EvidenceDeletionPreview>(
+    `/cases/${caseId}/evidences/deletion-preview`,
+    { evidence_ids: evidenceIds }
+  );
+  return data;
+}
+
+export async function deleteEvidences(
+  caseId: string,
+  evidenceIds: string[],
+  includeDependentDerivatives: boolean
+): Promise<EvidenceDeletionResult> {
+  const { data } = await api.post<EvidenceDeletionResult>(`/cases/${caseId}/evidences/delete`, {
+    evidence_ids: evidenceIds,
+    include_dependent_derivatives: includeDependentDerivatives,
+  });
+  return data;
 }
 
 export interface ReferenceGroup {

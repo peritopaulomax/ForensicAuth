@@ -30,11 +30,15 @@ def _require_case_mutable(db: Session, case_id: uuid.UUID, user: User) -> Case:
     assert_case_not_closed(case)
     return case
 from services.derivative_service import DerivativeAlreadySaved, DerivativeSaveError, DerivativeService
+from services.evidence_dependents import EvidenceDependentsResolver
 from services.evidence_classification import (
     group_global_references,
     group_references,
     is_case_evidence,
     is_derived,
+    is_reference,
+    questioned_group_label,
+    reference_group_label,
 )
 from services.audio_evidence_metadata import ensure_audio_technical_metadata
 
@@ -53,9 +57,73 @@ class EvidenceResponse(BaseModel):
     extra_metadata: dict
     uploaded_by: str
     created_at: str
+    group_label: str = "Sem rotulo"
 
     class Config:
         from_attributes = True
+
+
+class UpdateGroupLabelRequest(BaseModel):
+    group_label: str = Field(..., min_length=1, max_length=120)
+
+
+class BulkUpdateGroupLabelRequest(BaseModel):
+    evidence_ids: List[uuid.UUID] = Field(..., min_length=1)
+    group_label: str = Field(..., min_length=1, max_length=120)
+
+
+class DeletionPreviewRequest(BaseModel):
+    evidence_ids: List[uuid.UUID] = Field(..., min_length=1)
+
+
+class DeleteEvidencesRequest(BaseModel):
+    evidence_ids: List[uuid.UUID] = Field(..., min_length=1)
+    include_dependent_derivatives: bool = False
+
+
+class DeletionTargetResponse(BaseModel):
+    evidence_id: str
+    original_filename: str
+    file_type: str
+    is_derived: bool
+    technique: str | None = None
+    artifact_role: str | None = None
+    derivation_group_id: str
+
+
+class DependentParentResponse(BaseModel):
+    evidence_id: str
+    role: str
+    original_filename: str
+    in_scope: bool
+
+
+class DependentDerivativeResponse(DeletionTargetResponse):
+    exclusive: bool
+    parents: List[DependentParentResponse] = Field(default_factory=list)
+    retained_parents: List[str] = Field(default_factory=list)
+
+
+class DeletionPreviewResponse(BaseModel):
+    case_id: str
+    targets: List[DeletionTargetResponse]
+    dependents: List[DependentDerivativeResponse]
+    dependent_count: int
+    cascade_count: int
+    retained_count: int
+    package_count: int
+
+
+class DeletionFailureResponse(BaseModel):
+    evidence_id: str
+    detail: str
+
+
+class DeleteEvidencesResponse(BaseModel):
+    deleted: List[str]
+    dependents_deleted: List[str]
+    retained_dependents: List[DependentDerivativeResponse]
+    failed: List[DeletionFailureResponse]
 
 
 class SaveDerivativeRequest(BaseModel):
@@ -172,6 +240,12 @@ class CaseAudioMetadataResponse(BaseModel):
     items: List[AudioTechnicalMetadataResponse]
 
 
+def _ui_group_label(evidence) -> str:
+    if is_reference(evidence):
+        return reference_group_label(evidence)
+    return questioned_group_label(evidence)
+
+
 def _to_evidence_response(evidence) -> EvidenceResponse:
     return EvidenceResponse(
         id=str(evidence.id),
@@ -185,18 +259,26 @@ def _to_evidence_response(evidence) -> EvidenceResponse:
         extra_metadata=evidence.extra_metadata or {},
         uploaded_by=str(evidence.uploaded_by),
         created_at=evidence.created_at.isoformat() if evidence.created_at else "",
+        group_label=_ui_group_label(evidence),
     )
 
 
 @router.post("/evidences/upload", status_code=status.HTTP_201_CREATED, response_model=EvidenceResponse)
 def upload_evidence(
     case_id: uuid.UUID = Form(..., description="UUID do caso"),
+    group_label: str = Form(..., min_length=1, max_length=120, description="Rotulo do grupo de questionados"),
     file: UploadFile = File(..., description="Arquivo de evidencia"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Upload a new evidence file to a case."""
     _require_case_mutable(db, case_id, current_user)
+    rotulo = group_label.strip()
+    if not rotulo:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Informe o rotulo do grupo de questionados",
+        )
     service = EvidenceService(db)
     try:
         evidence = service.upload_evidence(
@@ -205,6 +287,7 @@ def upload_evidence(
             mime_type=file.content_type,
             file_obj=file.file,
             uploaded_by=current_user.id,
+            extra_metadata={"questioned_group_label": rotulo},
         )
     except EvidenceUploadError as e:
         raise HTTPException(
@@ -212,19 +295,7 @@ def upload_evidence(
             detail=str(e),
         )
 
-    return EvidenceResponse(
-        id=str(evidence.id),
-        case_id=str(evidence.case_id),
-        filename=evidence.filename,
-        original_filename=evidence.original_filename,
-        file_size=evidence.file_size,
-        file_type=evidence.file_type,
-        mime_type=evidence.mime_type,
-        sha256=evidence.sha256,
-        extra_metadata=evidence.extra_metadata or {},
-        uploaded_by=str(evidence.uploaded_by),
-        created_at=evidence.created_at.isoformat() if evidence.created_at else "",
-    )
+    return _to_evidence_response(evidence)
 
 
 @router.post("/evidences/prnu-reference-upload", status_code=status.HTTP_201_CREATED, response_model=EvidenceResponse)
@@ -591,6 +662,122 @@ def delete_evidence(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         )
+
+
+def _resolve_deletion_targets(
+    db: Session,
+    case_id: uuid.UUID,
+    evidence_ids: List[uuid.UUID],
+    current_user: User,
+) -> list:
+    targets = []
+    for evidence_id in evidence_ids:
+        evidence = get_accessible_evidence(db, evidence_id, current_user)
+        if evidence.case_id != case_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Evidencia {evidence_id} nao pertence ao caso",
+            )
+        targets.append(evidence)
+    return targets
+
+
+@router.post(
+    "/cases/{case_id}/evidences/deletion-preview",
+    response_model=DeletionPreviewResponse,
+)
+def preview_evidence_deletion(
+    case_id: uuid.UUID,
+    body: DeletionPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Impacto de uma exclusao: alvos nomeados e derivados que dependem deles."""
+    _require_case_mutable(db, case_id, current_user)
+    targets = _resolve_deletion_targets(db, case_id, body.evidence_ids, current_user)
+    resolver = EvidenceDependentsResolver(db)
+    return resolver.preview(case_id, targets)
+
+
+@router.post("/cases/{case_id}/evidences/delete", response_model=DeleteEvidencesResponse)
+def delete_evidences(
+    case_id: uuid.UUID,
+    body: DeleteEvidencesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Exclui evidencias em lote, com cascade opcional para derivados exclusivos.
+
+    Resultado por item no corpo: falha isolada nao aborta o restante do lote.
+    """
+    _require_case_mutable(db, case_id, current_user)
+    _resolve_deletion_targets(db, case_id, body.evidence_ids, current_user)
+    service = EvidenceService(db)
+    return service.delete_evidence_batch(
+        case_id=case_id,
+        evidence_ids=body.evidence_ids,
+        deleted_by=current_user.id,
+        include_dependent_derivatives=body.include_dependent_derivatives,
+    )
+
+
+@router.patch("/evidences/{evidence_id}/group-label", response_model=EvidenceResponse)
+def update_evidence_group_label(
+    evidence_id: uuid.UUID,
+    body: UpdateGroupLabelRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update questioned_group_label for a case evidence (custody-tracked)."""
+    evidence = get_accessible_evidence(db, evidence_id, current_user)
+    _require_case_mutable(db, evidence.case_id, current_user)
+    service = EvidenceService(db)
+    try:
+        updated = service.update_questioned_group_label(
+            evidence_id=evidence_id,
+            group_label=body.group_label,
+            user_id=current_user.id,
+        )
+    except EvidenceUploadError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
+        )
+    return _to_evidence_response(updated)
+
+
+@router.post("/cases/{case_id}/evidences/group-label", response_model=List[EvidenceResponse])
+def bulk_update_evidence_group_label(
+    case_id: uuid.UUID,
+    body: BulkUpdateGroupLabelRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Assign the same questioned_group_label to multiple case evidences."""
+    _require_case_mutable(db, case_id, current_user)
+    service = EvidenceService(db)
+    updated: list = []
+    for eid in body.evidence_ids:
+        evidence = get_accessible_evidence(db, eid, current_user)
+        if evidence.case_id != case_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Evidencia {eid} nao pertence ao caso",
+            )
+        try:
+            updated.append(
+                service.update_questioned_group_label(
+                    evidence_id=eid,
+                    group_label=body.group_label,
+                    user_id=current_user.id,
+                )
+            )
+        except EvidenceUploadError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(e),
+            )
+    return [_to_evidence_response(e) for e in updated]
 
 
 @router.get("/evidences/{evidence_id}/thumbnail")

@@ -11,6 +11,15 @@ from services.forensic_integrity_service import ForensicIntegrityService
 
 
 class TestForensicIntegrity:
+    def test_empty_case_passes(self, db_session, sample_case):
+        """Caso novo sem evidencias/custodia nao deve parecer corrompido."""
+        report = ForensicIntegrityService(db_session).verify_case_forensic_integrity(
+            sample_case.id
+        )
+        assert report["chain"]["valid"] is True
+        assert report["valid"] is True
+        assert report["files"]["checked"] == 0
+
     def test_valid_case_passes(self, db_session, sample_case, test_user, sample_evidence, tmp_path):
         path = tmp_path / "ev.jpg"
         path.write_bytes(b"test-image-data")

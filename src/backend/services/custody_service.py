@@ -178,17 +178,20 @@ class CustodyService:
         if case is None:
             return {"valid": False, "reason": "case_not_found"}
 
-        if not case.custody_seal or not case.custody_seal_signature:
-            return {"valid": False, "reason": "seal_missing"}
-
         last_record = (
             self.db.query(CustodyRecord)
             .filter(CustodyRecord.case_id == case_id)
             .order_by(CustodyRecord.chain_sequence.desc())
             .first()
         )
+        # Caso novo / ainda sem eventos forenses: ausencia de selo e de elos e esperada.
         if last_record is None:
+            if not case.custody_seal and not case.custody_seal_signature:
+                return {"valid": True, "reason": "chain_empty"}
             return {"valid": False, "reason": "chain_empty"}
+
+        if not case.custody_seal or not case.custody_seal_signature:
+            return {"valid": False, "reason": "seal_missing"}
 
         if case.custody_seal_record_hash != last_record.record_hash:
             return {

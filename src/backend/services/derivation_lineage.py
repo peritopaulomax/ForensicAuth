@@ -164,6 +164,10 @@ class DerivationLineageBuilder:
 
         expanded.add(cid)
 
+    def resolve_parents(self, evidence: Evidence) -> list[tuple[Evidence, str]]:
+        """Insumos ativos de uma evidencia (parent_inputs, ids legados, fallback PRNU)."""
+        return self._resolve_all_parents(evidence, evidence.extra_metadata or {})
+
     def _resolve_all_parents(self, child: Evidence, meta: dict[str, Any]) -> list[tuple[Evidence, str]]:
         parent_inputs = meta.get("parent_inputs")
         if isinstance(parent_inputs, list) and parent_inputs:

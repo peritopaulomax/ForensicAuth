@@ -23,6 +23,12 @@ Retorna grafo DAG com:
 
 Matriz estatica por tecnica: `parent_roles`, `min_parameters`, `savable_artifacts`, `conceptual_inputs`.
 
+### Dependentes (grafo invertido)
+
+`EvidenceDependentsResolver` (`services/evidence_dependents.py`) monta o indice reverso insumo → derivado reusando `DerivationLineageBuilder.resolve_parents`, que ja cobre `parent_inputs`, `parent_evidence_ids`, `parent_evidence_id` e o fallback PRNU legado.
+
+Consumido por `POST /cases/{id}/evidences/deletion-preview` e pela exclusao em lote. Campo `exclusive` indica que todos os insumos ativos do derivado estao no escopo da exclusao — unico caso elegivel a cascata (ver RN-CUST-15).
+
 ## Nos sinteticos
 
 Populacao LR em deteccao sintetica nao e arquivo fisico. O grafo inclui no sintetico:
@@ -43,11 +49,13 @@ Todo derivado novo deve incluir em `extra_metadata`:
 ## UI
 
 - Apos salvar na pagina de analise: banner com link ao grafo e aba Derivados (`DerivativeSaveNotifier`).
-- Aba Derivados: lista, pacotes multi-artefato, modal de grafo.
+- Aba Derivados: lista, pacotes multi-artefato, modal de grafo, exclusao por item e por pacote.
 - Aba Custodia: botao "Ver grafo de derivacao" em registros `derivative_saved`.
+- Derivado cujo insumo foi excluido exibe a marca "insumo excluido" no lugar da origem.
 
 ## Regras
 
 - **RN-LIN-01**: Grafos sao montados apenas a partir de metadados persistidos (sem inferencia oculta), exceto fallbacks documentados para PRNU legado.
 - **RN-LIN-02**: Nos sinteticos nunca entram na custodia como evidencia fisica.
 - **RN-LIN-03**: `derivation_group_id` agrupa artefatos promovidos do mesmo job (ex.: resampling multiplos PNGs).
+- **RN-LIN-04**: O grafo resolve apenas insumos **ativos**. Insumo soft-deleted nao aparece como no; o derivado e sinalizado como tendo insumo excluido, sem invalidar a proveniencia gravada na cadeia.

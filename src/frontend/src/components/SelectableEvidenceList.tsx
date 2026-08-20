@@ -8,6 +8,7 @@ import { paginateItems } from "@/lib/evidencePagination";
 import { useFileListSortMode } from "@/lib/fileListSortMode";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
 import { sortEvidenceItems } from "@/lib/sortEvidenceItems";
+import { questionedGroupLabel } from "@/lib/questionedGroupLabel";
 import type { Evidence } from "@/types/api";
 import { imageSelectorListMaxHeight, scrollableListStyle } from "@/styles/listHeights";
 
@@ -50,10 +51,17 @@ export default function SelectableEvidenceList({
 }: SelectableEvidenceListProps) {
   const [viewMode, setViewMode] = useFileListViewMode();
   const [sortMode, setSortMode] = useFileListSortMode();
-  const sortedItems = useMemo(
-    () => (showSort ? sortEvidenceItems(items, sortMode) : items),
-    [items, showSort, sortMode],
-  );
+  const sortedItems = useMemo(() => {
+    const base = showSort ? sortEvidenceItems(items, sortMode) : items;
+    if (source !== "original") return base;
+    return [...base].sort((a, b) => {
+      const la = questionedGroupLabel(a);
+      const lb = questionedGroupLabel(b);
+      const cmp = la.localeCompare(lb, "pt-BR", { sensitivity: "base" });
+      if (cmp !== 0) return cmp;
+      return 0;
+    });
+  }, [items, showSort, sortMode, source]);
   const [page, setPage] = useState(0);
   useEffect(() => {
     setPage(0);
@@ -77,55 +85,74 @@ export default function SelectableEvidenceList({
         gap: "0.4rem",
       }}
     >
-      {visibleItems.map((ev) => {
+      {visibleItems.map((ev, idx) => {
         const selected = isSelected(ev);
         const meta = ev.extra_metadata || {};
         const procedure = meta.procedure_summary as string | undefined;
+        const label = source === "original" ? questionedGroupLabel(ev) : null;
+        const prevLabel =
+          source === "original" && idx > 0 ? questionedGroupLabel(visibleItems[idx - 1]) : null;
+        const showHeader = label != null && label !== prevLabel;
         return (
-          <label
-            key={`${source}-${ev.id}`}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.5rem 0.75rem",
-              background: selected ? "#e0f2fe" : "#fff",
-              border: `1px solid ${selected ? "#7dd3fc" : "#e5e7eb"}`,
-              borderRadius: 6,
-              cursor: "pointer",
-              fontSize: "0.85rem",
-              color: "#1a1a2e",
-            }}
-          >
-            <input
-              type="radio"
-              name={radioName}
-              value={ev.id}
-              checked={selected}
-              onChange={() => onSelect(ev.id, source)}
-            />
-            <EvidenceFilePreview
-              evidenceId={ev.id}
-              fileType={ev.file_type}
-              filename={ev.original_filename}
-              mimeType={ev.mime_type}
-              size={36}
-            />
-            <span style={{ minWidth: 0, flex: 1 }}>
-              {ev.original_filename}
-              {badge && (
-                <span style={{ marginLeft: "0.35rem", fontSize: "0.7rem", color: "#6b7280" }}>
-                  ({badge})
-                </span>
-              )}
-              {source === "derivative" && procedure && (
-                <span style={{ display: "block", fontSize: "0.7rem", color: "#9ca3af" }}>{procedure}</span>
-              )}
-            </span>
-            <span style={{ color: "#9ca3af", fontSize: "0.75rem", flexShrink: 0 }}>
-              {formatBytes(ev.file_size ?? 0)}
-            </span>
-          </label>
+          <div key={`${source}-${ev.id}`}>
+            {showHeader && (
+              <div
+                style={{
+                  fontSize: "0.72rem",
+                  fontWeight: 600,
+                  color: "#3730a3",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.03em",
+                  margin: idx === 0 ? "0 0 0.25rem" : "0.5rem 0 0.25rem",
+                }}
+              >
+                {label}
+              </div>
+            )}
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                padding: "0.5rem 0.75rem",
+                background: selected ? "#e0f2fe" : "#fff",
+                border: `1px solid ${selected ? "#7dd3fc" : "#e5e7eb"}`,
+                borderRadius: 6,
+                cursor: "pointer",
+                fontSize: "0.85rem",
+                color: "#1a1a2e",
+              }}
+            >
+              <input
+                type="radio"
+                name={radioName}
+                value={ev.id}
+                checked={selected}
+                onChange={() => onSelect(ev.id, source)}
+              />
+              <EvidenceFilePreview
+                evidenceId={ev.id}
+                fileType={ev.file_type}
+                filename={ev.original_filename}
+                mimeType={ev.mime_type}
+                size={36}
+              />
+              <span style={{ minWidth: 0, flex: 1 }}>
+                {ev.original_filename}
+                {badge && (
+                  <span style={{ marginLeft: "0.35rem", fontSize: "0.7rem", color: "#6b7280" }}>
+                    ({badge})
+                  </span>
+                )}
+                {source === "derivative" && procedure && (
+                  <span style={{ display: "block", fontSize: "0.7rem", color: "#9ca3af" }}>{procedure}</span>
+                )}
+              </span>
+              <span style={{ color: "#9ca3af", fontSize: "0.75rem", flexShrink: 0 }}>
+                {formatBytes(ev.file_size ?? 0)}
+              </span>
+            </label>
+          </div>
         );
       })}
     </div>
@@ -140,8 +167,12 @@ export default function SelectableEvidenceList({
       renderFooter={(ev) => {
         const meta = ev.extra_metadata || {};
         const procedure = meta.procedure_summary as string | undefined;
+        const label = source === "original" ? questionedGroupLabel(ev as Evidence) : null;
         return (
           <>
+            {label && (
+              <span style={{ fontSize: "0.68rem", color: "#3730a3", fontWeight: 600 }}>{label}</span>
+            )}
             {badge && (
               <span style={{ fontSize: "0.68rem", color: "#6b7280" }}>{badge}</span>
             )}

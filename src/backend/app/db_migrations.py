@@ -310,8 +310,10 @@ def ensure_migrate_analista_to_perito(engine: Engine) -> None:
     inspector = inspect(engine)
     if "users" not in inspector.get_table_names():
         return
+    # Postgres enums need ::text; SQLite stores plain strings.
+    role_expr = "role::text" if engine.dialect.name == "postgresql" else "role"
     with engine.connect() as conn:
-        conn.execute(text("UPDATE users SET role = 'perito' WHERE role::text = 'analista'"))
+        conn.execute(text(f"UPDATE users SET role = 'perito' WHERE {role_expr} = 'analista'"))
         conn.commit()
 
 
@@ -320,8 +322,9 @@ def ensure_migrate_em_andamento_to_aberto(engine: Engine) -> None:
     inspector = inspect(engine)
     if "cases" not in inspector.get_table_names():
         return
+    status_expr = "status::text" if engine.dialect.name == "postgresql" else "status"
     with engine.connect() as conn:
         conn.execute(
-            text("UPDATE cases SET status = 'aberto' WHERE status::text = 'em_andamento'")
+            text(f"UPDATE cases SET status = 'aberto' WHERE {status_expr} = 'em_andamento'")
         )
         conn.commit()

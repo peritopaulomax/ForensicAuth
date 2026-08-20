@@ -79,21 +79,23 @@ export async function verifyCaseForensic(caseId: string): Promise<ForensicIntegr
 }
 
 /** Resumo curto para banner/UI quando a verificação forense falha. */
-export function forensicFailureSummary(report: ForensicIntegrityReport): string | null {
-  if (report.valid) return null;
+export function forensicFailureSummary(report: ForensicIntegrityReport | null | undefined): string | null {
+  if (!report || report.valid) return null;
   const parts: string[] = [];
-  if (!report.chain.valid) parts.push("cadeia de custodia");
-  const invalidSigs = report.signatures.invalid.length;
+  if (report.chain && !report.chain.valid) parts.push("cadeia de custodia");
+  const invalidSigs = report.signatures?.invalid?.length ?? 0;
   if (invalidSigs > 0) {
     parts.push(
       `${invalidSigs} assinatura(s) Ed25519 invalida(s) (chave do sistema ou registro alterado)`
     );
   }
-  if (report.files.missing.length > 0 || report.files.hash_mismatch.length > 0) {
+  const missing = report.files?.missing?.length ?? 0;
+  const mismatch = report.files?.hash_mismatch?.length ?? 0;
+  if (missing > 0 || mismatch > 0) {
     parts.push("arquivos de evidencia");
   }
-  if (report.provenance.issues.length > 0) parts.push("proveniencia");
-  const badClosures = report.closures.filter(
+  if ((report.provenance?.issues?.length ?? 0) > 0) parts.push("proveniencia");
+  const badClosures = (report.closures ?? []).filter(
     (c) => !c.signatures_valid || !c.manifest_valid
   );
   if (badClosures.length > 0) parts.push("fechamento(s) do caso");
@@ -125,6 +127,7 @@ export async function downloadCustodyNarrativeReport(
 export const RECORD_TYPE_LABELS: Record<string, string> = {
   evidence_upload: "Upload de evidencia",
   evidence_deleted: "Exclusao de evidencia",
+  evidence_group_label_changed: "Rotulo de questionado alterado",
   case_deleted: "Exclusao de caso (arquivos removidos)",
   derivative_saved: "Derivado salvo",
   report_generated: "Laudo gerado",

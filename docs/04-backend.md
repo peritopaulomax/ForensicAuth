@@ -30,7 +30,7 @@ Montagem típica (prefixo `/api/v1`):
 | `auth` | login, first-access, me, register |
 | `users` | admin de usuários |
 | `cases` | casos |
-| `evidences` | upload / download |
+| `evidences` | upload / download / exclusão (preview de impacto + lote com cascata) |
 | `analysis` | jobs, techniques, gpu-queue, results |
 | `audit` | custódia, verify, signing-keys |
 | `prnu` | fingerprints PRNU |
@@ -66,6 +66,16 @@ Tipos de evidência: `imagem` | `audio` | `video` | `pdf` .
 3. Calcula SHA-256  
 4. Insere `Evidence`  
 5. `CustodyService.create_record(evidence_upload)`  
+
+## Fluxo crítico: exclusão
+
+1. `POST /cases/{id}/evidences/deletion-preview` → `EvidenceDependentsResolver.preview` (dependentes + quais são exclusivos)  
+2. `POST /cases/{id}/evidences/delete` → `EvidenceService.delete_evidence_batch`  
+3. Dependentes exclusivos primeiro (`deletion_reason=parent_deleted`), depois os alvos  
+4. Por item: elo `evidence_deleted`, arquivo removido do disco, `deleted_at`/`deleted_by`, commit  
+5. Resposta com `deleted` / `dependents_deleted` / `retained_dependents` / `failed`  
+
+Cascata é opt-in e nunca alcança derivado com insumo preservado (RN-CUST-15).
 
 ## Fluxo crítico: análise
 

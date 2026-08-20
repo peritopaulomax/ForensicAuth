@@ -316,7 +316,9 @@ Abas: **Evidências** | **Análises** | **Derivados** | **Custódia**
 | Ciclo de vida | `case_lifecycle_service.py` | Fechar, assinar, manifesto |
 | Transferência VCP | `case_transfer_service.py` | Export/import Verification Case Package |
 | Bridge Peritus | `peritus_bridge_service.py` (+ `peritus_*`) | Import/export formato legado Peritus |
-| Exclusão | `case_deletion_service.py` | Soft-delete + tombstone |
+| Exclusão de caso | `case_deletion_service.py` | Soft-delete + tombstone |
+| Exclusão de evidência | `evidence_service.delete_evidence_batch` | Lote, cascata opt-in, resultado por item |
+| Dependentes de derivação | `evidence_dependents.py` | Índice reverso insumo → derivado (`exclusive`) |
 | Relatório narrativo | `custody_narrative_report.py` | HTML/MD da cadeia |
 | PRNU | `prnu_fingerprint_service.py` | Fingerprints de sensor |
 
@@ -330,7 +332,7 @@ Prefixo comum: `/api/v1`
 |-----|-----------------|---------|
 | auth | `/auth/login`, `/auth/me` | auth |
 | cases | `/cases`, `/cases/{id}/close`, `/export` | cases, lifecycle, transfer |
-| evidences | `/evidence`, upload multipart | evidence |
+| evidences | `/evidence`, upload multipart, `/cases/{id}/evidences/deletion-preview`, `/cases/{id}/evidences/delete` | evidence |
 | analysis | `/analysis`, `/analysis/techniques` | job |
 | audit | `/audit`, `/audit/case/{id}/...` | custody, integrity |
 | case-shares | `/cases/{id}/shares` | share |

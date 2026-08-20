@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { downloadEvidenceFile, listCaseDerivatives } from "@/services/evidence";
+import ConfirmDestructiveDeleteModal from "@/components/ConfirmDestructiveDeleteModal";
 import DerivativeThumbnailPair from "@/components/DerivativeThumbnailPair";
 import DerivationGraphModal from "@/components/DerivationGraphModal";
 import EvidenceFilePreview from "@/components/EvidenceFilePreview";
@@ -7,7 +8,7 @@ import FileListViewHeader from "@/components/FileListViewHeader";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
 import { evidenceUsesThumbnail } from "@/lib/fileTypeIcons";
 import { EVIDENCE_TYPE_LABELS, groupEvidencesByType } from "@/lib/evidenceByType";
-import type { Evidence } from "@/types/api";
+import type { Evidence, EvidenceDeletionResult } from "@/types/api";
 import { fileGridContainerStyle, scrollableListStyle } from "@/styles/listHeights";
 
 interface Props {
@@ -52,6 +53,7 @@ export default function DerivativesPanel({
   const [loading, setLoading] = useState(true);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [graphTarget, setGraphTarget] = useState<Evidence | null>(null);
+  const [deleteTargets, setDeleteTargets] = useState<Evidence[]>([]);
   const [error, setError] = useState("");
   const [viewMode, setViewMode] = useFileListViewMode();
 
@@ -96,10 +98,36 @@ export default function DerivativesPanel({
     }
   }
 
-  function parentName(parentId: string | undefined): string {
-    if (!parentId) return "—";
-    const p = lookup.get(parentId);
-    return p?.original_filename || `${parentId.slice(0, 8)}…`;
+  /** Pai ausente do lookup = insumo excluido (soft-delete): sinalizar em vez de mostrar id cru. */
+  function renderParent(parentId: string | undefined) {
+    if (!parentId) return <>—</>;
+    const parent = lookup.get(parentId);
+    if (parent) return <>{parent.original_filename}</>;
+    return (
+      <span
+        data-testid="deleted-parent-badge"
+        title="O insumo desta derivacao foi excluido do caso"
+        style={{
+          display: "inline-block",
+          padding: "0 0.35rem",
+          borderRadius: 4,
+          background: "#fef3c7",
+          border: "1px solid #fde68a",
+          color: "#92400e",
+          fontSize: "0.7rem",
+        }}
+      >
+        insumo excluido
+      </span>
+    );
+  }
+
+  function handleDeleted(result: EvidenceDeletionResult) {
+    const removed = new Set([...result.deleted, ...result.dependents_deleted]);
+    setDerivatives((prev) => prev.filter((ev) => !removed.has(ev.id)));
+    if (result.failed.length > 0) {
+      setError(result.failed.map((f) => f.detail).join("; "));
+    }
   }
 
   const { grouped, types } = useMemo(() => groupEvidencesByType(derivatives), [derivatives]);
@@ -159,6 +187,28 @@ export default function DerivativesPanel({
           }}
         >
           <strong>{groupedByJob.length}</strong> pacote(s) com multiplos artefatos do mesmo job
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.5rem" }}>
+            {groupedByJob.map(([groupId, items]) => (
+              <button
+                key={groupId}
+                type="button"
+                data-testid="delete-derivative-package"
+                onClick={() => setDeleteTargets(items)}
+                title={items.map((item) => item.original_filename).join(", ")}
+                style={{
+                  padding: "0.25rem 0.55rem",
+                  background: "#fff",
+                  color: "#991b1b",
+                  border: "1px solid #fecaca",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  fontSize: "0.75rem",
+                }}
+              >
+                Excluir pacote {groupId.slice(0, 8)}… ({items.length})
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -220,7 +270,7 @@ export default function DerivativesPanel({
                       key={ev.id}
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "minmax(120px, auto) 1fr auto auto",
+                        gridTemplateColumns: "minmax(120px, auto) 1fr auto auto auto",
                         gap: "0.75rem",
                         padding: "0.65rem 0.85rem",
                         alignItems: "center",
@@ -248,7 +298,7 @@ export default function DerivativesPanel({
                           {ev.original_filename}
                         </div>
                         <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-                          {procedure} · {parentName(parentId)} · {formatBytes(ev.file_size)}
+                          {procedure} · {renderParent(parentId)} · {formatBytes(ev.file_size)}
                           {groupId && (
                             <> · pacote job {groupId.slice(0, 8)}…</>
                           )}
@@ -284,6 +334,23 @@ export default function DerivativesPanel({
                         }}
                       >
                         Grafo
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="delete-derivative"
+                        onClick={() => setDeleteTargets([ev])}
+                        title="Excluir derivado"
+                        style={{
+                          padding: "0.35rem 0.6rem",
+                          background: "#fff",
+                          color: "#991b1b",
+                          border: "1px solid #fecaca",
+                          borderRadius: 6,
+                          cursor: "pointer",
+                          fontSize: "0.75rem",
+                        }}
+                      >
+                        Excluir
                       </button>
                     </div>
                   );
@@ -350,7 +417,7 @@ export default function DerivativesPanel({
                         <strong>Procedimento:</strong> {procedure}
                       </div>
                       <div>
-                        <strong>Origem:</strong> {parentName(parentId)}
+                        <strong>Origem:</strong> {renderParent(parentId)}
                       </div>
                       {groupId && (
                         <div>
@@ -403,6 +470,23 @@ export default function DerivativesPanel({
                     >
                       Grafo de derivacao
                     </button>
+                    <button
+                      type="button"
+                      data-testid="delete-derivative"
+                      onClick={() => setDeleteTargets([ev])}
+                      style={{
+                        padding: "0.45rem 0.75rem",
+                        background: "#fff",
+                        color: "#991b1b",
+                        border: "1px solid #fecaca",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        fontSize: "0.8rem",
+                        fontWeight: 500,
+                      }}
+                    >
+                      Excluir derivado
+                    </button>
                   </div>
                 );
               })}
@@ -418,6 +502,15 @@ export default function DerivativesPanel({
           onClose={() => setGraphTarget(null)}
         />
       )}
+
+      <ConfirmDestructiveDeleteModal
+        open={deleteTargets.length > 0}
+        caseId={caseId}
+        targets={deleteTargets}
+        kind="derivative"
+        onClose={() => setDeleteTargets([])}
+        onDeleted={handleDeleted}
+      />
     </div>
   );
 }

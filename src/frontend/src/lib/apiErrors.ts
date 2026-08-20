@@ -40,10 +40,6 @@ export function parseApiError(err: unknown, fallback: string): string {
     if (data && typeof data === "object" && data !== null) {
       const obj = data as Record<string, unknown>;
       if (typeof obj.detail === "string") return obj.detail;
-      if (obj.detail && typeof obj.detail === "object") {
-        const parsed = formatConflictDetail(obj.detail as Record<string, unknown>);
-        if (parsed) return parsed;
-      }
       if (Array.isArray(obj.detail)) {
         return obj.detail
           .map((d) =>
@@ -52,6 +48,12 @@ export function parseApiError(err: unknown, fallback: string): string {
               : String(d)
           )
           .join("; ");
+      }
+      if (obj.detail && typeof obj.detail === "object") {
+        const d = obj.detail as Record<string, unknown>;
+        if (typeof d.msg === "string") return d.msg;
+        const parsed = formatConflictDetail(d);
+        if (parsed) return parsed;
       }
       if (typeof obj.message === "string") return obj.message;
     }

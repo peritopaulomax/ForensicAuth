@@ -69,7 +69,7 @@ class TestCustodyIntegration:
         file_content = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 100
         response = client.post(
             "/api/v1/evidences/upload",
-            data={"case_id": str(sample_case.id)},
+            data={"case_id": str(sample_case.id), "group_label": "Lote A"},
             files={"file": ("photo.jpg", io.BytesIO(file_content), "image/jpeg")},
             headers=auth_headers,
         )
@@ -100,7 +100,7 @@ class TestCustodyIntegration:
         file_content = b"\xff\xd8\xff\xe0\x00\x10JFIF delete test"
         upload = client.post(
             "/api/v1/evidences/upload",
-            data={"case_id": str(sample_case.id)},
+            data={"case_id": str(sample_case.id), "group_label": "Lote A"},
             files={"file": ("del.jpg", io.BytesIO(file_content), "image/jpeg")},
             headers=auth_headers,
         )
@@ -121,6 +121,140 @@ class TestCustodyIntegration:
         assert len(deleted_records) == 1
         assert deleted_records[0].sha256_input == sha
         assert deleted_records[0].details.get("evidence_id") == evidence_id
+        assert deleted_records[0].details.get("deletion_reason") == "user_request"
+
+    def test_cascade_delete_records_reason_and_keeps_integrity(
+        self, client, db_session, sample_case, test_user, auth_headers
+    ):
+        """Cascade grava motivo em cada elo e nao invalida a verificacao forense."""
+        from models.evidence import Evidence
+
+        upload = client.post(
+            "/api/v1/evidences/upload",
+            data={"case_id": str(sample_case.id), "group_label": "Lote A"},
+            files={
+                "file": (
+                    "questionado.jpg",
+                    io.BytesIO(b"\xff\xd8\xff\xe0\x00\x10JFIF cascade"),
+                    "image/jpeg",
+                )
+            },
+            headers=auth_headers,
+        )
+        assert upload.status_code == 201
+        parent_id = upload.json()["id"]
+
+        derivative = Evidence(
+            id=uuid.uuid4(),
+            case_id=sample_case.id,
+            filename="ela.png",
+            original_filename="ela.png",
+            file_path="/tmp/ela-cascade.png",
+            file_size=10,
+            file_type="imagem",
+            mime_type="image/png",
+            sha256=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+            uploaded_by=test_user.id,
+            extra_metadata={
+                "origin": "derived",
+                "technique": "ela",
+                "parent_inputs": [{"evidence_id": parent_id, "role": "questioned"}],
+            },
+        )
+        db_session.add(derivative)
+        db_session.commit()
+
+        preview = client.post(
+            f"/api/v1/cases/{sample_case.id}/evidences/deletion-preview",
+            json={"evidence_ids": [parent_id]},
+            headers=auth_headers,
+        )
+        assert preview.status_code == 200
+        assert preview.json()["cascade_count"] == 1
+
+        response = client.post(
+            f"/api/v1/cases/{sample_case.id}/evidences/delete",
+            json={"evidence_ids": [parent_id], "include_dependent_derivatives": True},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["deleted"] == [parent_id]
+        assert body["dependents_deleted"] == [str(derivative.id)]
+        assert body["failed"] == []
+
+        records = (
+            db_session.query(CustodyRecord)
+            .filter(
+                CustodyRecord.case_id == sample_case.id,
+                CustodyRecord.record_type == "evidence_deleted",
+            )
+            .order_by(CustodyRecord.chain_sequence.asc())
+            .all()
+        )
+        reasons = [r.details.get("deletion_reason") for r in records]
+        assert reasons == ["parent_deleted", "user_request"]
+        assert records[0].details.get("parent_evidence_ids") == [parent_id]
+        assert records[1].details.get("dependent_derivatives_deleted") == [str(derivative.id)]
+
+        from services.forensic_integrity_service import ForensicIntegrityService
+
+        forensic = ForensicIntegrityService(db_session).verify_case_forensic_integrity(
+            sample_case.id
+        )
+        assert forensic["valid"] is True
+
+    def test_delete_without_cascade_keeps_dependent(
+        self, client, db_session, sample_case, test_user, auth_headers
+    ):
+        """Sem opt-in, o derivado permanece ativo e a cadeia segue valida."""
+        from models.evidence import Evidence
+        from services.custody_service import CustodyService
+
+        upload = client.post(
+            "/api/v1/evidences/upload",
+            data={"case_id": str(sample_case.id), "group_label": "Lote A"},
+            files={
+                "file": (
+                    "questionado.jpg",
+                    io.BytesIO(b"\xff\xd8\xff\xe0\x00\x10JFIF keep dependent"),
+                    "image/jpeg",
+                )
+            },
+            headers=auth_headers,
+        )
+        parent_id = upload.json()["id"]
+
+        derivative = Evidence(
+            id=uuid.uuid4(),
+            case_id=sample_case.id,
+            filename="ela_keep.png",
+            original_filename="ela_keep.png",
+            file_path="/tmp/ela-keep.png",
+            file_size=10,
+            file_type="imagem",
+            mime_type="image/png",
+            sha256=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+            uploaded_by=test_user.id,
+            extra_metadata={
+                "origin": "derived",
+                "parent_inputs": [{"evidence_id": parent_id, "role": "questioned"}],
+            },
+        )
+        db_session.add(derivative)
+        db_session.commit()
+
+        response = client.post(
+            f"/api/v1/cases/{sample_case.id}/evidences/delete",
+            json={"evidence_ids": [parent_id], "include_dependent_derivatives": False},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["dependents_deleted"] == []
+
+        db_session.refresh(derivative)
+        assert derivative.deleted_at is None
+        assert CustodyService(db_session).verify_chain(sample_case.id)["valid"] is True
 
     def test_audit_permissions(
         self,

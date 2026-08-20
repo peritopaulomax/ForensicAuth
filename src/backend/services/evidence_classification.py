@@ -80,6 +80,41 @@ def reference_group_label(evidence: Evidence) -> str:
     return "Sem rotulo"
 
 
+def questioned_group_label(evidence: Evidence) -> str:
+    """Rotulo de agrupamento de evidencias questionadas (nao referencias)."""
+    meta = evidence_metadata(evidence)
+    label = meta.get("questioned_group_label")
+    if label and str(label).strip():
+        return str(label).strip()
+    return "Sem rotulo"
+
+
+def group_case_evidences_by_label(evidences: list[Evidence]) -> list[dict]:
+    """Group case (questioned) evidences by questioned_group_label."""
+    buckets: dict[str, list[Evidence]] = {}
+    for ev in evidences:
+        if not is_case_evidence(ev):
+            continue
+        label = questioned_group_label(ev)
+        buckets.setdefault(label, []).append(ev)
+
+    groups = []
+    # "Sem rotulo" last; others A-Z
+    def _sort_key(item: tuple[str, list[Evidence]]) -> tuple[int, str]:
+        label = item[0]
+        return (1 if label == "Sem rotulo" else 0, label.lower())
+
+    for label, items in sorted(buckets.items(), key=_sort_key):
+        groups.append(
+            {
+                "group_label": label,
+                "display_label": label,
+                "files": sorted(items, key=lambda e: e.created_at or "", reverse=True),
+            }
+        )
+    return groups
+
+
 def reference_display_label(technique: str, group_label: str) -> str:
     tech = TECHNIQUE_LABELS.get(technique, technique.upper() if technique else "REF")
     return f"{tech} - {group_label}"

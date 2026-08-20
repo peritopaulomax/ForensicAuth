@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import ConfirmDestructiveDeleteModal from "@/components/ConfirmDestructiveDeleteModal";
 import EvidenceDropZone from "@/components/EvidenceDropZone";
 import EvidenceFileGrid from "@/components/EvidenceFileGrid";
 import EvidenceFilePreview from "@/components/EvidenceFilePreview";
 import FileListViewHeader from "@/components/FileListViewHeader";
-import api from "@/services/api";
 import { downloadEvidenceFile, listCaseReferences, uploadGlobalReference, type GlobalReferenceGroup, type ReferenceGroup } from "@/services/evidence";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
-import type { Evidence } from "@/types/api";
+import type { Evidence, EvidenceDeletionResult } from "@/types/api";
 import { referenceGroupListMaxHeight, scrollableListStyle } from "@/styles/listHeights";
 
 function formatBytes(bytes: number): string {
@@ -22,16 +22,16 @@ interface Props {
   refreshKey?: number;
 }
 
-function ReferenceFileActions({ ev, onDeleted }: { ev: Evidence; onDeleted: (id: string) => void }) {
-  async function deleteFile(e: React.MouseEvent) {
+function ReferenceFileActions({
+  ev,
+  onRequestDelete,
+}: {
+  ev: Evidence;
+  onRequestDelete: (ev: Evidence) => void;
+}) {
+  function deleteFile(e: React.MouseEvent) {
     e.stopPropagation();
-    if (!confirm(`Excluir referencia "${ev.original_filename}"?`)) return;
-    try {
-      await api.delete(`/evidences/${ev.id}`);
-      onDeleted(ev.id);
-    } catch {
-      alert("Erro ao excluir referencia");
-    }
+    onRequestDelete(ev);
   }
 
   async function downloadFile(e: React.MouseEvent) {
@@ -81,11 +81,11 @@ function ReferenceFileActions({ ev, onDeleted }: { ev: Evidence; onDeleted: (id:
 
 function ReferenceGroupList({
   group,
-  onDeleted,
+  onRequestDelete,
   viewMode,
 }: {
   group: ReferenceGroup | GlobalReferenceGroup;
-  onDeleted: (id: string) => void;
+  onRequestDelete: (ev: Evidence) => void;
   viewMode: "list" | "grid";
 }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -121,7 +121,7 @@ function ReferenceGroupList({
           renderFooter={(ev) => (
             <>
               <span style={{ fontSize: "0.68rem", color: "#6b7280" }}>{formatBytes(ev.file_size ?? 0)}</span>
-              <ReferenceFileActions ev={ev as Evidence} onDeleted={onDeleted} />
+              <ReferenceFileActions ev={ev as Evidence} onRequestDelete={onRequestDelete} />
             </>
           )}
         />
@@ -204,7 +204,7 @@ function ReferenceGroupList({
                   {ev.sha256.slice(0, 16)}…
                 </span>
                 <div onClick={(e) => e.stopPropagation()}>
-                  <ReferenceFileActions ev={ev as Evidence} onDeleted={onDeleted} />
+                  <ReferenceFileActions ev={ev as Evidence} onRequestDelete={onRequestDelete} />
                 </div>
               </div>
             ))}
@@ -224,6 +224,7 @@ export default function CaseReferencesPanel({ caseId, refreshKey = 0 }: Props) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [groupLabel, setGroupLabel] = useState("");
   const [referenceType, setReferenceType] = useState<"imagem" | "video" | "audio" | "pdf">("imagem");
+  const [deleteTargets, setDeleteTargets] = useState<Evidence[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -243,17 +244,18 @@ export default function CaseReferencesPanel({ caseId, refreshKey = 0 }: Props) {
     load();
   }, [load, refreshKey]);
 
-  function handleDeleted(id: string) {
-    setPluginGroups((prev) =>
-      prev
-        .map((g) => ({ ...g, files: g.files.filter((f) => f.id !== id) }))
-        .filter((g) => g.files.length > 0)
-    );
-    setGlobalGroups((prev) =>
-      prev
-        .map((g) => ({ ...g, files: g.files.filter((f) => f.id !== id) }))
-        .filter((g) => g.files.length > 0)
-    );
+  function requestDelete(ev: Evidence) {
+    setDeleteTargets([ev]);
+  }
+
+  function handleDeleted(result: EvidenceDeletionResult) {
+    const removed = new Set([...result.deleted, ...result.dependents_deleted]);
+    const prune = <T extends ReferenceGroup | GlobalReferenceGroup>(groups: T[]): T[] =>
+      groups
+        .map((g) => ({ ...g, files: g.files.filter((f) => !removed.has(f.id)) }))
+        .filter((g) => g.files.length > 0);
+    setPluginGroups((prev) => prune(prev));
+    setGlobalGroups((prev) => prune(prev));
   }
 
   async function handleUpload(files: FileList) {
@@ -294,6 +296,15 @@ export default function CaseReferencesPanel({ caseId, refreshKey = 0 }: Props) {
 
   return (
     <div>
+      <ConfirmDestructiveDeleteModal
+        open={deleteTargets.length > 0}
+        caseId={caseId}
+        targets={deleteTargets}
+        kind="reference"
+        onClose={() => setDeleteTargets([])}
+        onDeleted={handleDeleted}
+      />
+
       <FileListViewHeader viewMode={viewMode} onViewModeChange={setViewMode} style={{ marginBottom: "1rem" }} />
 
       <div
@@ -350,7 +361,7 @@ export default function CaseReferencesPanel({ caseId, refreshKey = 0 }: Props) {
             Referencias globais
           </h2>
           {globalGroups.map((group) => (
-            <ReferenceGroupList key={`global-${group.reference_type}-${group.group_label}`} group={group} onDeleted={handleDeleted} viewMode={viewMode} />
+            <ReferenceGroupList key={`global-${group.reference_type}-${group.group_label}`} group={group} onRequestDelete={requestDelete} viewMode={viewMode} />
           ))}
         </div>
       )}
@@ -361,7 +372,7 @@ export default function CaseReferencesPanel({ caseId, refreshKey = 0 }: Props) {
             Referencias de plugins
           </h2>
           {pluginGroups.map((group) => (
-            <ReferenceGroupList key={`plugin-${group.technique}-${group.group_label}`} group={group} onDeleted={handleDeleted} viewMode={viewMode} />
+            <ReferenceGroupList key={`plugin-${group.technique}-${group.group_label}`} group={group} onRequestDelete={requestDelete} viewMode={viewMode} />
           ))}
         </div>
       )}

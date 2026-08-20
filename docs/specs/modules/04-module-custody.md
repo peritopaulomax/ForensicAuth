@@ -11,7 +11,8 @@ Garantir a rastreabilidade, integridade e imutabilidade de evidencias **originai
 | Acao | Registra na cadeia? | Tipo |
 |------|---------------------|------|
 | Upload de evidencia original | **Sim** | `evidence_upload` |
-| Exclusao (soft-delete) de evidencia | **Sim** | `evidence_deleted` |
+| Exclusao (soft-delete) de evidencia | **Sim** | `evidence_deleted` (`deletion_reason: user_request`) |
+| Exclusao de derivado em cascata | **Sim** | `evidence_deleted` (`deletion_reason: parent_deleted`) |
 | Exclusao de caso inteiro (perito/admin) | **Sim** | `case_deleted` — arquivos apagados; logs preservados |
 | Rodar ELA/DCT/etc. para preview | **Nao** | — |
 | Usuario clica "Adicionar aos derivados" | **Sim** | `derivative_saved` |
@@ -51,6 +52,19 @@ Garantir a rastreabilidade, integridade e imutabilidade de evidencias **originai
 
 - `GET /api/v1/analysis/provenance-contract`
   - Matriz de insumos/parametros/artefatos por tecnica
+
+- `POST /api/v1/cases/{case_id}/evidences/deletion-preview`
+  - Entrada: `{evidence_ids: [UUID]}`
+  - Saida: alvos nomeados + `dependents[]` (com `exclusive`, `parents[]`, `retained_parents[]`) + contagens (`dependent_count`, `cascade_count`, `retained_count`, `package_count`)
+  - Uso: confirmacao informada antes de excluir; nao muda estado
+
+- `POST /api/v1/cases/{case_id}/evidences/delete`
+  - Entrada: `{evidence_ids: [UUID], include_dependent_derivatives: bool}`
+  - Saida: `{deleted[], dependents_deleted[], retained_dependents[], failed[]}` (HTTP 200; multi-status no corpo)
+  - Permissao: `_require_case_mutable` (edicao permitida e caso nao fechado)
+
+- `DELETE /api/v1/evidences/{evidence_id}`
+  - Exclusao unitaria mantida por compatibilidade; nao aplica cascata
 
 ### Servico Interno (CustodyService)
 
@@ -146,6 +160,9 @@ Campos adicionais em derivados novos:
 - **RN-CUST-12**: Reabrir caso gera `case_reopened` referenciando `closure_sequence`.
 - **RN-CUST-13**: `verify_case_forensic_integrity` valida cadeia, assinaturas, arquivos em disco, proveniencia e manifestos de fechamento.
 - **RN-CUST-14** (reservado): Assinatura ICP-Brasil no fechamento — contrato futuro PKCS#7; MVP retorna 501 e UI desabilitada.
+- **RN-CUST-15**: Excluir evidencia **nao** exclui derivados por padrao. A cascata e opt-in explicito (`include_dependent_derivatives`) e limitada a derivados cujos insumos ativos estejam **todos** no escopo da exclusao (`exclusive: true`), incluindo o fecho transitivo de cadeias de derivacao. Derivado com insumo preservado permanece ativo.
+- **RN-CUST-16**: Todo elo `evidence_deleted` registra `deletion_reason` (`user_request` | `parent_deleted`). Em cascata, o elo do derivado inclui `parent_evidence_ids`; o elo do alvo inclui `dependent_derivatives_deleted`. Dependentes saem antes do alvo na cadeia.
+- **RN-CUST-17**: Exclusao em lote faz commit por item. Falha isolada nao aborta o lote nem desfaz elos ja gravados; o item falho retorna em `failed[]`.
 
 ### Novos endpoints
 
@@ -160,6 +177,9 @@ Campos adicionais em derivados novos:
 | Tentativa de update/delete em custody_records | Bloqueado pelo ORM / trigger |
 | Corrupcao ou adulteracao na cadeia | `verify-case` retorna `valid: false` e motivo (`record_hash_mismatch`, `previous_record_hash_mismatch`, `chain_sequence_gap`); sem acao de "reparo" |
 | Salvar derivado de job incompleto | 409 — job deve estar `completed` |
+| Excluir evidencia de outro caso no lote | 422 — `evidence_ids` deve pertencer ao `case_id` da rota |
+| Excluir em caso fechado | 409/403 via `_require_case_mutable` |
+| Item do lote inexistente ou ja excluido | 200 com o item em `failed[]`; demais itens seguem |
 
 ## Dados de Entrada/Saida
 

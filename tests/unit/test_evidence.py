@@ -170,6 +170,118 @@ class TestEvidenceService:
             )
 
 
+class TestEvidenceBatchDeletion:
+    """Exclusao em lote com cascade opcional para derivados exclusivos."""
+
+    def _derivative(self, db_session, case, user, filename, parent_ids):
+        from models.evidence import Evidence
+
+        evidence = Evidence(
+            id=uuid.uuid4(),
+            case_id=case.id,
+            filename=filename,
+            original_filename=filename,
+            file_path=f"/tmp/{filename}",
+            file_size=10,
+            file_type="imagem",
+            mime_type="image/png",
+            sha256=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+            uploaded_by=user.id,
+            extra_metadata={
+                "origin": "derived",
+                "technique": "ela",
+                "parent_inputs": [
+                    {"evidence_id": str(pid), "role": "questioned"} for pid in parent_ids
+                ],
+            },
+        )
+        db_session.add(evidence)
+        db_session.commit()
+        db_session.refresh(evidence)
+        return evidence
+
+    def _upload(self, db_session, case, user, filename, payload):
+        return EvidenceService(db_session).upload_evidence(
+            case_id=case.id,
+            filename=filename,
+            mime_type="image/jpeg",
+            file_obj=io.BytesIO(payload),
+            uploaded_by=user.id,
+        )
+
+    def test_cascade_removes_exclusive_dependent(self, db_session, sample_case, test_user):
+        service = EvidenceService(db_session)
+        parent = self._upload(db_session, sample_case, test_user, "q.jpg", b"\xff\xd8\xff\xe0A")
+        derivative = self._derivative(db_session, sample_case, test_user, "ela.png", [parent.id])
+
+        result = service.delete_evidence_batch(
+            case_id=sample_case.id,
+            evidence_ids=[parent.id],
+            deleted_by=test_user.id,
+            include_dependent_derivatives=True,
+        )
+
+        assert result["deleted"] == [str(parent.id)]
+        assert result["dependents_deleted"] == [str(derivative.id)]
+        assert result["failed"] == []
+        db_session.refresh(derivative)
+        assert derivative.deleted_at is not None
+
+    def test_without_cascade_dependent_survives(self, db_session, sample_case, test_user):
+        service = EvidenceService(db_session)
+        parent = self._upload(db_session, sample_case, test_user, "q.jpg", b"\xff\xd8\xff\xe0B")
+        derivative = self._derivative(db_session, sample_case, test_user, "ela.png", [parent.id])
+
+        result = service.delete_evidence_batch(
+            case_id=sample_case.id,
+            evidence_ids=[parent.id],
+            deleted_by=test_user.id,
+            include_dependent_derivatives=False,
+        )
+
+        assert result["dependents_deleted"] == []
+        db_session.refresh(derivative)
+        assert derivative.deleted_at is None
+
+    def test_cascade_preserves_shared_dependent(self, db_session, sample_case, test_user):
+        service = EvidenceService(db_session)
+        questioned = self._upload(db_session, sample_case, test_user, "q.jpg", b"\xff\xd8\xff\xe0C")
+        reference = self._upload(db_session, sample_case, test_user, "r.jpg", b"\xff\xd8\xff\xe0D")
+        derivative = self._derivative(
+            db_session, sample_case, test_user, "prnu.html", [questioned.id, reference.id]
+        )
+
+        result = service.delete_evidence_batch(
+            case_id=sample_case.id,
+            evidence_ids=[questioned.id],
+            deleted_by=test_user.id,
+            include_dependent_derivatives=True,
+        )
+
+        assert result["dependents_deleted"] == []
+        assert len(result["retained_dependents"]) == 1
+        assert result["retained_dependents"][0]["retained_parents"] == ["r.jpg"]
+        db_session.refresh(derivative)
+        assert derivative.deleted_at is None
+
+    def test_partial_failure_does_not_abort_batch(self, db_session, sample_case, test_user):
+        service = EvidenceService(db_session)
+        valid = self._upload(db_session, sample_case, test_user, "q.jpg", b"\xff\xd8\xff\xe0E")
+        missing = uuid.uuid4()
+
+        result = service.delete_evidence_batch(
+            case_id=sample_case.id,
+            evidence_ids=[missing, valid.id],
+            deleted_by=test_user.id,
+            include_dependent_derivatives=False,
+        )
+
+        assert result["deleted"] == [str(valid.id)]
+        assert [f["evidence_id"] for f in result["failed"]] == [str(missing)]
+        db_session.refresh(valid)
+        assert valid.deleted_at is not None
+
+
 class TestEvidenceEndpoint:
     """TU-EVD-006: Upload endpoint rejects unauthenticated requests."""
 

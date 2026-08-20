@@ -62,6 +62,36 @@
 ### TU-CUST-011: Verificacao forense — proveniencia inconsistente
 - **Saida**: `provenance.issues` nao vazio
 
+### TU-CUST-012: Dependentes de derivacao — insumo unico
+- **Funcao**: `EvidenceDependentsResolver.dependent_derivatives`
+- **Setup**: Derivado com `parent_inputs` apontando so para o questionado
+- **Saida**: 1 dependente com `exclusive: true` e `retained_parents` vazio
+
+### TU-CUST-013: Dependentes de derivacao — insumo compartilhado
+- **Setup**: Derivado PRNU com questionado + fingerprint; escopo contem apenas o questionado
+- **Saida**: `exclusive: false`, `retained_parents` nomeia o insumo preservado
+- **Verificacoes**: Nao entra em `cascade_ids`
+
+### TU-CUST-014: Dependentes — metadados legados
+- **Setup**: Derivados com `parent_evidence_ids` e com `parent_evidence_id`
+- **Saida**: Ambos resolvidos como dependentes exclusivos (sem duplicar logica do lineage)
+
+### TU-CUST-015: Dependentes — fecho transitivo
+- **Setup**: Cadeia questionado → derivado A → derivado B
+- **Saida**: A e B como dependentes exclusivos ao excluir o questionado
+
+### TU-CUST-016: Exclusao em lote — cascata opt-in
+- **Funcao**: `EvidenceService.delete_evidence_batch`
+- **Verificacoes**:
+  - `include_dependent_derivatives=True` → derivado exclusivo com `deleted_at` preenchido
+  - `include_dependent_derivatives=False` → derivado permanece ativo
+  - Derivado com insumo preservado nunca sai, mesmo com cascata ligada
+
+### TU-CUST-017: Exclusao em lote — falha parcial
+- **Setup**: Lote com um UUID inexistente e uma evidencia valida
+- **Saida**: `deleted` com a valida; `failed` com a inexistente
+- **Verificacoes**: Falha isolada nao aborta o lote
+
 ## Testes de Integracao
 
 ### TI-CUST-001: Upload gera registro automatico
@@ -80,6 +110,19 @@
   3. Perito consulta audit de caso alheio → 403
   4. Analista consulta audit de caso designado → 200
   5. Analista consulta audit de caso nao designado → 403
+
+### TI-CUST-003: Exclusao em cascata registra motivo e preserva integridade
+- **Endpoints**: `POST /cases/{id}/evidences/deletion-preview`, `POST /cases/{id}/evidences/delete`
+- **Fluxo**: Upload → derivado dependente → preview → exclusao com `include_dependent_derivatives=true`
+- **Verificacoes**:
+  - Preview retorna `cascade_count: 1`
+  - Elos `evidence_deleted` na ordem `parent_deleted` (derivado) → `user_request` (alvo)
+  - `parent_evidence_ids` no elo do derivado; `dependent_derivatives_deleted` no elo do alvo
+  - `verify_case_forensic_integrity` continua `valid: true`
+
+### TI-CUST-004: Exclusao sem cascata mantem derivado
+- **Fluxo**: Mesma montagem com `include_dependent_derivatives=false`
+- **Verificacoes**: `dependents_deleted` vazio; derivado ativo; `verify_chain` valido
 
 ## Mocks/Stubs
 

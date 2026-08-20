@@ -66,11 +66,22 @@ function forceLogoutRedirect(failedAccessToken: string | null): void {
   });
 }
 
-// Attach access JWT to every request if available
+// Attach access JWT to every request if available.
+// FormData must NOT keep the default application/json Content-Type —
+// the browser/axios need to set multipart/form-data with boundary.
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem(ACCESS_KEY);
   if (token && config.headers) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  if (typeof FormData !== "undefined" && config.data instanceof FormData && config.headers) {
+    const headers = config.headers as { delete?: (key: string) => void; set?: (key: string, value?: string) => void };
+    if (typeof headers.delete === "function") {
+      headers.delete("Content-Type");
+    } else {
+      delete (config.headers as Record<string, unknown>)["Content-Type"];
+      delete (config.headers as Record<string, unknown>)["content-type"];
+    }
   }
   return config;
 });

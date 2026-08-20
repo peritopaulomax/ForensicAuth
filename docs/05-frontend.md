@@ -41,7 +41,7 @@ Definidas em `src/App.tsx` (paths aproximados):
 |------|--------|
 | `/login`, `/primeiro-acesso` | Público |
 | `/`, `/dashboard` | Lista / dashboard de casos |
-| `/cases/new`, `/cases/:caseId` | CRUD / detalhe (banner de integridade + paginação de evidências) |
+| `/cases/new`, `/cases/:caseId` | CRUD / detalhe (banner de integridade, paginação e **rótulos de questionados**) |
 | `/analysis`, `/analysis/run` | Hubs de análise |
 | `/cases/:caseId/analysis/...` | Técnica, grupos IMDL/mídia, áudio |
 | `/users` | Admin |
@@ -70,6 +70,20 @@ Nas abas Áudio / Vídeo / PDF do caso, os cards vêm de `config/mediaAnalysisGr
 
 Casos `storage_mode=peritus`: na execução de técnicas, a UI lista “Arquivos Peritus importados” e materializa Evidence sob demanda a partir do workspace.
 
+## Exclusão destrutiva (evidências, referências, derivados)
+
+Toda exclusão passa por `components/ConfirmDestructiveDeleteModal.tsx` — não há mais `window.confirm` nesse fluxo (diálogo nativo pode ser suprimido pelo navegador em sequência e não mostra impacto).
+
+O modal consulta `POST /cases/{id}/evidences/deletion-preview` e exibe: itens nomeados (5 + "e mais N"), quantos derivados dependem, quais pacotes cairiam na cascata e quais ficam retidos por terem insumo preservado. Regras de apresentação em `lib/deletionImpact.ts` (inclui confirmação por digitação acima de 10 itens).
+
+| Ponto de entrada | Componente |
+|------------------|------------|
+| Lista de evidências (item e lote) | `pages/CaseDetail.tsx` |
+| Referências globais e de plugin | `components/CaseReferencesPanel.tsx` |
+| Aba Derivados (item e pacote do mesmo job) | `components/DerivativesPanel.tsx` |
+
+O estado local é sincronizado pelo **resultado do servidor** (`deleted` + `dependents_deleted`), não por otimismo: falha parcial no lote deixa a lista coerente e mostra o erro. Derivado cujo insumo foi excluído aparece com a marca "insumo excluído".
+
 ## Serviços HTTP
 
 Pasta `src/frontend/src/services/`: `api.ts`, `auth.ts`, `cases.ts`, `evidence.ts`, `analysis.ts`, `audit.ts`, `prnu.ts`, `references.ts`, `users.ts`, `caseShares.ts`, `peritus.ts`, …
@@ -79,7 +93,9 @@ Pasta `src/frontend/src/services/`: `api.ts`, `auth.ts`, `cases.ts`, `evidence.t
 ## Testes de frontend
 
 - Unit: Vitest  
-- E2E: Playwright em `src/frontend/e2e/` (catálogo sintético atual: `synthetic-image-detectors.spec.ts`)  
+- E2E: Playwright em `src/frontend/e2e/` (catálogo sintético atual: `synthetic-image-detectors.spec.ts`; exclusão com dependentes: `evidence-delete.spec.ts`)  
+
+Em specs que mockam a API, registre um catch-all `**/api/v1/**` **antes** das rotas específicas: um 401 de endpoint não mockado dispara o interceptor de logout e redireciona para `/login`.
 
 
 ## Como verificar

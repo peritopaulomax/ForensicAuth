@@ -4,15 +4,16 @@ import { uploadEvidence } from "@/services/evidence";
 
 export default function Upload() {
   const [caseId, setCaseId] = useState("");
+  const [groupLabel, setGroupLabel] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: (vars: { caseId: string; file: File }) =>
-      uploadEvidence(vars.caseId, vars.file),
+    mutationFn: (vars: { caseId: string; file: File; groupLabel: string }) =>
+      uploadEvidence(vars.caseId, vars.file, vars.groupLabel),
     onSuccess: (data) => {
       setResult(
-        `Evidência ${data.id} enviada com sucesso!\nTipo: ${data.file_type}\nSHA-256: ${data.sha256}`
+        `Evidência ${data.id} enviada com sucesso!\nTipo: ${data.file_type}\nSHA-256: ${data.sha256}\nRótulo: ${data.group_label || groupLabel}`
       );
     },
     onError: (err: Error) => {
@@ -23,11 +24,11 @@ export default function Upload() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setResult(null);
-    if (!file || !caseId) {
-      setResult("Preencha todos os campos");
+    if (!file || !caseId || !groupLabel.trim()) {
+      setResult("Preencha todos os campos (incluindo o rótulo do grupo)");
       return;
     }
-    mutation.mutate({ caseId, file });
+    mutation.mutate({ caseId, file, groupLabel: groupLabel.trim() });
   };
 
   return (
@@ -44,6 +45,18 @@ export default function Upload() {
             onChange={(e) => setCaseId(e.target.value)}
             required
             placeholder="ID do caso"
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="groupLabel">Rótulo do grupo</label>
+          <input
+            id="groupLabel"
+            type="text"
+            value={groupLabel}
+            onChange={(e) => setGroupLabel(e.target.value)}
+            required
+            placeholder="Ex.: Camera A"
           />
         </div>
 

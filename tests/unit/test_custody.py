@@ -85,6 +85,17 @@ class TestCustodyService:
         assert result["records_checked"] == 3
         assert result["first_invalid"] is None
 
+    def test_verify_empty_case_chain(self, db_session, sample_case):
+        """Caso sem elos de custodia (ainda sem evidencias) e valido."""
+        from services.custody_service import CustodyService
+
+        result = CustodyService(db_session).verify_chain(sample_case.id)
+        assert result["valid"] is True
+        assert result["records_checked"] == 0
+        seal = CustodyService(db_session).verify_case_custody_seal(sample_case.id)
+        assert seal["valid"] is True
+        assert seal["reason"] == "chain_empty"
+
     def test_verify_chain_stable_with_same_timestamp(self, db_session, sample_case, test_user):
         """Registros no mesmo segundo mantem encadeamento deterministico."""
         from services.custody_service import CustodyService

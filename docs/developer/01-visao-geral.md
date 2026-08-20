@@ -17,6 +17,7 @@ O perito interage com **casos** e **evidências**. A tabela abaixo liga cada tar
 | 5 | Ver resultados | Interpretar mapas, gráficos, relatórios | Página da análise / derivados | `analysis` API, disco `RESULTS_DIR` |
 | 6 | Salvar derivados | Manter versões derivadas rastreáveis | Derivados / referências | `derivative_service`, custódia |
 | 7 | Verificar cadeia | Confirmar integridade e assinaturas | Aba Custódia | `custody_service`, `forensic_integrity_service` |
+| 7b | Excluir evidência / derivado | Remover material com impacto explícito e rastro | Lista de evidências, Referências, Derivados | `evidence_service.delete_evidence_batch`, `evidence_dependents` |
 | 8 | Compartilhar caso | Colaboração controlada | Painel compartilhar | `case_share_service` |
 | 9 | Fechar / assinar caso | Manifesto forense imutável | Fechar caso / assinar | `case_lifecycle_service`, Ed25519 |
 | 10 | Exportar VCP | Transferir caso para outra instância (Verification Case Package) | Exportar VCP | `case_transfer_service` |
@@ -129,8 +130,9 @@ flowchart LR
 
 - **Função:** Log append-only encadeado por SHA-256 + assinatura Ed25519 por elo.
 - **Código:** `custody_service.py`, `custody_signing_service.py`, `CustodyPanel.tsx`.
-- **Tipos de registro (exemplos):** `evidence_upload`, `derivative_saved`, `case_shared`, `case_closed`, `case_deleted`, `case_imported`. Jobs concluídos não geram elo automático.
+- **Tipos de registro (exemplos):** `evidence_upload`, `evidence_deleted`, `derivative_saved`, `case_shared`, `case_closed`, `case_deleted`, `case_imported`. Jobs concluídos não geram elo automático.
 - **Imutabilidade:** updates bloqueados (trigger SQLite em dev; política equivalente em PG).
+- **Exclusão:** soft-delete auditado; derivados só caem por opt-in e apenas quando todos os insumos ativos estão no escopo (`evidence_dependents.py`). Motivo em `details.deletion_reason`.
 
 ### Bloco F — Ciclo de vida e colaboração
 
