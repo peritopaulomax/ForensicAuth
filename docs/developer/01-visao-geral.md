@@ -74,9 +74,8 @@ flowchart TB
 
 ---
 
-## 3. Fluxo principal: da evidência à conclusão de autenticidade
+## 3. Fluxo principal
 
-Este é o caminho mais importante para entender **como o código apoia a verificação de autenticidade**.
 
 ```mermaid
 flowchart LR
@@ -98,7 +97,7 @@ flowchart LR
 
 ---
 
-## 4. Os sete blocos funcionais
+## 4. Blocos funcionais
 
 ### Bloco A — Identidade e acesso
 
