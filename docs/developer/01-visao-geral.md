@@ -146,7 +146,7 @@ flowchart LR
 
 ---
 
-## 5. Técnicas por tipo de mídia (mapa rápido)
+## 5. Técnicas por tipo de mídia 
 
 Relação entre **tipo de evidência** e **técnicas** expostas na UI (slug → plugin).
 
@@ -165,7 +165,7 @@ Relação entre **tipo de evidência** e **técnicas** expostas na UI (slug → 
 | ZERO | `zero_grid` | Grade JPEG (libzero) |
 | PRNU | `prnu` | Ruído de sensor / câmera |
 
-Plugins registrados mas ocultos na UI: `hash_compare`, `synthetic_image_detection`, `deepfake`, etc. (podem ser expostos futuramente).
+Plugins registrados mas ocultos na UI: `hash_compare`, `synthetic_image_detection`, `deepfake`, etc.
 
 ### Áudio (`file_type: audio`)
 
@@ -180,11 +180,6 @@ Plugins registrados mas ocultos na UI: `hash_compare`, `synthetic_image_detectio
 |----|--------|------|
 | Parser ISO BMFF | `isomedia_parser` | Árvore de atoms, metadados |
 | Similaridade ISO BMFF | `isomedia_compare` | Comparação estrutural entre vídeos |
-| VideoFACT | `videofact` | Edições / deepfake (WACV 2024) |
-| STIL | `stil_video_detection` | Deepfake espaço-temporal |
-| Low-Res Fake | `lowres_fake_video` | Fake video baixa resolução |
-| TruVIL | `truvil` | Localização de inpainting em vídeo (IEEE TDSC 2025) |
-| ViLocal | `vilocal` | Localização de inpainting em vídeo com contrastive learning (IEEE SPL 2025) |
 
 ### PDF (`file_type: pdf`)
 
@@ -197,7 +192,7 @@ Plugins registrados mas ocultos na UI: `hash_compare`, `synthetic_image_detectio
 
 ---
 
-## 6. Verificação de autenticidade: duas camadas
+## 6. Verificação de autenticidade
 
 ```mermaid
 flowchart TB
