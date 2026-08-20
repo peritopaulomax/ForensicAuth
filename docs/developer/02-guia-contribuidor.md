@@ -59,11 +59,9 @@ Arquivos em `core/plugins/` podem se chamar `*_plugin.py` ou `*_adapter.py`. **�
 |------|----------|
 | `reference_data/` (raiz do repo) | Catálogos **publicados** de LR / typicality (runtime; `REFERENCE_DATA_DIR`) |
 | `core/reference_data/` | Código de paths/loader que aponta para a raiz acima |
-| `core/references/` | Outro domínio: PDFs de papers (ex. IMDL), **não** calibração LR |
+| `core/references/` | PDFs de papers (ex. IMDL), **não** é população de referência para alibração LR |
 | `core/*_lr_reference.py` | Lógica de score/LR em cima dos catálogos publicados |
-| `src/backend/reference_data/cache/` | Cache local de runtime (não é a fonte canônica dos CSV) |
-
-Calibração offline / bases pesadas ficam fora do happy path de produto (ver comentários em `core/reference_data/paths.py`).
+| `src/backend/reference_data/cache/` | Cache local de runtime |
 
 #### Jobs: `job_service` × `job_runner` × Celery
 
@@ -160,7 +158,7 @@ erDiagram
   CaseClosure ||--o{ CaseClosureSignature : bilateral
 ```
 
-**Campos críticos para autenticidade**
+**Campos críticos**
 
 | Entidade | Campo | Uso |
 |----------|-------|-----|
@@ -171,7 +169,7 @@ erDiagram
 
 ---
 
-## 4. Como funciona um plugin forense
+## 4. Funcionamento de um plugin
 
 ### Contrato (`core/forensic_plugin.py`)
 
@@ -280,7 +278,7 @@ Arquivos de referência:
 - Ensemble (multi-detector + LR): `pages/SyntheticImageDetectionAnalysis.tsx`, `AudioSpoofingAnalysis.tsx`
 - Hub multi-técnica: `pages/AudioForensicsHub.tsx`
 
-### Hub de áudio CPU (obrigatório para novas técnicas espectrais/níveis)
+### Hub de áudio CPU
 
 Técnicas `audio_spectrogram`, `audio_enf`, `audio_ltas`, `audio_levels`, `audio_dc_local`:
 
@@ -370,7 +368,7 @@ Rotas finas: validar entrada → chamar service → schema Pydantic de resposta.
 
 ---
 
-## 10. Transferência Verification Case Package (VCP) — resumo técnico
+## 10. Transferência Verification Case Package (VCP) 
 
 ```
 .vcp.zip
@@ -440,7 +438,7 @@ Chave dev persistente: `src/backend/.data/custody_ed25519_dev.key`
 
 ---
 
-## 13. Motores forenses protegidos
+## 13. "Motores" protegidos
 
 **Não substituir** sem teste de equivalência exata:
 
@@ -476,7 +474,7 @@ flowchart TD
 
 ---
 
-## 15. Comandos úteis no dia a dia
+## 15. Comandos úteis
 
 ```bash
 # Backend (dev)
@@ -494,8 +492,6 @@ python -m pytest ../../tests/unit/test_case_transfer.py -q
 # Diagnóstico custódia (cwd = src/backend)
 python tools/diag_custody.py
 
-# Reparar assinaturas (admin; cwd = src/backend)
-python tools/repair_custody_signatures.py --dry-run
 ```
 
 ---
