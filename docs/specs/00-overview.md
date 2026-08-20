@@ -2,7 +2,7 @@
 
 ## Proposito
 
-O ForensicAuth e uma plataforma forense digital unificada para peritos criminais. Consolida tecnicas de analise de imagem, audio, video e PDF em uma aplicacao web profissional com autenticacao multiusuario e cadeia de custodia digital rastreavel.
+O ForensicAuth e uma plataforma forense digital unificada para peritos. Consolida tecnicas de analise de imagem, audio, video e PDF em uma aplicacao web profissional com autenticacao multiusuario e cadeia de custodia digital rastreavel.
 
 ## Usuarios e Perfis
 
