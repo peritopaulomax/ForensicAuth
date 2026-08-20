@@ -217,11 +217,11 @@ flowchart TB
 - **Analítica:** responde “há indícios de adulteração neste arquivo?” (ELA, PRNU, etc.).
 - **Procedural:** responde “este histórico de ações e arquivos foi alterado desde o registro?” (custódia, VCP, fechamento).
 
-Ambas são necessárias em contexto probatório: a técnica gera **indícios**; a custódia garante **rastreabilidade**.
+Ambas são necessárias: a técnica gera **evidências**; a custódia **rastreabilidade**.
 
 ---
 
-## 7. Onde cada spec modular se encaixa
+## 7. Spec modular
 
 | Spec | Bloco |
 |------|-------|
