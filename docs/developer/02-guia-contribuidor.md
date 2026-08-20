@@ -1,4 +1,4 @@
-# Guia do contribuidor — ForensicAuth
+# Guia ForensicAuth
 
 Documento **detalhado** para quem vai modificar ou estender o código. Complementa a [visão geral](01-visao-geral.md) e as specs em `docs/specs/`.
 
