@@ -1,6 +1,6 @@
-# Scaffold de técnicas forenses — guia completo (didático)
+# Scaffold de técnicas — guia
 
-Este guia explica **tudo** que o automatizador entende hoje: templates, manifesto YAML,
+Este guia explica o que o automatizador entende hoje: templates, manifesto YAML,
 parâmetros, artefatos e — o mais importante — o **vocabulário de `role`**, porque cada
 `role` **liga direto a um pedaço da interface**.
 
@@ -9,7 +9,7 @@ parâmetros, artefatos e — o mais importante — o **vocabulário de `role`**,
 
 ---
 
-## 1. O que o automatizador faz (em uma frase)
+## 1. O que o automatizador faz 
 
 Você escreve um **manifesto YAML** → o script gera plugin, stub de pipeline, testes e
 liga a técnica a uma **página genérica** (sem React manual) → você só implementa
