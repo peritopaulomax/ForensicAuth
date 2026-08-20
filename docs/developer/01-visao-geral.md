@@ -233,7 +233,6 @@ Ambas são necessárias: a técnica gera **evidências**; a custódia **rastreab
 | `11-module-case-sharing-lifecycle` | F |
 | `12-module-case-transfer` | G |
 
-> `10-module-reports` (laudo PDF): **removido** — fora de escopo do produto.
 
 ---
 
