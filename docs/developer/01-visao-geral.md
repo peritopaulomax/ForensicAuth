@@ -4,9 +4,9 @@ Plataforma forense web para organizar **casos**, submeter **evidências**, execu
 
 ---
 
-## 1. Jornada do usuário final (perito)
+## 1. Fluxo de trabalho
 
-O perito não interage com “módulos de código”; interage com **casos** e **evidências**. A tabela abaixo liga cada tarefa à intenção forense e ao bloco do sistema.
+O perito interage com **casos** e **evidências**. A tabela abaixo liga cada tarefa à intenção forense e ao bloco do sistema.
 
 | # | Tarefa do usuário | Objetivo forense | Onde na UI | Bloco backend principal |
 |---|-------------------|------------------|------------|-------------------------|
