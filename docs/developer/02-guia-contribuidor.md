@@ -496,19 +496,7 @@ python tools/diag_custody.py
 
 ---
 
-## 16. Leitura obrigatória antes do primeiro PR
-
-1. [`docs/specs/00-overview.md`](../specs/00-overview.md)
-2. Spec do módulo que você toca (`docs/specs/modules/`)
-3. [`01-visao-geral.md`](01-visao-geral.md) — contexto funcional
-4. Test spec correspondente em `tests/specs/`
-
-Dúvidas sobre **comportamento esperado** → spec, não o código.  
-Dúvidas sobre **onde colocar código** → este guia + estrutura de pastas existente.
-
----
-
-## 17. Glossário
+## 16. Glossário
 
 | Termo | Significado |
 |-------|-------------|
