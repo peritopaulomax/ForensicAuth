@@ -81,7 +81,6 @@ PYTHONPATH=src/backend pytest tests/unit tests/integration -m "not weights and n
 | Deploy / worker remoto | [docs/deploy/](docs/deploy/) |
 | Contribuidores / scaffold | [docs/developer/](docs/developer/) |
 | Specs SDD | [docs/specs/](docs/specs/) |
-| Agentes | [AGENTS.md](AGENTS.md) |
 
 ## Estrutura
 
