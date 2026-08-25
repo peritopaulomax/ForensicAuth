@@ -1,13 +1,13 @@
 # reference_data — populações publicadas (LR / tipicidade)
 
 Ativos **leves/versionáveis** + features publicadas. Staging pesado (WAVs
-aumentados) vive em ``$FORENSICAUTH_REFERENCE_BUILD_DIR``, fora do git.
+aumentados) em ``$FORENSICAUTH_REFERENCE_BUILD_DIR``, fora do git.
 
 Ver (clone local, não versionado): `DOCS_DEV_NOGIT/calibration/REFERENCE-DATA-LIFECYCLE.md`
 
 Paths canônicos de código: `src/backend/core/reference_data/paths.py`.
 
-**Calibração LR / typicality:** vive em **`reference_data/`** (catalog, populations, features, macros). Não depende de pasta `ops/` nem de YAMLs de protocolo em `config/`. Staging pesado (WAVs aumentados etc.) pode usar `$FORENSICAUTH_REFERENCE_BUILD_DIR` fora do git.
+**Calibração LR / typicality:** em **`reference_data/`** (catalog, populations, features, macros). Não depende de pasta `ops/` nem de YAMLs de protocolo em `config/`. Staging pesado (WAVs aumentados etc.) pode usar `$FORENSICAUTH_REFERENCE_BUILD_DIR` fora do git.
 
 
 ## Layout (publish)
