@@ -9,7 +9,10 @@ O hub de UI que contém esta técnica passa a se chamar **"Deep Learning: Manipu
 1. **Ataques de Apresentação (PAD)** — técnica já existente `presentation_attack_detection`
 2. **MoE-FFD** — nova técnica `moe_ffd`
 
-Pesos oficiais: [Hugging Face luobo91/MoE-FFD](https://huggingface.co/luobo91/MoE-FFD/tree/main) (`MoE-FFD.tar`).
+Pesos oficiais: [Hugging Face luobo91/MoE-FFD](https://huggingface.co/luobo91/MoE-FFD/tree/main)
+(`MoE-FFD.tar`). Colocar em `models/moe_ffd/MoE-FFD.tar` (não há script de download
+no repositório; mensagem de runtime que cita `scripts/download_moe_ffd_weights.py`
+está desatualizada em relação ao tree).
 
 ## 2. Escopo
 
@@ -66,8 +69,7 @@ Pesos oficiais: [Hugging Face luobo91/MoE-FFD](https://huggingface.co/luobo91/Mo
 docs/specs/modules/15-module-moe-ffd.md
 tests/specs/test-module-moe-ffd.md
 vendor/MoE-FFD/                                 # clone oficial
-models/moe_ffd/MoE-FFD.tar                      # pesos HF
-scripts/download_moe_ffd_weights.py
+models/moe_ffd/MoE-FFD.tar                      # pesos HF (download manual; sem script no repo)
 src/backend/core/technique_ids.py               # MOE_FFD
 src/backend/forensics/moe_ffd/runtime.py
 src/backend/forensics/moe_ffd/moe_ffd_pipeline.py
@@ -132,7 +134,7 @@ Frontend (hub dl-facial-spoofing?tab=moe_ffd)
 
 | Risco | Classe | Detecção | Recuperação |
 |---|---|---|---|
-| Pesos ausentes | Alto | Runtime probe | Script download |
+| Pesos ausentes | Alto | Runtime probe | Baixar `MoE-FFD.tar` do HF para `models/moe_ffd/` |
 | Incompatibilidade timm/torch | Médio | Teste unitário de load | Pin / adapt shim |
 | Entrada sem face | Médio | Score enviesado | Documentar pré-requisito de crop |
 | Checkpoint layout diferente do tar | Alto | Validate keys no load | Relatar erro claro |

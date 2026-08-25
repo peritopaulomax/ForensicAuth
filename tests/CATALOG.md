@@ -8,7 +8,7 @@ Alguns testes só rodam com modelos baixados ou GPU. No dia a dia use:
 
 ---
 
-## Pasta `unit/` (65 arquivos)
+## Pasta `unit/` (80 arquivos; inventário 2026-08-25)
 
 | Arquivo | O que esse teste verifica |
 |---|---|
@@ -78,10 +78,24 @@ Alguns testes só rodam com modelos baixados ou GPU. No dia a dia use:
 | `test_wavelet_noise_residue.py` | Análise de ruído por wavelets (técnica clássica Peritus) |
 | `test_xmp_packet.py` | Leitura do bloco XMP da imagem |
 | `test_xmp_structural_tree.py` | Árvore completa do XMP (campos um dentro do outro) |
+| `test_c2pa_extract.py` | Extração/leitura de manifesto C2PA quando presente |
+| `test_evidence_dependents.py` | Dependentes de evidência e impacto de exclusão |
+| `test_ingest_audio_spoofing_reference.py` | Script de ingestão LR de áudio spoofing |
+| `test_ingest_synthetic_image_reference.py` | Script de ingestão LR de imagem sintética |
+| `test_meta_classifier_zscore.py` | Meta-classificador / z-score de scores de detectores |
+| `test_plugin_registry_resilience.py` | Registro de plugins resiste a falhas de import |
+| `test_questioned_group_label.py` | Rótulo de grupo questioned na classificação de evidência |
+| `test_scaffold_technique.py` | Scaffold de técnica em `scripts/technique/` |
+| `test_synthetic_lr_reference_roles.py` | Papéis de referência no LR de imagem sintética |
+| `test_synthetic_lr_scope_auto_augment.py` | Escopo e auto-augment no LR sintético |
+| `test_truvil.py` | Detector de vídeo TruVIL (adapter/pipeline) |
+| `test_video_display_orientation.py` | Orientação de exibição de vídeo |
+| `test_video_metadata.py` | Metadados de vídeo via plugin |
+| `test_vilocal.py` | Detector de vídeo ViLocal (adapter/pipeline) |
 
 ---
 
-## Pasta `integration/` (7 arquivos)
+## Pasta `integration/` (8 arquivos; inventário 2026-08-25)
 
 | Arquivo | O que esse teste verifica |
 |---|---|
@@ -90,6 +104,7 @@ Alguns testes só rodam com modelos baixados ou GPU. No dia a dia use:
 | `test_imdlbenco_methods_roles.py` | Quais métodos IMDL cada perfil de usuário pode usar |
 | `test_moe_ffd_api.py` | Pela API: criar job MoE-FFD |
 | `test_presentation_attack_detection_api.py` | Pela API: criar job de detecção facial anti-spoof |
+| `test_synthetic_image_detectors_catalog.py` | Catálogo de detectores sintéticos exposto pela API/config |
 | `test_synthetic_new_detectors_smoke.py` | Teste rápido dos detectores novos de imagem sintética (pesos + GPU) |
 | `test_video_ml_e2e.py` | Fluxo quase completo do VideoFACT (simulado) |
 

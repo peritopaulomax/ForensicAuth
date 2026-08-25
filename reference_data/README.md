@@ -23,8 +23,11 @@ Paths canônicos de código: `src/backend/core/reference_data/paths.py`.
 export FORENSICAUTH_BASES_ROOT=/mnt/bases
 export FORENSICAUTH_REFERENCE_BUILD_DIR=$HOME/va-reference_build
 export FORENSICAUTH_REFERENCE_DATA_DIR=$PWD/reference_data
-
-python scripts/reference_pipeline.py init
-python scripts/reference_pipeline.py status
-python scripts/reference_pipeline.py migrate-working   # one-shot: working/ → build
 ```
+
+Não existe `scripts/reference_pipeline.py` no repositório. Paths canônicos:
+`src/backend/core/reference_data/paths.py`. Ingestão de populações usa os
+scripts versionados em `scripts/` (ver `scripts/README.md`):
+
+- `ingest_synthetic_image_reference.py`
+- `ingest_audio_spoofing_reference.py`

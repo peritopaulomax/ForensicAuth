@@ -47,8 +47,9 @@ Mocks e contratos “pesos ausentes” ficam no default.
 
 
 
-## Contagem aproximada
+## Contagem (2026-08-25)
 
-~72 módulos `test_*.py` em `unit/`+`integration/` · specs Markdown à parte.
+88 módulos `test_*.py` (`tests/unit/` = 80, `tests/integration/` = 8) · specs Markdown à parte.
 
-Lista arquivo → propósito: [`CATALOG.md`](./CATALOG.md).
+Lista arquivo → propósito: [`CATALOG.md`](./CATALOG.md). Contagem canônica:
+`find tests -name 'test_*.py' | wc -l` (não manter número só no texto).
