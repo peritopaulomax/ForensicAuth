@@ -71,7 +71,7 @@ conda activate forensicauth
 PYTHONPATH=src/backend pytest tests/unit tests/integration -m "not weights and not gpu" -q
 ```
 
-## Documentação por público
+## Documentação
 
 | Público | Onde |
 |---------|------|
