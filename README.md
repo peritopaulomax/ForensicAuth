@@ -2,7 +2,7 @@
 
 Plataforma forense digital (local) para análise de imagem, áudio, vídeo e PDF, com cadeia de custódia, jobs assíncronos (CPU/GPU), artefatos por técnica e transferência VCP.
 
-## Começar aqui
+## Introdução
 
 Manual pedagógico completo: **[docs/README.md](docs/README.md)**  
 
