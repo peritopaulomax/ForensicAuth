@@ -76,7 +76,7 @@ PYTHONPATH=src/backend pytest tests/unit tests/integration -m "not weights and n
 | Público | Onde |
 |---------|------|
 | Manual didático | [docs/](docs/) (capítulos 01–10) |
-| **Instalação produção + workers (roteiro)** | **[docs/deploy/INSTALACAO-PROD-WORKERS.md](docs/deploy/INSTALACAO-PROD-WORKERS.md)** |
+| Instalação produção + workers (roteiro) | [docs/deploy/INSTALACAO-PROD-WORKERS.md](docs/deploy/INSTALACAO-PROD-WORKERS.md) |
 | Instalação / custódia / VCP | [docs/public/](docs/public/) |
 | Deploy / worker remoto | [docs/deploy/](docs/deploy/) |
 | Contribuidores / scaffold | [docs/developer/](docs/developer/) |
