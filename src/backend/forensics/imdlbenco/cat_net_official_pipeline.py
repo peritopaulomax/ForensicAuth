@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 from unittest.mock import patch
 
 import numpy as np
@@ -17,6 +16,9 @@ ProgressFn = Callable[[int, str], None] | None
 
 DCT_CHANNELS = 1
 DCT_T = 20
+
+# Dict cache (nao lru_cache): precisa ser descarregavel com .cpu() apos OOM.
+_model_cache: dict[str, Any] = {}
 
 
 @dataclass
@@ -158,9 +160,12 @@ def _build_model(cfg_path: Path):
         return MODELS.get("Cat_Net")(cfg_file=str(cfg_path))
 
 
-@lru_cache(maxsize=2)
 def _load_model(device_type: str):
     from forensics.imdlbenco.imdlbenco_runtime import resolve_cat_net_config
+
+    cached = _model_cache.get(device_type)
+    if cached is not None:
+        return cached
 
     ckpt = resolve_official_checkpoint()
     if ckpt is None:
@@ -173,19 +178,26 @@ def _load_model(device_type: str):
     device = torch.device(device_type)
     model = model.to(device)
     model.eval()
+    _model_cache[device_type] = model
     return model
 
 
 def _predict(tensor: torch.Tensor, qtable: torch.Tensor, device: torch.device) -> np.ndarray:
     model = _load_model(device.type)
-    stacked = tensor.unsqueeze(0).to(device)
-    qtables = qtable.unsqueeze(0).unsqueeze(1).to(device)
-
-    with torch.no_grad():
-        outputs = model.model(stacked.float(), qtables.float())
-        pred = F.softmax(outputs, dim=1)[:, 1].unsqueeze(1)
-        pred = F.interpolate(pred, size=(tensor.shape[1], tensor.shape[2]), mode="bicubic")
-    return pred[0, 0].detach().cpu().numpy()
+    stacked = None
+    qtables = None
+    try:
+        stacked = tensor.unsqueeze(0).to(device)
+        qtables = qtable.unsqueeze(0).unsqueeze(1).to(device)
+        with torch.no_grad():
+            outputs = model.model(stacked.float(), qtables.float())
+            pred = F.softmax(outputs, dim=1)[:, 1].unsqueeze(1)
+            pred = F.interpolate(pred, size=(tensor.shape[1], tensor.shape[2]), mode="bicubic")
+        return pred[0, 0].detach().cpu().numpy()
+    finally:
+        del stacked, qtables
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
 
 
 def _heatmap_to_pil(heatmap: np.ndarray) -> Image.Image:
@@ -236,6 +248,7 @@ def run_cat_net_official_analysis(
 ) -> CatNetOfficialResult:
     from core.gpu_inference import (
         pop_gpu_fallback_reason,
+        prepare_vram_for_heavy_model,
         purge_foreign_gpu_model_caches,
         run_with_device_fallback,
     )
@@ -250,12 +263,17 @@ def run_cat_net_official_analysis(
     gpu_fallback_warning: str | None = None
 
     try:
+        # CAT-Net full-res + DCT volume e pesado: esvazia caches residentes antes.
+        prepare_vram_for_heavy_model(log=True)
         purge_foreign_gpu_model_caches(include_trufor=True)
 
         def _run(device):
             return _infer_official(evidence_path, device)
 
-        payload, device = run_with_device_fallback(_run)
+        payload, device = run_with_device_fallback(
+            _run,
+            on_fallback=clear_model_cache,
+        )
         gpu_fallback_reason = pop_gpu_fallback_reason()
         if device.type == "cpu" and gpu_fallback_reason:
             gpu_fallback_warning = (
@@ -281,8 +299,14 @@ def run_cat_net_official_analysis(
             gpu_fallback_warning=gpu_fallback_warning,
         )
     finally:
+        # Sempre descarrega: OOM deixava ~18 GiB presos no processo da API.
         clear_model_cache()
 
 
 def clear_model_cache() -> None:
-    _load_model.cache_clear()
+    """Move modelos CAT-Net para CPU, dropa o cache e devolve VRAM ao driver."""
+    from core.gpu_inference import release_gpu_memory
+
+    for key in list(_model_cache.keys()):
+        release_gpu_memory(_model_cache.pop(key, None))
+    release_gpu_memory()
