@@ -29,7 +29,17 @@ flowchart LR
  
 ```
 
-Todas acima (lista GPU) usam fila **`gpu`** — ver `core/gpu_inference.py`.
+Fonte de verdade da fila GPU:
+`src/backend/core/gpu_inference.py::ML_GPU_TECHNIQUES`.
+
+| Grupo | IDs atuais na fila `gpu` |
+|-------|---------------------------|
+| Imagem / face | `synthetic_image_detection`, `safire`, `imdlbenco`, `presentation_attack_detection`, `moe_ffd` |
+| Áudio | `audio_spoofing_detection` |
+| Vídeo | `videofact`, `stil_video_detection`, `lowres_fake_video`, `truvil`, `vilocal` |
+
+PRNU não está nesse conjunto e é despachado para CPU, apesar do hint
+`gpu: true` no registry do frontend.
 
 UI `reference_lr.mode`: `result_only` | `calibrated` (contrato no scaffold de técnicas).
 
@@ -45,7 +55,14 @@ escalas de logit entre detectores; XGBoost permanece sem scaler. Cache LR inclui
 - Atualizar só com pin/teste e consciência de licença.  
 - Ter vendor ≠ técnica ativa (standby).
 
-Lista exemplificativa: `df_arena_1b`, `wedefense`, …
+Seis entradas (`MoE-FFD`, `bfree`, `dmimage_detection`,
+`grip_clipbased_synthetic`, `sidbench`, `truebees_deepfake_detectors`) são
+gitlinks no tree sem `.gitmodules`. Portanto, `git submodule update` não
+reconstrói sozinho o ambiente. Registre URL, commit, licença e hash no
+procedimento institucional antes de uso pericial.
+
+Lista exemplificativa: `df_arena_1b`, `wedefense`, `SAFE`, `SAFIRE`,
+`videofact`, `truvil`, `vilocal`.
 
 ## Warmup e papéis de processo
 
@@ -53,12 +70,24 @@ Lista exemplificativa: `df_arena_1b`, `wedefense`, …
 
 ## Como obter / verificar pesos
 
-1. Conferir árvore `models/<tecnica>/`.  
-2. Submeter job → se falhar por missing weights, logs do worker.  
-3. Testes com marker `weights` / `gpu` (não rodam no default).  
-4. Guia contribuidores: [`developer/02-guia-contribuidor.md`](developer/02-guia-contribuidor.md).
+1. Identificar fonte oficial, licença, versão/commit e hash esperado.
+2. Conferir árvore `models/<tecnica>/`.
+3. Usar scripts existentes quando aplicável:
+   `download_truvil_weights.py` e `download_vilocal_weights.py`.
+4. Para MoE-FFD, obter `MoE-FFD.tar` da fonte oficial e colocá-lo em
+   `models/moe_ffd/`; não há script versionado para esse download.
+5. Executar capability probe e testes com marker `weights` / `gpu` (fora do
+   default).
+6. Guardar manifesto de versões/hashes junto ao procedimento de deploy.
+
+Mensagens antigas de runtime podem sugerir scripts que não existem (por
+exemplo, download MoE/IMDL). Consulte `scripts/README.md` antes de executar um
+nome de script citado em erro.
 
 Build pesado de referências: variável `FORENSICAUTH_REFERENCE_BUILD_DIR` (fora do git) — ver `reference_data/README.md`.
+Ingestão publicada usa `scripts/ingest_synthetic_image_reference.py` e
+`scripts/ingest_audio_spoofing_reference.py`; não existe
+`scripts/reference_pipeline.py`.
 
 ## Variáveis
 

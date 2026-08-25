@@ -17,7 +17,7 @@ Manual pedagógico do sistema. Público: quem vai contribuir código ou operar a
 9. [10 — Testes e qualidade](10-testes-e-qualidade.md)  
 10. [08 — Glossário e armadilhas](08-glossario-e-armadilhas.md) 
 
-## Roteiro 
+## Roteiro da primeira semana
 
 | Ação | Objetivo | Como verificar |
 |-----|----------|----------------|
@@ -26,10 +26,12 @@ Manual pedagógico do sistema. Público: quem vai contribuir código ou operar a
 | 3 | Rodar uma técnica **CPU** (ex.: metadata / ELA) | Job `completed` + artefato em `data/results/` |
 | 4 | Entender plugins: ler `ForensicPlugin` + um adapter | Código em `core/forensic_plugin.py` |
 | 5 | Ver custódia e verify | Banner de integridade ao abrir o caso; aba custódia / `audit/verify-case-forensic` |
-| 6 | (Opcional GPU) subir `worker-gpu` e uma técnica ML | `/api/v1/analysis/gpu-queue` |
-| 7 | Rodar testes default + ler AGENTS.md Regra 8 | `pytest … -m "not weights and not gpu"` |
-O que o repositório usa
-## Repositório
+| 6 | Entender o bootstrap de ML antes de testar GPU | Conferir `vendor/`, `models/` e [09 — ML](09-ml-e-artefatos.md) |
+| 7 | (Opcional GPU) subir `worker-gpu` e uma técnica ML | `/api/v1/analysis/gpu-queue`; o Compose padrão não inclui worker GPU |
+| 8 | Rodar testes default + ler AGENTS.md Regra 8 | `PYTHONPATH=src/backend pytest tests/unit tests/integration -m "not weights and not gpu" -q` |
+| 9 | Revisar limites de segurança atuais | Ler [08 — Armadilhas](08-glossario-e-armadilhas.md); testar ACL com dois peritos |
+
+## O que o repositório usa
 
 | Tema | Presente? | Onde aprofundar |
 |------|-----------|-----------------|
@@ -40,7 +42,7 @@ O que o repositório usa
 | ML / checkpoints | Sim | [09](09-ml-e-artefatos.md), `models/` |
 | Vendor / forks | Sim | [09](09-ml-e-artefatos.md), `vendor/` |
 | TDD / testes | Sim | [10](10-testes-e-qualidade.md) |
-| Scripts / automação | Parcial | [07](07-operacao-e-setup.md) — `scripts/technique/` |
+| Scripts / automação | Sim, cobertura parcial | [07](07-operacao-e-setup.md), `scripts/README.md` |
 
 ## Outras pastas em `docs/` 
 | Pasta | Público | Conteúdo |
@@ -52,3 +54,6 @@ O que o repositório usa
 | [`references/`](references/) | Científico | Papers IMDL etc. |
 
 Lab local não versionado: `DOCS_DEV_NOGIT/` na raiz do clone.
+
+Relatório da integração atual:
+[`RELATORIO-GERACAO-DOCUMENTACAO.md`](RELATORIO-GERACAO-DOCUMENTACAO.md).

@@ -41,9 +41,12 @@ Definidas em `src/App.tsx` (paths aproximados):
 |------|--------|
 | `/login`, `/primeiro-acesso` | Público |
 | `/`, `/dashboard` | Lista / dashboard de casos |
-| `/cases/new`, `/cases/:caseId` | CRUD / detalhe (banner de integridade, paginação e **rótulos de questionados**) |
+| `/cases/new`, `/cases/:caseId`, `/cases/:caseId/edit` | CRUD / detalhe (banner de integridade, paginação e **rótulos de questionados**) |
 | `/analysis`, `/analysis/run` | Hubs de análise |
-| `/cases/:caseId/analysis/...` | Técnica, grupos IMDL/mídia, áudio |
+| `/cases/:caseId/analysis/:techniqueId` | Router de técnica |
+| `/cases/:caseId/analysis/image-group/:groupId` | Grupo de imagem |
+| `/cases/:caseId/analysis/media-group/:groupId` | Grupo de áudio/vídeo/PDF |
+| `/cases/:caseId/analysis/imdl/:methodId` | Método do hub IMDL |
 | `/users` | Admin |
 
 ## Technique registry (fluxo UI → API)
@@ -61,6 +64,12 @@ flowchart TB
 ```
 
 **Regra:** o `name` do plugin no backend deve casar (ou ter alias) com o ID no registry.
+
+O registry também guarda hints de apresentação (`gpu`, `adminOnly`, `disabled`),
+mas a fonte de verdade do despacho é
+`src/backend/core/gpu_inference.py::ML_GPU_TECHNIQUES`. Exemplo conhecido:
+`prnu` tem `gpu: true` na UI e vai para CPU no backend. A entrada desabilitada
+`nfa_vit` reutiliza hoje a metadata bibliográfica de `objectformer`.
 
 ### Cards de mídia e hub de áudio
 
@@ -92,8 +101,9 @@ Pasta `src/frontend/src/services/`: `api.ts`, `auth.ts`, `cases.ts`, `evidence.t
 
 ## Testes de frontend
 
-- Unit: Vitest  
-- E2E: Playwright em `src/frontend/e2e/` (catálogo sintético atual: `synthetic-image-detectors.spec.ts`; exclusão com dependentes: `evidence-delete.spec.ts`)  
+- Unit: Vitest (`src/**/*.test.ts(x)`).
+- E2E: 12 specs Playwright em `src/frontend/e2e/`, incluindo login, casos,
+  upload, áudio, MoE-FFD, catálogo sintético e exclusão com dependentes.
 
 Em specs que mockam a API, registre um catch-all `**/api/v1/**` **antes** das rotas específicas: um 401 de endpoint não mockado dispara o interceptor de logout e redireciona para `/login`.
 
@@ -110,6 +120,10 @@ Em specs que mockam a API, registre um catch-all `**/api/v1/**` **antes** das ro
 - Token em `localStorage` → risco XSS; manter CSP e higiene de deps.  
 - Registry dessincronizado → página 404 ou técnica “sumida”.  
 - Produção sem proxy Vite: nginx deve encaminhar `/api` à API.
+- `index.html` usa Google Fonts; um ambiente air-gapped precisa servir fontes
+  localmente ou aceitar o fallback tipográfico.
+- `services/analysis.ts` ainda contém uma chamada legada a `/analysis/jobs`,
+  rota que não representa o contrato principal atual.
 
 ## Próximo
 

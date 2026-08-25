@@ -91,12 +91,17 @@ sequenceDiagram
 | Risco | Nível | Mitigação |
 |-------|-------|-----------|
 | Worker GPU ausente | Alto | Monitorar fila; Compose GPU |
-| Redis down | Crítico | Health + restart  |
+| Redis down | Alto | Detectar falha de dispatch; restaurar broker/workers |
 | Alterar `forensics/`/`vendor/` | Crítico | Teste de equivalência + aprovação |
+| ACL ausente em rota por `job_id` | Crítico | `get_accessible_job` em toda a superfície + teste com dois peritos |
+| Custódia mutável no PostgreSQL | Crítico | Trigger/REVOKE no banco + teste de `UPDATE` negado |
+| DB e filesystem fora de sincronia | Alto | Backup/restore conjunto + verificação forense |
+| Template de produção incompleto | Alto | Completar env, validar Compose e executar smoke antes de dados reais |
 
 ## Como verificar
 
-- `GET /health` na API.  
+- `GET /health` na API (liveness e probes pontuais; não substitui teste de DB,
+  Redis e workers).
 - Com Compose: containers `db`, `redis`, `app`, `worker` (e `worker-gpu` se GPU).  
 - Listar técnicas: `GET /api/v1/analysis/techniques` (autenticado).
 

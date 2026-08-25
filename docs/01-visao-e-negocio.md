@@ -48,8 +48,8 @@ flowchart LR
 |----|-------|
 | RN-01 | Hash SHA-256 da evidência **antes** de processar |
 | RN-02 | Job persiste params + hashes (sem elo automático de custódia) |
-| RN-03 | Custódia **INSERT-only** |
-| RN-04 | Jobs GPU **serializados** |
+| RN-03 | Custódia **INSERT-only**; hoje o banco impõe isso diretamente apenas no SQLite |
+| RN-04 | Jobs GPU **serializados por lock/fila configurada** |
 | RN-06 | Só Admin cria usuários |
 | RN-08 | Algoritmos em `forensics/` e `vendor/` não se reescrevem sem equivalência |
 
@@ -60,6 +60,18 @@ Fonte: [`specs/00-overview.md`](specs/00-overview.md).
 - SaaS com modelos na nuvem  
 - Gerador de **laudo**  
 - Registro de **todo** job exploratório na custódia, apenas derivados  
+- Garantia de operação offline antes de provisionar vendors, pesos e referências
+
+## Limites atuais importantes
+
+- A promessa INSERT-only ainda precisa de proteção equivalente no PostgreSQL
+  (trigger ou privilégios); a camada de serviço, sozinha, não é uma barreira de
+  banco.
+- Algumas rotas por `job_id` não reaplicam consistentemente a ACL do caso. UUID
+  não é autorização; veja [04 — Backend](04-backend.md).
+- A interface ainda carrega Google Fonts externamente. Portanto, “offline”
+  descreve o objetivo arquitetural, mas esse detalhe do frontend permanece uma
+  dívida conhecida.
 
 ## Como verificar
 

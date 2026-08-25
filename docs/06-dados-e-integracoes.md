@@ -6,7 +6,7 @@
 |-------|----------|----------------|
 | PostgreSQL | Metadados, jobs, custódia, shares, closures | Compose `db` / `DATABASE_URL` |
 | Filesystem | Binários forenses | `data/uploads`, `results`, `derivatives`, `peritus_cases` |
-| Redis | Filas Celery + lock GPU | broker (efêmero) |
+| Redis `/0` | Broker + result backend Celery + lock GPU | efêmero; não é o cache LR |
 | models/ | Pesos | montado no container |
 | reference_data/ | Populações LR / typicality (calibração) | montado no container |
 
@@ -59,7 +59,19 @@ Evidências do caso (questionados) podem ser agrupadas por `extra_metadata.quest
 ## Migrações
 
 - Alembic: `alembic/` + `alembic.ini`  
-- Revision bootstrap: `alembic/versions/20260625_initial_schema.py`
+- Revisions versionadas: schema inicial (`20260625`), refresh tokens
+  (`20260728`) e remoção de `reports` (`20260730`).
+- Além do Alembic, `app/main.py` executa `ensure_*` de
+  `app/db_migrations.py` em todo startup. Essa dupla responsabilidade é dívida
+  arquitetural: valide a ordem e o schema após upgrades.
+
+### Imutabilidade da custódia
+
+O SQLite instala `trg_custody_immutable` para negar `UPDATE`/`DELETE`. Não foi
+localizada proteção equivalente nas migrações PostgreSQL. Em produção, aplique
+trigger ou `REVOKE`, e prove com a mesma role usada pela aplicação que um
+`UPDATE custody_records ...` é negado. A convenção da camada de serviço não
+substitui a proteção do banco.
 
 ## Integrações de produto
 
@@ -77,7 +89,16 @@ Spec [`specs/modules/14-module-derivation-lineage.md`](specs/modules/14-module-d
 
 ## Segredos e sensibilidade
 
-Evidências = material sensível. Backup: **DB + `data/` + chaves Ed25519 + `.env`**.
+Evidências = material sensível. Um backup recuperável inclui, no mesmo ponto
+lógico:
+
+1. dump PostgreSQL (ou arquivo SQLite);
+2. `data/uploads/` e `data/derivatives/` — `results/` pode ser regenerável;
+3. chaves Ed25519, `.env` e manifesto de versões;
+4. hashes/versionamento de `models/`, `vendor/` e `reference_data/`.
+
+Após restaurar, execute `verify-case-forensic` antes de liberar o sistema.
+Procedimento detalhado: [`deploy/INSTALACAO-PROD-WORKERS.md`](deploy/INSTALACAO-PROD-WORKERS.md).
 
 ## Como verificar
 

@@ -10,9 +10,10 @@ VA-Suite/
 ├── models/          # Pesos ML runtime
 ├── reference_data/  # Catálogos LR / typicality
 ├── data/            # Runtime: uploads, results, derivatives, db, peritus_cases
+├── uploads/         # Legado local vazio; NÃO é o path canônico
 ├── alembic/         # Migrações PostgreSQL
-├── config/          # Reservado; calibração LR em reference_data/
-├── scripts/technique/  # Scaffold de novas técnicas
+├── scripts/         # Ingestão, downloads parciais, diagnóstico e scaffold
+│   └── technique/   # Scaffold e exemplos YAML de novas técnicas
 ├── docs/            # Este manual + public/deploy/developer/specs
 ├── tests/           # unit, integration, specs MD
 ├── docker-compose*.yml
@@ -31,7 +32,7 @@ VA-Suite/
 | `models/`, `reference_data/` | Alta | ML / LR |
 | `docs/specs/` | Alta | Contratos SDD |
 | `tests/` | Alta | Qualidade |
-| `config/` | Baixa | Scaffold de técnicas; calibração em `reference_data/` |
+| `scripts/` | Média | Ferramentas de contribuidores; inventário em `scripts/README.md` |
 
 ## Entrypoints
 
@@ -41,6 +42,7 @@ VA-Suite/
 | Celery | `celery -A app.celery_app worker …` → `app/celery_app.py` |
 | Frontend | `npm run dev` em `src/frontend` |
 | Compose | `docker-compose.yml` (+ `.prod`, `.gpu`, `.dev`) |
+| Scaffold | `scripts/technique/scaffold_technique.py` + exemplos em `scripts/technique/examples/` |
 
 ## Arquivos que todo contribuinte deve conhecer
 
@@ -58,9 +60,11 @@ VA-Suite/
 ## Como verificar
 
 ```bash
-ls src/backend src/frontend vendor models reference_data data docs tests
+ls src/backend src/frontend vendor models reference_data data docs tests scripts
 conda activate forensicauth
 ```
+
+`uploads/` na raiz é um resíduo local vazio. O runtime usa `data/uploads/`.
 
 ## Próximo
 

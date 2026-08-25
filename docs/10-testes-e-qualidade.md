@@ -11,6 +11,9 @@
 | E2E UI | `src/frontend/e2e/` | Playwright | À parte |
 
 Markers em `pytest.ini`: `weights`, `gpu`, `slow`, `integration`, `e2e`.
+Inventário em 2026-08-25: 88 arquivos pytest (80 unitários + 8 de
+integração) e 12 specs Playwright. A contagem deve ser confirmada no tree; não
+é métrica de cobertura.
 
 ## Comando canônico (sem pesos/GPU)
 
@@ -20,6 +23,20 @@ PYTHONPATH=src/backend pytest tests/unit tests/integration -m "not weights and n
 ```
 
 Suite completa / pesos: [`developer/02-guia-contribuidor.md`](developer/02-guia-contribuidor.md) § testes.
+
+## Frontend
+
+```bash
+cd src/frontend
+npm install
+npm run test
+npm run build
+npx playwright test
+```
+
+Não existe script `npm run test:e2e` no `package.json`; use diretamente
+Playwright. Os E2E usam mocks extensos, portanto mantenha também um smoke com
+backend real para login, upload e job.
 
 ## Política
 
@@ -49,6 +66,19 @@ Specs de módulo: `docs/specs/modules/02` … `15`.
 | Custody | testes de cadeia / verify |
 | FE | Vitest + Playwright smoke login |
 
+## CI e gates
+
+Não há pipeline CI versionado nem relatório de cobertura publicado. Metas de
+cobertura em specs são objetivos, não evidência. Enquanto isso, o gate é local:
+
+1. pytest default;
+2. Vitest + build do frontend;
+3. Playwright pertinente à mudança;
+4. suites `weights/gpu` em hardware homologado quando a mudança toca ML;
+5. comparação de baseline e aprovação explícita para algoritmos protegidos.
+
+Falha em teste pesado não autoriza substituir silenciosamente modelo, vendor
+ou algoritmo. Registre versão, hardware, hash dos pesos e motivo da falha.
 
 ## Índice
 

@@ -43,15 +43,24 @@ Também: `GET /health`.
 
 ```mermaid
 flowchart LR
-  L[POST /auth/login] --> T[JWT Bearer]
+  L[POST /auth/login] --> T[JWT access + refresh opaco]
   T --> D[get_current_user]
+  T --> X[Rotação / revogação do refresh]
   D --> R[require_role / case_access]
 ```
 
 - Senhas: bcrypt (`services/auth_service.py`).  
-- JWT: `app/dependencies.py`.  
+- Access JWT curto; refresh token opaco é armazenado por hash, rotacionado e
+  revogável (`auth_service.py` e tabela `refresh_tokens`).
+- Dependências de autenticação: `app/dependencies.py`.
 - ACL de caso: owner, assigned, share viewer/editor, admin (`services/case_access.py`).  
 - Caso **fechado**: mutações → HTTP 409.
+
+> **Risco crítico atual:** várias rotas de leitura/arquivo/snapshot por
+> `job_id` em `api/v1/endpoints/analysis.py` usam `JobService.get_job` sem
+> `get_accessible_job`. Conhecer um UUID não autoriza acesso. Toda nova rota de
+> job deve resolver `Job → Evidence → Case` e reaplicar a ACL; valide com dois
+> peritos em casos distintos.
 
 ## Domínio persistido (ORM)
 
@@ -83,8 +92,8 @@ Cascata é opt-in e nunca alcança derivado com insumo preservado (RN-CUST-15).
 flowchart TB
   A[POST /analysis] --> B[validate params + ACL]
   B --> C[AnalysisJob pending]
-  C --> D{DB SQLite?}
-  D -->|Sim| E[Thread local]
+  C --> D{SQLite ou falha ao publicar no Celery?}
+  D -->|Sim| E[Thread local no uvicorn]
   D -->|Não| F{técnica em ML_GPU_TECHNIQUES?}
   F -->|Sim| G[fila gpu]
   F -->|Não| H[fila celery]
@@ -176,8 +185,11 @@ Listar plugins ativos: autenticar e chamar `/api/v1/analysis/techniques`, ou ins
 ## Atenção
 
 - Spec antiga pode citar `adapters/` → no código é `core/plugins/`.  
-- Sem Redis + worker, jobs em Postgres ficam `pending`.  
-- Warmup ML só no processo `worker-gpu` (API não deve comer VRAM).
+- Falha ao publicar no Celery pode cair para thread no uvicorn, inclusive com
+  PostgreSQL. Nesse caminho, OOM/VRAM pertencem ao processo da API.
+- Sem worker capaz de consumir a fila escolhida, jobs podem ficar `pending`.
+- Warmup planejado ocorre no `worker-gpu`, mas o fallback local ainda pode
+  carregar ML na API.
 
 ## Próximo
 

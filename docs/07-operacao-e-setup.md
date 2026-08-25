@@ -30,6 +30,10 @@ conda activate forensicauth
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+O `.env.example` usa SQLite. Nesse modo, jobs rodam em thread do próprio
+uvicorn, mesmo que Redis esteja ativo. Para testar Celery, configure
+PostgreSQL e confirme pelos logs qual executor recebeu o job.
+
 3. Worker CPU:
 
 ```bash
@@ -52,6 +56,10 @@ celery -A app.celery_app worker -Q gpu -c 1 -l info
 docker compose up -d
 # serviços: db, redis, app, worker, frontend
 ```
+
+Essa stack não inclui `worker-gpu`. Técnicas listadas em
+`ML_GPU_TECHNIQUES` podem permanecer `pending` até existir consumidor da fila
+`gpu`.
 
 ### Opção C — Compose GPU
 
@@ -88,7 +96,10 @@ Sem Redis saudável, enfileiramento em produção falha.
 | `celery` | worker-cpu | >1 possível (cuidado com CPU) |
 | `gpu` | worker-gpu | **`-c 1`** |
 
-Retry / timeouts: ver `tasks/analysis_tasks.py` (limites hard distintos CPU vs GPU).
+Tasks GPU usam até 3 retries em condições como lock/VRAM/OOM, com backoff. O
+worker usa `acks_late` e rejeita task quando o processo morre. Não existe DLQ
+(dead-letter queue) dedicada: depois dos retries, a falha precisa ser
+investigada nos logs e no estado do job. Também não há cancelamento HTTP.
 
 Observar fila GPU: `GET /api/v1/analysis/gpu-queue`.
 
@@ -105,14 +116,39 @@ Worker remoto: [`deploy/WORKER-REMOTE.md`](deploy/WORKER-REMOTE.md).
 | Custody | chaves Ed25519 |
 | Role | `FORENSICAUTH_PROCESS_ROLE` |
 
-**Nunca** commitar `.env` real. Use `.env.example` / `.env.production.example`.
+**Nunca** commitar `.env` real. Use os exemplos somente como ponto de partida.
+
+### Gate de produção
+
+O `.env.production.example` da raiz não fecha sozinho o contrato atual. Antes
+de iniciar com dados reais:
+
+1. defina `ENVIRONMENT=production`;
+2. preencha `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` e
+   `DATABASE_URL`;
+3. gere `SECRET_KEY` forte e o par Ed25519 de custódia;
+4. restrinja `CORS_ORIGINS` e valide paths/volumes;
+5. rode `docker compose -f docker-compose.prod.yml config`;
+6. aplique/valide migrações e execute smoke de login, upload, job, derivado,
+   ACL entre dois peritos e custódia;
+7. prove backup/restore de banco + filesystem.
+
+O template comentado em
+[`deploy/ENV-PRODUCTION-TEMPLATE.md`](deploy/ENV-PRODUCTION-TEMPLATE.md) traz o
+one-liner de geração das chaves.
 
 ## Scripts e automação
 
 | Path | Função |
 |------|--------|
+| `scripts/diagnose_gpu.py` | Diagnóstico CUDA, dependências e pesos |
+| `scripts/download_truvil_weights.py` / `download_vilocal_weights.py` | Downloads automatizados disponíveis |
+| `scripts/ingest_synthetic_image_reference.py` | Ingestão de população LR de imagem |
+| `scripts/ingest_audio_spoofing_reference.py` | Ingestão de população LR de áudio |
 | `scripts/technique/` | Scaffold de técnica (contribuidores) |
-| Download de pesos / calibração | Ferramental do ambiente |
+
+O inventário e os exemplos estão em `scripts/README.md`. Downloads cobrem só
+parte do catálogo; não suponha que exista `download_<tecnica>_weights.py`.
 
 Infra e workers: use Compose ou os comandos manuais desta página.
 
@@ -126,11 +162,18 @@ Infra e workers: use Compose ou os comandos manuais desta página.
 | GPU | job ML + `gpu-queue` / logs worker-gpu |
 | FE | abrir :3000 ou :80 no Compose |
 
+`/health` prova liveness e alguns capability probes; não prova, sozinho,
+conexão PostgreSQL, Redis nem presença de workers. O smoke acima é obrigatório.
+
 ## Atenção
 
 - Compose GPU sem frontend → UI “sumiu”.  
 - API com role errada fazendo warmup → VRAM desperdiçada.  
 - Paths de models diferentes entre API e worker → “técnica indisponível”.
+- Falha de publicação Celery pode acionar thread no uvicorn; reinicie o
+  processo que realmente detém a VRAM, não apenas “algum worker”.
+- DB, uploads e derivados precisam de snapshot conjunto; restore parcial não
+  recupera um caso forense.
 
 ## Próximo
 
