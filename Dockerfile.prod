@@ -51,7 +51,16 @@ COPY alembic.ini /app/alembic.ini
 COPY alembic/ /app/alembic/
 
 # Create required directories
-RUN mkdir -p /app/uploads /app/results /app/derivatives /app/peritus_cases
+RUN mkdir -p /app/uploads /app/results /app/derivatives /app/peritus_cases \
+    && mkdir -p /app/models /app/reference_data /app/vendor \
+    && mkdir -p /opt/forensicauth/data/uploads \
+    && mkdir -p /opt/forensicauth/data/results \
+    && mkdir -p /opt/forensicauth/data/derivatives \
+    && mkdir -p /opt/forensicauth/data/peritus_cases \
+    && mkdir -p /opt/forensicauth/models \
+    && mkdir -p /opt/forensicauth/reference_data \
+    && mkdir -p /opt/forensicauth/vendor \
+    && chown -R 1000:1000 /app /opt/forensicauth
 
 WORKDIR /app/src/backend
 

@@ -147,7 +147,12 @@ def clear_model_file_hash_cache() -> None:
 
 
 def _model_hash_cache_path(models_dir: str) -> Path:
-    return Path(models_dir) / MODEL_HASH_CACHE_FILENAME
+    # O cache de hashes nao pode morar em models/ porque essa pasta pode estar
+    # montada como read-only via NFS (workers).  Usamos data/cache/, que e
+    # sempre escrita localmente.
+    cache_dir = Path(models_dir).resolve().parent / "data" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / MODEL_HASH_CACHE_FILENAME
 
 
 def _system_boot_time() -> int | None:

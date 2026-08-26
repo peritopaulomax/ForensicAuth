@@ -45,20 +45,20 @@ services:
       - FORENSICAUTH_WORKER_QUEUE=celery
       - PYTHONPATH=/app/src/backend
       - HOME=/tmp
-      - UPLOAD_DIR=/app/uploads
-      - RESULTS_DIR=/app/results
-      - DERIVATIVES_DIR=/app/derivatives
-      - PERITUS_CASES_DIR=/app/peritus_cases
-      - REFERENCE_DATA_DIR=/app/reference_data
-      - FORENSICAUTH_REFERENCE_DATA_DIR=/app/reference_data
+      - UPLOAD_DIR=/opt/forensicauth/data/uploads
+      - RESULTS_DIR=/opt/forensicauth/data/results
+      - DERIVATIVES_DIR=/opt/forensicauth/data/derivatives
+      - PERITUS_CASES_DIR=/opt/forensicauth/data/peritus_cases
+      - REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
+      - FORENSICAUTH_REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
     volumes:
-      - ./data/uploads:/app/uploads
-      - ./data/results:/app/results
-      - ./data/derivatives:/app/derivatives
-      - ./data/peritus_cases:/app/peritus_cases
-      - ./models:/app/models
-      - ./reference_data:/app/reference_data
-      - ./vendor:/app/vendor
+      - ./data/uploads:/opt/forensicauth/data/uploads
+      - ./data/results:/opt/forensicauth/data/results
+      - ./data/derivatives:/opt/forensicauth/data/derivatives
+      - ./data/peritus_cases:/opt/forensicauth/data/peritus_cases
+      - ./models:/opt/forensicauth/models
+      - ./reference_data:/opt/forensicauth/reference_data
+      - ./vendor:/opt/forensicauth/vendor
     depends_on:
       db:
         condition: service_healthy
@@ -81,20 +81,20 @@ services:
       - GPU_AVAILABLE=false
       - PYTHONPATH=/app/src/backend
       - HOME=/tmp
-      - UPLOAD_DIR=/app/uploads
-      - RESULTS_DIR=/app/results
-      - DERIVATIVES_DIR=/app/derivatives
-      - PERITUS_CASES_DIR=/app/peritus_cases
-      - REFERENCE_DATA_DIR=/app/reference_data
-      - FORENSICAUTH_REFERENCE_DATA_DIR=/app/reference_data
+      - UPLOAD_DIR=/opt/forensicauth/data/uploads
+      - RESULTS_DIR=/opt/forensicauth/data/results
+      - DERIVATIVES_DIR=/opt/forensicauth/data/derivatives
+      - PERITUS_CASES_DIR=/opt/forensicauth/data/peritus_cases
+      - REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
+      - FORENSICAUTH_REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
     volumes:
-      - ./data/uploads:/app/uploads
-      - ./data/results:/app/results
-      - ./data/derivatives:/app/derivatives
-      - ./data/peritus_cases:/app/peritus_cases
-      - ./models:/app/models
-      - ./reference_data:/app/reference_data
-      - ./vendor:/app/vendor
+      - ./data/uploads:/opt/forensicauth/data/uploads
+      - ./data/results:/opt/forensicauth/data/results
+      - ./data/derivatives:/opt/forensicauth/data/derivatives
+      - ./data/peritus_cases:/opt/forensicauth/data/peritus_cases
+      - ./models:/opt/forensicauth/models
+      - ./reference_data:/opt/forensicauth/reference_data
+      - ./vendor:/opt/forensicauth/vendor
     depends_on:
       db:
         condition: service_healthy
