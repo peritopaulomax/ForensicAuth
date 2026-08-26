@@ -58,7 +58,7 @@ services:
       - ./data/peritus_cases:/opt/forensicauth/data/peritus_cases
       - ./models:/opt/forensicauth/models
       - ./reference_data:/opt/forensicauth/reference_data
-      - ./vendor:/opt/forensicauth/vendor
+      - ./vendor:/app/vendor
     depends_on:
       db:
         condition: service_healthy
@@ -94,7 +94,7 @@ services:
       - ./data/peritus_cases:/opt/forensicauth/data/peritus_cases
       - ./models:/opt/forensicauth/models
       - ./reference_data:/opt/forensicauth/reference_data
-      - ./vendor:/opt/forensicauth/vendor
+      - ./vendor:/app/vendor
     depends_on:
       db:
         condition: service_healthy
