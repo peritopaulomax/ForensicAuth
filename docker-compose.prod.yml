@@ -43,6 +43,7 @@ services:
     environment:
       - FORENSICAUTH_PROCESS_ROLE=api
       - FORENSICAUTH_WORKER_QUEUE=celery
+      - FORENSICAUTH_WORKSPACE_ROOT=/opt/forensicauth
       - PYTHONPATH=/app/src/backend
       - HOME=/tmp
       - UPLOAD_DIR=/opt/forensicauth/data/uploads
@@ -58,7 +59,7 @@ services:
       - ./data/peritus_cases:/opt/forensicauth/data/peritus_cases
       - ./models:/opt/forensicauth/models
       - ./reference_data:/opt/forensicauth/reference_data
-      - ./vendor:/app/vendor
+      - ./vendor:/opt/forensicauth/vendor
     depends_on:
       db:
         condition: service_healthy
@@ -79,6 +80,7 @@ services:
       - FORENSICAUTH_PROCESS_ROLE=worker-cpu
       - FORENSICAUTH_WORKER_QUEUE=celery
       - GPU_AVAILABLE=false
+      - FORENSICAUTH_WORKSPACE_ROOT=/opt/forensicauth
       - PYTHONPATH=/app/src/backend
       - HOME=/tmp
       - UPLOAD_DIR=/opt/forensicauth/data/uploads
@@ -94,7 +96,7 @@ services:
       - ./data/peritus_cases:/opt/forensicauth/data/peritus_cases
       - ./models:/opt/forensicauth/models
       - ./reference_data:/opt/forensicauth/reference_data
-      - ./vendor:/app/vendor
+      - ./vendor:/opt/forensicauth/vendor
     depends_on:
       db:
         condition: service_healthy

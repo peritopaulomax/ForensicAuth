@@ -21,7 +21,14 @@ from pathlib import Path
 
 
 def project_root() -> Path:
-    """Repository root (``VA Suite`` / ForensicAuth)."""
+    """Repository root (``VA Suite`` / ForensicAuth).
+
+    Em producao usa FORENSICAUTH_WORKSPACE_ROOT (ex.: /opt/forensicauth).
+    Em dev, sobe ate a raiz do repo a partir do arquivo atual.
+    """
+    env = os.environ.get("FORENSICAUTH_WORKSPACE_ROOT")
+    if env:
+        return Path(env).resolve()
     return Path(__file__).resolve().parents[4]
 
 
