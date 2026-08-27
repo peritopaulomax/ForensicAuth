@@ -440,8 +440,7 @@ class JobService:
 
                 purge_foreign_gpu_model_caches(include_trufor=True)
                 job.progress_message = (
-                    f"VRAM insuficiente nesta GPU; tentando outra GPU... "
-                    f"({self.request.retries}/{self.max_retries})"
+                    "VRAM insuficiente nesta GPU; tentando outra GPU..."
                 )
                 job.error_message = str(exc)
                 self.db.commit()
