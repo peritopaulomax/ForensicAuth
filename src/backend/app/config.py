@@ -108,6 +108,9 @@ class Settings(BaseSettings):
     GPU_LRU_TTL_SECONDS: int = Field(default=1800, ge=60)
     GPU_RESERVED_FUTURE_MB: int = Field(default=7000, ge=0)
     GPU_MIN_FREE_MB: int = Field(default=1500, ge=0)
+    # Tecnicas que este worker recusa (ex.: Ada 16GB recusa TruFor/MIML).
+    # Separadas por virgula. Vazio = aceita todas.
+    GPU_EXCLUDED_TECHNIQUES: str = Field(default="")
     # Politica de fallback: False = nunca degradar para CPU (re-enfileira o job
     # para outra GPU); True = permite CPU apos purge + retry na GPU.
     GPU_ALLOW_CPU_FALLBACK: bool = Field(default=False)

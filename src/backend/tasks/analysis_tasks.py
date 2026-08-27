@@ -27,6 +27,20 @@ def _execute_job(self, job_id: str) -> dict:
             return service.run_job(uuid.UUID(job_id))
 
         if technique in ML_GPU_TECHNIQUES:
+            # Se este worker exclui a tecnica, re-enfileira para outra GPU.
+            excluded = {
+                t.strip()
+                for t in settings.GPU_EXCLUDED_TECHNIQUES.split(",")
+                if t.strip()
+            }
+            if technique in excluded and self.request.retries < self.max_retries:
+                raise self.retry(
+                    countdown=30,
+                    exc=RuntimeError(
+                        f"Tecnica {technique} excluida neste worker GPU; "
+                        "re-enfileirando para outra GPU"
+                    ),
+                )
             # Pre-check: sem VRAM minima, re-enfileira sem nem tentar — outro
             # worker GPU (ou o mesmo, ja livre) pega a task no retry.
             snap = cuda_memory_snapshot()
