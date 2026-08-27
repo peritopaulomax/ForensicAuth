@@ -183,15 +183,29 @@ class Settings(BaseSettings):
             object.__setattr__(
                 self, "PDF_SIG_TRUST_ANCHOR_DIR", str(_abs(anchor_dir_raw))
             )
-            os.makedirs(self.PDF_SIG_TRUST_ANCHOR_DIR, exist_ok=True)
+            # PDF_SIG_TRUST_ANCHOR_DIR pode ser read-only (NFS). Se nao
+            # conseguir criar, usa um fallback escrito em data/.
+            try:
+                os.makedirs(self.PDF_SIG_TRUST_ANCHOR_DIR, exist_ok=True)
+            except PermissionError:
+                fallback = Path(self.UPLOAD_DIR).resolve().parent / "cache" / "pdf_sig_anchors"
+                fallback.mkdir(parents=True, exist_ok=True)
+                object.__setattr__(self, "PDF_SIG_TRUST_ANCHOR_DIR", str(fallback))
 
-        # Auto-create directories
+        # Auto-create directories (upload/results/derivatives/peritus sao sempre
+        # escrita; models/reference_data podem ser read-only NFS).
         os.makedirs(upload, exist_ok=True)
         os.makedirs(results, exist_ok=True)
         os.makedirs(derivatives, exist_ok=True)
         os.makedirs(peritus, exist_ok=True)
-        os.makedirs(models, exist_ok=True)
-        os.makedirs(ref_data, exist_ok=True)
+        try:
+            os.makedirs(models, exist_ok=True)
+        except PermissionError:
+            pass
+        try:
+            os.makedirs(ref_data, exist_ok=True)
+        except PermissionError:
+            pass
         # Keep path helpers in sync with Settings (tests / alternate roots).
         # Always overwrite so a stale CWD-resolved value cannot stick.
         os.environ["FORENSICAUTH_REFERENCE_DATA_DIR"] = str(ref_data)

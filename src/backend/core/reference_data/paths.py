@@ -131,9 +131,16 @@ def ensure_build_layout(root: Path | None = None) -> Path:
 
 
 def lr_cache_dir() -> Path:
-    """Shared joblib cache for calibrated LR models / typicality refs."""
+    """Shared joblib cache for calibrated LR models / typicality refs.
+
+    reference_data/ pode ser read-only NFS. Se falhar, usa data/cache/.
+    """
     path = get_reference_data_root() / "cache"
-    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        path = get_reference_data_root().parent / "data" / "cache" / "reference_data"
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
