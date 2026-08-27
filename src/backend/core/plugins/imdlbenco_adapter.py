@@ -137,4 +137,8 @@ class ImdlBencoAdapter(ForensicPlugin):
             return result
 
         except Exception as exc:
+            from core.gpu_inference import GpuVramExhausted
+
+            if isinstance(exc, GpuVramExhausted):
+                raise
             return {"success": False, "error": str(exc), "adapter": "imdlbenco", "method": method}
