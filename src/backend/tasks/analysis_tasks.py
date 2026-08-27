@@ -12,6 +12,23 @@ from core.gpu_lock import gpu_distributed_lock
 from services.job_service import JobService
 
 
+def _gpu_worker_count() -> int:
+    """Return the number of GPU workers currently online."""
+    try:
+        inspect = celery_app.control.inspect()
+        active = inspect.active_queues()
+        if not active:
+            return 1
+        count = sum(
+            1
+            for _worker, queues in active.items()
+            if any(q.get("name") == "gpu" for q in queues)
+        )
+        return max(count, 1)
+    except Exception:
+        return 1
+
+
 def _execute_job(self, job_id: str) -> dict:
     """Shared execution logic for CPU and GPU forensic analysis tasks."""
     from app.config import get_settings
@@ -107,7 +124,7 @@ def _execute_job(self, job_id: str) -> dict:
         db.close()
 
 
-@celery_app.task(bind=True, max_retries=3, name="tasks.analysis_tasks.run_forensic_analysis")
+@celery_app.task(bind=True, name="tasks.analysis_tasks.run_forensic_analysis")
 def run_forensic_analysis(self, job_id: str) -> dict:
     """Legacy dispatcher: executes CPU or GPU task based on technique.
 
@@ -130,13 +147,17 @@ def run_forensic_analysis(self, job_id: str) -> dict:
     )
 
 
-@celery_app.task(bind=True, max_retries=3)
+@celery_app.task(bind=True)
 def run_forensic_analysis_cpu(self, job_id: str) -> dict:
     """Execute a CPU forensic analysis job (10 min hard timeout)."""
     return _execute_job(self, job_id)
 
 
-@celery_app.task(bind=True, max_retries=3)
+@celery_app.task(bind=True)
 def run_forensic_analysis_gpu(self, job_id: str) -> dict:
-    """Execute a GPU forensic analysis job (1h hard timeout)."""
+    """Execute a GPU forensic analysis job (1h hard timeout).
+
+    max_retries is computed dynamically from the number of online GPU workers.
+    """
+    self.max_retries = _gpu_worker_count()
     return _execute_job(self, job_id)
