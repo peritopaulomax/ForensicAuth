@@ -432,6 +432,22 @@ class JobService:
             reporter(100, "Concluido")
 
         except Exception as exc:
+            from core.gpu_inference import GpuVramExhausted
+
+            if isinstance(exc, GpuVramExhausted):
+                # OOM: purge completo, re-enfileira para outra GPU.
+                from core.gpu_inference import purge_foreign_gpu_model_caches
+
+                purge_foreign_gpu_model_caches(include_trufor=True)
+                job.progress_message = (
+                    f"VRAM insuficiente nesta GPU; tentando outra GPU... "
+                    f"({self.request.retries}/{self.max_retries})"
+                )
+                job.error_message = str(exc)
+                self.db.commit()
+                self.db.refresh(job)
+                raise
+
             job.status = "failed"
             job.progress = 0
             job.progress_message = str(exc)[:512]

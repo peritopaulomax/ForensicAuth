@@ -1,6 +1,7 @@
 """Celery tasks for forensic analysis."""
 
 import uuid
+from datetime import datetime, timezone
 
 from celery.exceptions import MaxRetriesExceededError, Retry
 
@@ -69,7 +70,22 @@ def _execute_job(self, job_id: str) -> dict:
                         # task para a fila para outra GPU (ou esta, ja livre).
                         if self.request.retries < self.max_retries:
                             raise self.retry(countdown=45, exc=exc) from exc
-                        raise
+                        # Todas as GPUs falharam: mensagem clara para o usuario.
+                        job.status = "failed"
+                        job.progress_message = (
+                            "Nenhuma GPU com VRAM suficiente para executar esta "
+                            "tecnica. Todas as GPUs disponiveis falharam por OOM."
+                        )
+                        job.error_message = str(exc)
+                        job.completed_at = datetime.now(timezone.utc)
+                        db.commit()
+                        db.refresh(job)
+                        return {
+                            "status": job.status,
+                            "job_id": str(job.id),
+                            "result_path": None,
+                            "result_sha256": None,
+                        }
         else:
             job = _run()
 
