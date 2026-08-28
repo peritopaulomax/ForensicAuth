@@ -45,6 +45,7 @@ def gpu_distributed_lock(*, blocking: bool = True, poll_seconds: float = 2.0) ->
     token = worker_lock_id()
     client = _redis_client()
     acquired = False
+    t0 = time.monotonic()
 
     try:
         if blocking:
@@ -57,10 +58,11 @@ def gpu_distributed_lock(*, blocking: bool = True, poll_seconds: float = 2.0) ->
         else:
             acquired = bool(client.set(key, token, nx=True, ex=ttl))
 
+        lock_wait = time.monotonic() - t0
         if acquired:
-            logger.debug("GPU lock adquirido (%s)", token)
+            logger.info("GPU lock adquirido key=%s wait=%.2fs token=%s", key, lock_wait, token)
         else:
-            logger.warning("GPU lock indisponivel (%s)", key)
+            logger.warning("GPU lock indisponivel key=%s wait=%.2fs", key, lock_wait)
 
         yield acquired
     finally:

@@ -61,9 +61,13 @@ Sempre que o roteiro disser `<IP_PROD1>`, troque pelo número real (ex.: `192.16
 
 Assim o Celery entrega o próximo job da fila `gpu` para qualquer worker livre, e até **4 jobs GPU** podem rodar juntos (1 por placa).
 
-**Limite realista:** a Ada 2000 (16 GB) pode falhar (OOM) em técnicas muito pesadas (ex.: alguns caminhos IMDL/TruFor full-res). A 3090 (24 GB) aguenta mais. Se um job estourar na Ada, rode de novo; se for frequente, use só as 3090 para essas técnicas (veja seção 11).
+**Limite realista:** a Ada 2000 (16 GB) pode falhar (OOM) em técnicas muito pesadas (ex.: alguns caminhos IMDL/TruFor full-res). A 3090 (24 GB) aguenta mais. Por isso, nas configurações deste roteiro as Ada excluem `imdlbenco` (`GPU_EXCLUDED_TECHNIQUES=imdlbenco`). Se uma Ada receber um job dessa técnica, ela o devolve à fila em 1 segundo para que uma 3090 o processe.
 
 **Política de fallback GPU (desde ago/2026):** em OOM o pipeline faz **purge dos modelos residentes → re-tenta na mesma GPU → se persistir, devolve o job à fila** para outro worker GPU livre (até 3 tentativas). **Nunca cai para CPU** por padrão (`GPU_ALLOW_CPU_FALLBACK=false`). Além disso, o worker só aceita o job se a VRAM livre ≥ `GPU_MIN_FREE_MB`.
+
+**Warmup:** em produção deixamos o warmup desabilitado (`ML_WARMUP_ON_STARTUP=false` e `EFFORT_WARMUP_ON_STARTUP=false`). O carregamento eager de modelos no startup de vários workers GPU ao mesmo tempo pode causar contenção de VRAM/disco e travar processos filhos. Os modelos são carregados sob demanda no primeiro job.
+
+**TTL do lock GPU:** configuramos `GPU_LOCK_TTL_SECONDS=300` (5 minutos). Se um processo filho travar sem liberar o lock, ele expira sozinho em 5 minutos em vez de 1 hora (padrão).
 
 ### 0.4 Arquitetura que vamos montar
 
@@ -954,13 +958,17 @@ Cole (troque senha e IP — aqui o worker fala com Postgres/Redis **no host**, e
 FORENSICAUTH_PROCESS_ROLE=worker-gpu
 FORENSICAUTH_WORKER_QUEUE=gpu
 GPU_AVAILABLE=true
-ML_WARMUP_ON_STARTUP=true
-EFFORT_WARMUP_ON_STARTUP=true
+# Warmup desabilitado em produção: carregar modelos no startup de vários workers
+# GPU simultaneamente causa contenção de VRAM/disco e pode travar processos filhos.
+ML_WARMUP_ON_STARTUP=false
+EFFORT_WARMUP_ON_STARTUP=false
 SYNTHETIC_KEEP_RESIDENT=true
 GPU_RESIDENT_TECHNIQUES=synthetic,effort,safe
 GPU_DISTRIBUTED_LOCK=true
 GPU_MIN_FREE_MB=1500
 GPU_RESERVED_FUTURE_MB=4000
+# TTL do lock Redis: se um processo filho travar, o lock libera em 5 minutos.
+GPU_LOCK_TTL_SECONDS=300
 
 DATABASE_URL=postgresql+psycopg2://forensicauth:<SENHA_DB>@127.0.0.1:5432/forensicauth
 REDIS_URL=redis://127.0.0.1:6379/0
@@ -978,7 +986,7 @@ HF_HUB_CACHE=/opt/forensicauth/models/synthetic_image_detection/huggingface
 TRANSFORMERS_OFFLINE=1
 
 # Obrigatório: o console script do celery não coloca o cwd no sys.path dos
-# processos filhos — sem isto o warmup falha com "No module named 'forensics'".
+# processos filhos — sem isto imports de app/forensics/models falham.
 PYTHONPATH=/opt/forensicauth/src/backend
 # Reduz fragmentação do alocador CUDA (OOM de TruFor com VRAM reservada-não-alocada).
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -1013,6 +1021,8 @@ Cole:
 ```env
 CUDA_VISIBLE_DEVICES=1
 GPU_LOCK_KEY=forensicauth:gpu:prod1-ada
+# Ada 2000 16 GB não roda IMDLBenco/TruFor full-res sem OOM.
+GPU_EXCLUDED_TECHNIQUES=imdlbenco
 ```
 
 ### Passo 7.4 — Scripts para subir cada worker
@@ -1280,13 +1290,17 @@ Cole (note o IP da PROD-1, **não** 127.0.0.1):
 FORENSICAUTH_PROCESS_ROLE=worker-gpu
 FORENSICAUTH_WORKER_QUEUE=gpu
 GPU_AVAILABLE=true
-ML_WARMUP_ON_STARTUP=true
-EFFORT_WARMUP_ON_STARTUP=true
+# Warmup desabilitado em produção: carregar modelos no startup de vários workers
+# GPU simultaneamente causa contenção de VRAM/disco e pode travar processos filhos.
+ML_WARMUP_ON_STARTUP=false
+EFFORT_WARMUP_ON_STARTUP=false
 SYNTHETIC_KEEP_RESIDENT=true
 GPU_RESIDENT_TECHNIQUES=synthetic,effort,safe
 GPU_DISTRIBUTED_LOCK=true
 GPU_MIN_FREE_MB=1500
 GPU_RESERVED_FUTURE_MB=4000
+# TTL do lock Redis: se um processo filho travar, o lock libera em 5 minutos.
+GPU_LOCK_TTL_SECONDS=300
 
 DATABASE_URL=postgresql+psycopg2://forensicauth:<SENHA_DB>@<IP_PROD1>:5432/forensicauth
 REDIS_URL=redis://<IP_PROD1>:6379/0
@@ -1304,7 +1318,7 @@ HF_HUB_CACHE=/opt/forensicauth/models/synthetic_image_detection/huggingface
 TRANSFORMERS_OFFLINE=1
 
 # Obrigatório: o console script do celery não coloca o cwd no sys.path dos
-# processos filhos — sem isto o warmup falha com "No module named 'forensics'".
+# processos filhos — sem isto imports de app/forensics/models falham.
 PYTHONPATH=/opt/forensicauth/src/backend
 # Reduz fragmentação do alocador CUDA (OOM de TruFor com VRAM reservada-não-alocada).
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -1331,6 +1345,8 @@ nano /opt/forensicauth/run/env-gpu-prod2-ada.env
 ```env
 CUDA_VISIBLE_DEVICES=1
 GPU_LOCK_KEY=forensicauth:gpu:prod2-ada
+# Ada 2000 16 GB não roda IMDLBenco/TruFor full-res sem OOM.
+GPU_EXCLUDED_TECHNIQUES=imdlbenco
 ```
 
 Scripts (iguais aos da PROD-1, só mudando nomes):
@@ -1467,7 +1483,7 @@ Na UI ou via API autenticada, consulte a fila GPU documentada em `docs/07-operac
 | 5º job GPU | Fica **esperando** na fila Redis/Celery |
 | Job CPU | Vai para workers `-Q celery` (PROD-1 e/ou PROD-2) |
 
-**Dica operacional para Ada 16 GB:** deixe warmup mais enxuto na Ada (`SYNTHETIC_KEEP_RESIDENT=false` só no env da Ada) para sobrar VRAM. Nas 3090 pode manter `true`.
+**Dica operacional para Ada 16 GB:** o warmup já está desabilitado por padrão. Se ainda sobrar pouca VRAM, reduza a residency na Ada (`SYNTHETIC_KEEP_RESIDENT=false` só no env da Ada). Nas 3090 pode manter `true`.
 
 **Nunca** use `-c` maior que `1` no worker GPU (risco de OOM / briga pela mesma placa).
 
@@ -1532,6 +1548,8 @@ cp -a .env.production secrets backup/secrets_$(date +%F)/ 2>/dev/null || mkdir -
 | `nvidia-smi` quebrou após update do kernel | `sudo apt install --reinstall linux-headers-$(uname -r) nvidia-driver-XXX` e reboot. |
 | OOM na GPU | Job pesado demais para VRAM. Use VRAM maior ou reduza residency. |
 | Só 1 GPU trabalha no cluster | Todos os workers com o **mesmo** `GPU_LOCK_KEY`. Corrija para chaves distintas por placa. |
+| Job fica `running` por minutos sem progresso / lock preso | Processo filho pode ter travado. O lock expira em `GPU_LOCK_TTL_SECONDS` (padrão 300s). Para liberar imediatamente: mate o processo filho, delete a chave `forensicauth:gpu:<worker>` no Redis e resete o job no banco. |
+| Ada devolve jobs `imdlbenco` com retry no log | **Comportamento esperado.** Ada 2000 16 GB exclui `imdlbenco` (`GPU_EXCLUDED_TECHNIQUES=imdlbenco`) e devolve em 1s para uma 3090 processar. |
 | Página/site não abre de outro PC | Firewall / IP errado. `curl http://<IP_PROD1>/` na PROD-1 e no cliente. |
 | Login ok, análise ML “indisponível” | Falta pasta em `models/` ou worker GPU parado. |
 | `403 Forbidden` no `apt-get` durante o build Docker | Rede exige proxy. Configure `~/.docker/config.json` (seção 2.3.1). |
@@ -1541,6 +1559,7 @@ cp -a .env.production secrets backup/secrets_$(date +%F)/ 2>/dev/null || mkdir -
 | PatchMatch nunca termina (100% CPU por horas) | `min_dn` maior que o deslocamento máximo possível da imagem (imagens pequenas). O sistema agora falha rápido informando o máximo viável — reduza o `min_dn`. |
 | Análise ML “lenta demais” (minutos) que antes era segundos | Verifique se não caiu em fallback de política (log do worker GPU) e se o governor da CPU está em `performance` (`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor`). |
 | “Nenhuma linha com embeddings completos” na calibração LR | Caminhos absolutos da máquina de origem nos CSVs de `reference_data/` — rode a reescrita do passo 4.3. |
+| Logs mostram `Substantial drift ... clocks are out of sync` | O container Docker pode estar em UTC enquanto o host está em UTC-3 (drift de ~3h). Isso **não afeta funcionalidade**, só gera warnings. Sincronize os relógios das máquinas reais com NTP/chrony se desejar. |
 
 Logs úteis:
 

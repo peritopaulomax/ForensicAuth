@@ -38,6 +38,9 @@ def _record_dispatch_queue(job_id: uuid.UUID, queue: str) -> None:
 
 def run_job_in_background(job_id: uuid.UUID) -> None:
     """Queue job execution without blocking the HTTP request."""
+    import time
+
+    t0 = time.monotonic()
     settings = get_settings()
     jid = str(job_id)
 
@@ -65,7 +68,10 @@ def run_job_in_background(job_id: uuid.UUID) -> None:
                 else run_forensic_analysis_cpu
             )
             task.apply_async(args=[jid], queue=queue)
-            logger.info("Job %s enfileirado em %s (tecnica=%s)", jid, queue, technique)
+            logger.info(
+                "Job %s enfileirado em %s (tecnica=%s) em %.2fs",
+                jid, queue, technique, time.monotonic() - t0,
+            )
             return
         except Exception as exc:
             logger.warning("Celery indisponivel (%s); usando thread local.", exc)

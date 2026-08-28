@@ -1,11 +1,14 @@
 """Job service — orchestrates forensic analysis jobs."""
 
+import logging
 import os
 import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -346,6 +349,9 @@ class JobService:
 
         Finds the plugin, runs analysis, updates status, and stores results.
         """
+        import time
+
+        t0 = time.monotonic()
         job = self.get_job(job_id)
         evidence = self.db.query(Evidence).filter(Evidence.id == job.evidence_id).first()
 
@@ -356,6 +362,10 @@ class JobService:
         job.progress_message = "Iniciando analise"
         job.started_at = datetime.now(timezone.utc)
         self.db.commit()
+        logger.info(
+            "TIMING run_job=%s tecnica=%s status_to_running=%.2fs",
+            job_id, job.technique, time.monotonic() - t0,
+        )
         reporter(2, "Preparando plugin")
 
         try:
@@ -429,6 +439,10 @@ class JobService:
             job.determinism_profile = job_receipt.get("determinism_profile")
             job.completed_at = datetime.now(timezone.utc)
             self.db.commit()
+            logger.info(
+                "TIMING run_job=%s tecnica=%s total=%.2fs",
+                job_id, job.technique, time.monotonic() - t0,
+            )
             reporter(100, "Concluido")
 
         except Exception as exc:
@@ -453,6 +467,10 @@ class JobService:
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             self.db.commit()
+            logger.info(
+                "TIMING run_job=%s tecnica=%s failed_after=%.2fs",
+                job_id, job.technique, time.monotonic() - t0,
+            )
             self.db.refresh(job)
             return job
 

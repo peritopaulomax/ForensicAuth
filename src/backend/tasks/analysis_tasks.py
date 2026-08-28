@@ -1,9 +1,12 @@
 """Celery tasks for forensic analysis."""
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
 from celery.exceptions import MaxRetriesExceededError, Retry
+
+logger = logging.getLogger(__name__)
 
 from app.celery_app import celery_app
 from app.database import SessionLocal
@@ -31,9 +34,12 @@ def _gpu_worker_count() -> int:
 
 def _execute_job(self, job_id: str) -> dict:
     """Shared execution logic for CPU and GPU forensic analysis tasks."""
+    import time
+
     from app.config import get_settings
     from core.gpu_inference import GpuVramExhausted, cuda_memory_snapshot
 
+    t0 = time.monotonic()
     db = SessionLocal()
     try:
         service = JobService(db)
@@ -52,8 +58,15 @@ def _execute_job(self, job_id: str) -> dict:
                 if t.strip()
             }
             if technique in excluded and self.request.retries < self.max_retries:
+                logger.info(
+                    "Tecnica %s excluida no worker %s; re-enfileirando em 1s (tentativa %d/%d)",
+                    technique,
+                    self.request.hostname,
+                    self.request.retries,
+                    self.max_retries,
+                )
                 raise self.retry(
-                    countdown=30,
+                    countdown=1,
                     exc=RuntimeError(
                         f"Tecnica {technique} excluida neste worker GPU; "
                         "re-enfileirando para outra GPU"
@@ -76,9 +89,12 @@ def _execute_job(self, job_id: str) -> dict:
                         f"({settings.GPU_MIN_FREE_MB} MiB); aguardando GPU liberar"
                     ),
                 )
+            t_lock = time.monotonic()
             with gpu_distributed_lock(blocking=True) as acquired:
+                t_lock_elapsed = time.monotonic() - t_lock
                 if not acquired:
                     raise self.retry(countdown=30, exc=RuntimeError("GPU lock timeout"))
+                t_run = time.monotonic()
                 with ml_gpu_job_slot(technique):
                     try:
                         job = _run()
@@ -104,8 +120,17 @@ def _execute_job(self, job_id: str) -> dict:
                             "result_sha256": None,
                         }
         else:
+            t_lock = time.monotonic()
+            t_lock_elapsed = 0.0
+            t_run = time.monotonic()
             job = _run()
 
+        t_total = time.monotonic() - t0
+        t_run_elapsed = time.monotonic() - t_run
+        logger.info(
+            "TIMING job=%s tecnica=%s total=%.2fs lock=%.2fs run=%.2fs",
+            job_id, technique, t_total, t_lock_elapsed, t_run_elapsed,
+        )
         return {
             "status": job.status,
             "job_id": str(job.id),
