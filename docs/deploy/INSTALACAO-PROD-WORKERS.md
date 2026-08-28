@@ -180,6 +180,9 @@ Se pedir confirmação, digite `S` ou `Y` e Enter.
 
 ```bash
 sudo apt install -y git curl ca-certificates ufw rsync openssh-server nfs-kernel-server
+
+# Ferramentas forenses usadas pelos workers (metadados, vídeo, grafos)
+sudo apt install -y exiftool ffmpeg ffprobe graphviz
 ```
 
 ### Passo 2.3 — Instalar Docker 
@@ -1192,6 +1195,9 @@ Faça na **PROD-2**.
 sudo apt update
 sudo apt upgrade -y
 sudo apt install -y git curl ca-certificates ufw rsync openssh-server nfs-common
+
+# Ferramentas forenses usadas pelos workers (metadados, vídeo, grafos)
+sudo apt install -y exiftool ffmpeg ffprobe graphviz
 ```
 
 **Drivers NVIDIA + CUDA:** repita **toda a seção 2.4** nesta máquina (2.4.1 → 2.4.9), até `nvidia-smi` mostrar as duas GPUs.  
@@ -1547,6 +1553,7 @@ cp -a .env.production secrets backup/secrets_$(date +%F)/ 2>/dev/null || mkdir -
 | GPU não aparece no PyTorch | Refaça a seção 2.4; confira `nvidia-smi` e `python -c "import torch; print(torch.cuda.is_available())"`. Reinstale torch com `--index-url .../cu124` se preciso. |
 | `nvidia-smi` quebrou após update do kernel | `sudo apt install --reinstall linux-headers-$(uname -r) nvidia-driver-XXX` e reboot. |
 | OOM na GPU | Job pesado demais para VRAM. Use VRAM maior ou reduza residency. |
+| `ExifTool nao encontrado no PATH` / metadados incompletos | Instale `exiftool` na máquina do worker: `sudo apt install -y exiftool`. Também instale `ffmpeg`, `ffprobe` e `graphviz` para vídeo/áudio/estrutura de PDF. |
 | Só 1 GPU trabalha no cluster | Todos os workers com o **mesmo** `GPU_LOCK_KEY`. Corrija para chaves distintas por placa. |
 | Job fica `running` por minutos sem progresso / lock preso | Processo filho pode ter travado. O lock expira em `GPU_LOCK_TTL_SECONDS` (padrão 300s). Para liberar imediatamente: mate o processo filho, delete a chave `forensicauth:gpu:<worker>` no Redis e resete o job no banco. |
 | Ada devolve jobs `imdlbenco` com retry no log | **Comportamento esperado.** Ada 2000 16 GB exclui `imdlbenco` (`GPU_EXCLUDED_TECHNIQUES=imdlbenco`) e devolve em 1s para uma 3090 processar. |
