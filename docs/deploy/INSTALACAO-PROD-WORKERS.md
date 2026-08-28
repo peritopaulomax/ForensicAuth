@@ -991,6 +991,9 @@ TRANSFORMERS_OFFLINE=1
 # Obrigatório: o console script do celery não coloca o cwd no sys.path dos
 # processos filhos — sem isto imports de app/forensics/models falham.
 PYTHONPATH=/opt/forensicauth/src/backend
+# Bibliotecas nativas do projeto (libzero, libtiff, etc.) não ficam no PATH
+# padrão do sistema. Sem isto técnicas como ZERO falham com "libtiff.so.5 not found".
+LD_LIBRARY_PATH=/opt/forensicauth/src/backend/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 # Reduz fragmentação do alocador CUDA (OOM de TruFor com VRAM reservada-não-alocada).
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
@@ -1326,6 +1329,9 @@ TRANSFORMERS_OFFLINE=1
 # Obrigatório: o console script do celery não coloca o cwd no sys.path dos
 # processos filhos — sem isto imports de app/forensics/models falham.
 PYTHONPATH=/opt/forensicauth/src/backend
+# Bibliotecas nativas do projeto (libzero, libtiff, etc.) não ficam no PATH
+# padrão do sistema. Sem isto técnicas como ZERO falham com "libtiff.so.5 not found".
+LD_LIBRARY_PATH=/opt/forensicauth/src/backend/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 # Reduz fragmentação do alocador CUDA (OOM de TruFor com VRAM reservada-não-alocada).
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
@@ -1428,6 +1434,8 @@ export SECRET_KEY=<MESMO_SECRET_KEY_DO_PROD1>
 # Obrigatório: o console script do celery não coloca o cwd no sys.path dos
 # processos filhos — sem isto imports de app/forensics/models falham.
 export PYTHONPATH=/opt/forensicauth/src/backend
+# Bibliotecas nativas do projeto (libzero, libtiff, etc.) não ficam no PATH padrão.
+export LD_LIBRARY_PATH=/opt/forensicauth/src/backend/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 exec celery -A app.celery_app worker -Q celery -c 2 -n cpu-prod2@%h --loglevel=info
 ```
 
