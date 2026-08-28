@@ -724,6 +724,7 @@ pip install -r requirements-gpu.txt
 > **Notas aprendidas em produção (ago/2026):**
 >
 > - Se o build do `mmcv==1.7.2` falhar com `No module named 'pkg_resources'`: rode `pip install "setuptools<81" wheel` e depois `pip install mmcv==1.7.2 --no-build-isolation`, e repita o requirements-gpu.
+> - `setuptools>=84` remove `pkg_resources`; isso quebra `pytorch_wavelets` e faz o detector **SAFE falhar silenciosamente** (`ModuleNotFoundError: pkg_resources`). Mantenha `setuptools<84` no ambiente worker: `pip install "setuptools<84"`.
 > - Se o pip "travar" por muitos minutos resolvendo versões: é o resolvedor antigo em backtracking — `pip install --upgrade pip` antes ajuda muito.
 > - Se `dlib` for necessário em outra máquina: precisa de `cmake` (`pip install cmake`) e, sem gcc ≤13 com CUDA 12.x, compile com `DLIB_USE_CUDA=OFF` (CPU).
 > - O repositório traz `constraints.txt` com as versões validadas; os builds Docker já o usam. Se alterar `requirements*.txt`, regenere com `pip freeze | grep -v ' @ file://' > constraints.txt` antes de commitar.
@@ -1573,6 +1574,7 @@ cp -a .env.production secrets backup/secrets_$(date +%F)/ 2>/dev/null || mkdir -
 | `403 Forbidden` no `apt-get` durante o build Docker | Rede exige proxy. Configure `~/.docker/config.json` (seção 2.3.1). |
 | `pip install` “trava” baixando metadata de muitas versões | Resolvedor antigo em backtracking. Na imagem já há constraints; manualmente: `pip install --upgrade pip` antes. |
 | `No module named 'pkg_resources'` ao compilar `mmcv` | `pip install "setuptools<81" wheel` e reinstale o mmcv com `--no-build-isolation`. |
+| Detector **SAFE** some dos resultados / LR diz "Ausentes: safe" | `setuptools>=84` removeu `pkg_resources` e o `pytorch_wavelets` usado pelo SAFE quebra. Instale `pip install "setuptools<84"` e reinicie os workers GPU. |
 | 502 logo após recriar o container `app` | O nginx guardou o IP antigo. `docker restart forensicauth-frontend-prod`. |
 | PatchMatch nunca termina (100% CPU por horas) | `min_dn` maior que o deslocamento máximo possível da imagem (imagens pequenas). O sistema agora falha rápido informando o máximo viável — reduza o `min_dn`. |
 | Análise ML “lenta demais” (minutos) que antes era segundos | Verifique se não caiu em fallback de política (log do worker GPU) e se o governor da CPU está em `performance` (`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor`). |
