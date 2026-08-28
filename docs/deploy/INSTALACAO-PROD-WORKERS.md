@@ -1425,6 +1425,9 @@ export MODELS_DIR=/opt/forensicauth/models
 export REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
 export FORENSICAUTH_REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
 export SECRET_KEY=<MESMO_SECRET_KEY_DO_PROD1>
+# Obrigatório: o console script do celery não coloca o cwd no sys.path dos
+# processos filhos — sem isto imports de app/forensics/models falham.
+export PYTHONPATH=/opt/forensicauth/src/backend
 exec celery -A app.celery_app worker -Q celery -c 2 -n cpu-prod2@%h --loglevel=info
 ```
 
