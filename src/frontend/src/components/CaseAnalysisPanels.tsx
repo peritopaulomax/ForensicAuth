@@ -28,6 +28,12 @@ import {
   getTechniqueCardSubtitle,
   resolveTechniqueLabel,
 } from "@/config/forensicTechniqueMeta";
+import ImdlDisclaimerModal from "@/components/ImdlDisclaimerModal";
+import {
+  IMDL_DISCLAIMER_GROUP_ID,
+  markImdlDisclaimerAckToday,
+  needsImdlDisclaimer,
+} from "@/lib/imdlDisclaimerAck";
 
 interface PluginInfo {
   name: string;
@@ -97,6 +103,7 @@ export default function CaseAnalysisPanels({
   const [selectedPeritusPath, setSelectedPeritusPath] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<string>("");
+  const [imdlDisclaimerPending, setImdlDisclaimerPending] = useState(false);
   const userRole = useAuthStore((s) => s.user?.role);
 
   const peritusAnalyzable = useMemo(
@@ -223,9 +230,24 @@ export default function CaseAnalysisPanels({
     setResult("");
   }
 
-  function handleImageGroupClick(groupId: string) {
+  function navigateToImageGroup(groupId: string) {
     if (!caseId) return;
     navigate(`/cases/${caseId}/analysis/image-group/${groupId}`);
+  }
+
+  function handleImageGroupClick(groupId: string) {
+    if (!caseId) return;
+    if (needsImdlDisclaimer(groupId)) {
+      setImdlDisclaimerPending(true);
+      return;
+    }
+    navigateToImageGroup(groupId);
+  }
+
+  function handleImdlDisclaimerConfirm() {
+    markImdlDisclaimerAckToday();
+    setImdlDisclaimerPending(false);
+    navigateToImageGroup(IMDL_DISCLAIMER_GROUP_ID);
   }
 
   function handleMediaGroupClick(media: Exclude<AnalysisMedia, "imagem">, groupId: string) {
@@ -401,6 +423,7 @@ export default function CaseAnalysisPanels({
 
   return (
     <div>
+      <ImdlDisclaimerModal open={imdlDisclaimerPending} onConfirm={handleImdlDisclaimerConfirm} />
       {error && (
         <div
           style={{

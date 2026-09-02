@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { MessageBox } from "@/components/AnalysisPageShell";
+import AckDisclaimerModal from "@/components/AckDisclaimerModal";
+import { hasDailyAck, markDailyAck } from "@/lib/dailyAck";
 
 export type GeneratorCatalog = {
   id: string;
@@ -419,6 +421,7 @@ export function ReferencePopulationSelector({
   subgroupUnitLabel = "geradores",
   detectorEerLabels,
   hypothesisHint = "LR positiva favorece H1 = real/autêntica. Defina quais subgrupos entram no treino/calibração e quais no teste.",
+  editDisclaimer,
 }: {
   catalog: MacroCategory[];
   loading: boolean;
@@ -431,8 +434,15 @@ export function ReferencePopulationSelector({
   subgroupUnitLabel?: string;
   detectorEerLabels?: string[];
   hypothesisHint?: string;
+  /** Aviso (1×/dia) antes de abrir o editor de população. */
+  editDisclaimer?: {
+    title: string;
+    body: string;
+    storageKey: string;
+  };
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [disclaimerOpen, setDisclaimerOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [openMacros, setOpenMacros] = useState<Set<string>>(new Set());
   const [drawerTab, setDrawerTab] = useState<DrawerPoolTab>("fit");
@@ -989,7 +999,16 @@ export function ReferencePopulationSelector({
         <button
           type="button"
           disabled={disabled}
-          onClick={() => setDrawerOpen(true)}
+          onClick={() => {
+            if (
+              editDisclaimer &&
+              !hasDailyAck(editDisclaimer.storageKey)
+            ) {
+              setDisclaimerOpen(true);
+              return;
+            }
+            setDrawerOpen(true);
+          }}
           style={{ ...smallButtonStyle, fontWeight: 600 }}
         >
           Editar seleção…
@@ -1000,6 +1019,21 @@ export function ReferencePopulationSelector({
           EER% por gerador (ordem): {detectorEerLabels.join(" · ")}
         </p>
       )}
+      {editDisclaimer ? (
+        <AckDisclaimerModal
+          open={disclaimerOpen}
+          title={editDisclaimer.title}
+          body={editDisclaimer.body}
+          onConfirm={() => {
+            markDailyAck(editDisclaimer.storageKey);
+            setDisclaimerOpen(false);
+            setDrawerOpen(true);
+          }}
+          titleId="lr-population-disclaimer-title"
+          testId="lr-population-disclaimer-modal"
+          confirmTestId="lr-population-disclaimer-ok"
+        />
+      ) : null}
       {drawer}
     </div>
   );

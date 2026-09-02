@@ -29,6 +29,11 @@ import {
   SaveButton,
   smallButtonStyle,
 } from "@/components/LrReferencePanels";
+import {
+  SYNTHETIC_LR_POPULATION_DISCLAIMER_BODY,
+  SYNTHETIC_LR_POPULATION_DISCLAIMER_STORAGE_KEY,
+  SYNTHETIC_LR_POPULATION_DISCLAIMER_TITLE,
+} from "@/lib/syntheticLrPopulationDisclaimer";
 
 /** Product default: Difusão Transformer + CNN moderna + AIGI Bench Social (role both). */
 const DEFAULT_SYNTHETIC_REFERENCE: ReferencePopulationEntry[] = itemsToEntries(
@@ -685,6 +690,11 @@ export default function SyntheticImageDetectionAnalysis() {
         }))}
         subgroupUnitLabel="subgrupos"
         hypothesisHint="Defina subgrupos para treino/calibração (splits 1–2) e para avaliação (split 3). LR positiva favorece H1 = real/autêntica."
+        editDisclaimer={{
+          title: SYNTHETIC_LR_POPULATION_DISCLAIMER_TITLE,
+          body: SYNTHETIC_LR_POPULATION_DISCLAIMER_BODY,
+          storageKey: SYNTHETIC_LR_POPULATION_DISCLAIMER_STORAGE_KEY,
+        }}
       />
       {!referenceSelectionValid && (
         <p style={{ margin: "0.55rem 0 0", fontSize: "0.78rem", color: "#b91c1c" }}>
