@@ -85,7 +85,12 @@ def resolve_local_config_path() -> Optional[Path]:
 
 
 def ensure_local_config() -> Path:
-    """Write config_pruned_local.yaml with absolute upstream path."""
+    """Write config_pruned_local.yaml with absolute upstream path.
+
+    If the local config already exists and points to the correct upstream
+    checkpoint, skip rewriting so workers on read-only mounts (e.g. NFS on
+    PROD-2) do not fail with OSError Errno 30.
+    """
     import yaml
 
     model_dir = resolve_model_dir()
@@ -99,13 +104,24 @@ def ensure_local_config() -> Path:
     if not source.is_file():
         raise RuntimeError(f"Config base ausente: {source}")
 
+    dest = model_dir / LOCAL_CONFIG_NAME
+    upstream_str = str(upstream)
+    if dest.is_file():
+        try:
+            with open(dest, encoding="utf-8") as fin:
+                existing = yaml.safe_load(fin)
+            existing_path = existing.get("dataset_args", {}).get("huggingface_args", {}).get("upstream_args", {}).get("path_or_url")
+            if existing_path == upstream_str:
+                return dest.resolve()
+        except Exception:
+            pass
+
     with open(source, encoding="utf-8") as fin:
         cfg = yaml.safe_load(fin)
 
     hf_args = cfg["dataset_args"]["huggingface_args"]["upstream_args"]
-    hf_args["path_or_url"] = str(upstream)
+    hf_args["path_or_url"] = upstream_str
 
-    dest = model_dir / LOCAL_CONFIG_NAME
     with open(dest, "w", encoding="utf-8") as fout:
         yaml.dump(cfg, fout, default_flow_style=False, allow_unicode=True)
     return dest.resolve()
