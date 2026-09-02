@@ -127,7 +127,7 @@ export async function downloadCustodyNarrativeReport(
 export const RECORD_TYPE_LABELS: Record<string, string> = {
   evidence_upload: "Upload de evidencia",
   evidence_deleted: "Exclusao de evidencia",
-  evidence_group_label_changed: "Rotulo de questionado alterado",
+  evidence_group_label_changed: "Rotulo de grupo alterado",
   case_deleted: "Exclusao de caso (arquivos removidos)",
   derivative_saved: "Derivado salvo",
   report_generated: "Laudo gerado",

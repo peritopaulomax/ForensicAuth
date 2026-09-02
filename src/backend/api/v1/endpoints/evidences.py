@@ -728,12 +728,12 @@ def update_evidence_group_label(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Update questioned_group_label for a case evidence (custody-tracked)."""
+    """Update group label for a questioned evidence or global reference (custody-tracked)."""
     evidence = get_accessible_evidence(db, evidence_id, current_user)
     _require_case_mutable(db, evidence.case_id, current_user)
     service = EvidenceService(db)
     try:
-        updated = service.update_questioned_group_label(
+        updated = service.update_group_label(
             evidence_id=evidence_id,
             group_label=body.group_label,
             user_id=current_user.id,
@@ -753,7 +753,7 @@ def bulk_update_evidence_group_label(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Assign the same questioned_group_label to multiple case evidences."""
+    """Assign the same group label to multiple questioned evidences or global references."""
     _require_case_mutable(db, case_id, current_user)
     service = EvidenceService(db)
     updated: list = []
@@ -766,7 +766,7 @@ def bulk_update_evidence_group_label(
             )
         try:
             updated.append(
-                service.update_questioned_group_label(
+                service.update_group_label(
                     evidence_id=eid,
                     group_label=body.group_label,
                     user_id=current_user.id,

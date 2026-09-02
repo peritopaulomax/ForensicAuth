@@ -381,8 +381,105 @@ class EvidenceService:
                 "original_filename": evidence.original_filename,
                 "old_group_label": old_label,
                 "new_group_label": rotulo,
+                "label_kind": "questioned",
             },
         )
         self.db.commit()
         self.db.refresh(evidence)
         return evidence
+
+    def update_reference_group_label(
+        self,
+        evidence_id: uuid.UUID,
+        group_label: str,
+        user_id: uuid.UUID,
+    ) -> Evidence:
+        """Update reference_group_label for a global reference (custody-tracked)."""
+        from services.evidence_classification import (
+            is_global_reference,
+            reference_group_label,
+        )
+
+        rotulo = (group_label or "").strip()
+        if not rotulo:
+            raise EvidenceUploadError("Informe o rotulo do grupo de referencias")
+        if len(rotulo) > 120:
+            raise EvidenceUploadError("Rotulo excede 120 caracteres")
+
+        evidence = (
+            self.db.query(Evidence)
+            .filter(Evidence.id == evidence_id, Evidence.deleted_at.is_(None))
+            .first()
+        )
+        if not evidence:
+            raise EvidenceUploadError("Evidencia nao encontrada")
+        if not is_global_reference(evidence):
+            raise EvidenceUploadError(
+                "Rotulo de referencia so se aplica a referencias globais"
+            )
+
+        old_label = reference_group_label(evidence)
+        if old_label == rotulo:
+            return evidence
+
+        meta = dict(evidence.extra_metadata or {})
+        meta["reference_group_label"] = rotulo
+        evidence.extra_metadata = meta
+        from sqlalchemy.orm.attributes import flag_modified
+
+        flag_modified(evidence, "extra_metadata")
+        self.db.flush()
+
+        custody = CustodyService(self.db)
+        custody.create_record(
+            record_type="evidence_group_label_changed",
+            case_id=evidence.case_id,
+            evidence_id=evidence.id,
+            user_id=user_id,
+            sha256_input=evidence.sha256,
+            sha256_output=evidence.sha256,
+            details={
+                "provenance_schema_version": "1",
+                "evidence_id": str(evidence.id),
+                "original_filename": evidence.original_filename,
+                "old_group_label": old_label,
+                "new_group_label": rotulo,
+                "label_kind": "global_reference",
+                "reference_type": meta.get("reference_type"),
+            },
+        )
+        self.db.commit()
+        self.db.refresh(evidence)
+        return evidence
+
+    def update_group_label(
+        self,
+        evidence_id: uuid.UUID,
+        group_label: str,
+        user_id: uuid.UUID,
+    ) -> Evidence:
+        """Dispatch label update to questioned or global-reference path."""
+        from services.evidence_classification import is_case_evidence, is_global_reference
+
+        evidence = (
+            self.db.query(Evidence)
+            .filter(Evidence.id == evidence_id, Evidence.deleted_at.is_(None))
+            .first()
+        )
+        if not evidence:
+            raise EvidenceUploadError("Evidencia nao encontrada")
+        if is_case_evidence(evidence):
+            return self.update_questioned_group_label(
+                evidence_id=evidence_id,
+                group_label=group_label,
+                user_id=user_id,
+            )
+        if is_global_reference(evidence):
+            return self.update_reference_group_label(
+                evidence_id=evidence_id,
+                group_label=group_label,
+                user_id=user_id,
+            )
+        raise EvidenceUploadError(
+            "Rotulo so se aplica a questionados do caso ou referencias globais"
+        )

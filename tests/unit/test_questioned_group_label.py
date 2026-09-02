@@ -118,3 +118,74 @@ class TestQuestionedGroupLabel:
         )
         assert response.status_code == 200
         assert all(item["group_label"] == "Y" for item in response.json())
+
+
+class TestGlobalReferenceGroupLabel:
+    def test_patch_global_reference_group_label(
+        self, client, db_session, sample_case, auth_headers
+    ):
+        file_content = b"\xff\xd8\xff\xe0\x00\x10JFIF globalref"
+        upload = client.post(
+            "/api/v1/evidences/global-reference-upload",
+            data={
+                "case_id": str(sample_case.id),
+                "group_label": "Cameras",
+                "reference_type": "imagem",
+            },
+            files={"file": ("ref.jpg", io.BytesIO(file_content), "image/jpeg")},
+            headers=auth_headers,
+        )
+        assert upload.status_code == 201
+        eid = upload.json()["id"]
+        assert upload.json()["group_label"] == "Cameras"
+
+        patched = client.patch(
+            f"/api/v1/evidences/{eid}/group-label",
+            json={"group_label": "Lote B"},
+            headers=auth_headers,
+        )
+        assert patched.status_code == 200
+        assert patched.json()["group_label"] == "Lote B"
+        assert patched.json()["extra_metadata"]["reference_group_label"] == "Lote B"
+
+        records = (
+            db_session.query(CustodyRecord)
+            .filter(
+                CustodyRecord.case_id == sample_case.id,
+                CustodyRecord.record_type == "evidence_group_label_changed",
+            )
+            .all()
+        )
+        assert len(records) == 1
+        assert records[0].details["label_kind"] == "global_reference"
+        assert records[0].details["old_group_label"] == "Cameras"
+        assert records[0].details["new_group_label"] == "Lote B"
+
+    def test_bulk_global_reference_group_label(self, client, sample_case, auth_headers):
+        ids = []
+        for i in range(2):
+            content = b"\xff\xd8\xff\xe0\x00\x10JFIF gbulk" + bytes([i])
+            upload = client.post(
+                "/api/v1/evidences/global-reference-upload",
+                data={
+                    "case_id": str(sample_case.id),
+                    "group_label": "Old",
+                    "reference_type": "imagem",
+                },
+                files={"file": (f"g{i}.jpg", io.BytesIO(content), "image/jpeg")},
+                headers=auth_headers,
+            )
+            assert upload.status_code == 201
+            ids.append(upload.json()["id"])
+
+        response = client.post(
+            f"/api/v1/cases/{sample_case.id}/evidences/group-label",
+            json={"evidence_ids": ids, "group_label": "New"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert all(item["group_label"] == "New" for item in response.json())
+        assert all(
+            item["extra_metadata"]["reference_group_label"] == "New"
+            for item in response.json()
+        )

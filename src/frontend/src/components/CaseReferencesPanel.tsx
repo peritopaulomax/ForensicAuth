@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ConfirmDestructiveDeleteModal from "@/components/ConfirmDestructiveDeleteModal";
 import EvidenceDropZone from "@/components/EvidenceDropZone";
 import EvidenceFileGrid from "@/components/EvidenceFileGrid";
 import EvidenceFilePreview from "@/components/EvidenceFilePreview";
 import FileListViewHeader from "@/components/FileListViewHeader";
-import { downloadEvidenceFile, listCaseReferences, uploadGlobalReference, type GlobalReferenceGroup, type ReferenceGroup } from "@/services/evidence";
+import {
+  bulkUpdateEvidenceGroupLabel,
+  downloadEvidenceFile,
+  listCaseReferences,
+  uploadGlobalReference,
+  type GlobalReferenceGroup,
+  type ReferenceGroup,
+} from "@/services/evidence";
 import { useFileListViewMode } from "@/lib/fileListViewMode";
 import type { Evidence, EvidenceDeletionResult } from "@/types/api";
 import { referenceGroupListMaxHeight, scrollableListStyle } from "@/styles/listHeights";
@@ -83,22 +90,16 @@ function ReferenceGroupList({
   group,
   onRequestDelete,
   viewMode,
+  selectedIds,
+  onToggleSelect,
 }: {
   group: ReferenceGroup | GlobalReferenceGroup;
   onRequestDelete: (ev: Evidence) => void;
   viewMode: "list" | "grid";
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
 }) {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const files = group.files;
-
-  function toggleSelect(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
 
   if (files.length === 0) return null;
 
@@ -116,7 +117,7 @@ function ReferenceGroupList({
         <EvidenceFileGrid
           items={files}
           selected={(ev) => selectedIds.has(ev.id)}
-          onSelect={(ev) => toggleSelect(ev.id)}
+          onSelect={(ev) => onToggleSelect(ev.id)}
           maxHeight={referenceGroupListMaxHeight}
           renderFooter={(ev) => (
             <>
@@ -171,13 +172,14 @@ function ReferenceGroupList({
                   alignItems: "center",
                   borderBottom: "1px solid #f3f4f6",
                   background: selectedIds.has(ev.id) ? "#eff6ff" : "transparent",
+                  cursor: "pointer",
                 }}
-                onClick={() => toggleSelect(ev.id)}
+                onClick={() => onToggleSelect(ev.id)}
               >
                 <input
                   type="checkbox"
                   checked={selectedIds.has(ev.id)}
-                  onChange={() => toggleSelect(ev.id)}
+                  onChange={() => onToggleSelect(ev.id)}
                   onClick={(e) => e.stopPropagation()}
                 />
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
@@ -225,6 +227,12 @@ export default function CaseReferencesPanel({ caseId, refreshKey = 0 }: Props) {
   const [groupLabel, setGroupLabel] = useState("");
   const [referenceType, setReferenceType] = useState<"imagem" | "video" | "audio" | "pdf">("imagem");
   const [deleteTargets, setDeleteTargets] = useState<Evidence[]>([]);
+  const [globalSelectedIds, setGlobalSelectedIds] = useState<Set<string>>(new Set());
+  const [pluginSelectedIds, setPluginSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkLabelInput, setBulkLabelInput] = useState("");
+  const [labelBusy, setLabelBusy] = useState(false);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -244,8 +252,53 @@ export default function CaseReferencesPanel({ caseId, refreshKey = 0 }: Props) {
     load();
   }, [load, refreshKey]);
 
+  const allGlobalFiles = useMemo(
+    () => globalGroups.flatMap((g) => g.files),
+    [globalGroups]
+  );
+
+  const uniqueGlobalLabels = useMemo(() => {
+    const labels = new Set<string>();
+    for (const g of globalGroups) {
+      if (g.group_label?.trim()) labels.add(g.group_label.trim());
+    }
+    return Array.from(labels).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [globalGroups]);
+
+  function toggleGlobalSelect(id: string) {
+    setGlobalSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function togglePluginSelect(id: string) {
+    setPluginSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllGlobal() {
+    if (globalSelectedIds.size === allGlobalFiles.length && allGlobalFiles.length > 0) {
+      setGlobalSelectedIds(new Set());
+    } else {
+      setGlobalSelectedIds(new Set(allGlobalFiles.map((f) => f.id)));
+    }
+  }
+
   function requestDelete(ev: Evidence) {
     setDeleteTargets([ev]);
+  }
+
+  function handleDeleteSelected() {
+    const targets = allGlobalFiles.filter((f) => globalSelectedIds.has(f.id));
+    if (targets.length === 0) return;
+    setDeleteTargets(targets);
   }
 
   function handleDeleted(result: EvidenceDeletionResult) {
@@ -256,6 +309,45 @@ export default function CaseReferencesPanel({ caseId, refreshKey = 0 }: Props) {
         .filter((g) => g.files.length > 0);
     setPluginGroups((prev) => prune(prev));
     setGlobalGroups((prev) => prune(prev));
+    setGlobalSelectedIds((prev) => new Set([...prev].filter((id) => !removed.has(id))));
+    setPluginSelectedIds((prev) => new Set([...prev].filter((id) => !removed.has(id))));
+  }
+
+  async function handleDownloadSelected() {
+    const selected = allGlobalFiles.filter((f) => globalSelectedIds.has(f.id));
+    if (selected.length === 0) return;
+    setBulkDownloading(true);
+    setActionError(null);
+    try {
+      for (const ev of selected) {
+        await downloadEvidenceFile(ev.id, ev.original_filename);
+      }
+    } catch {
+      setActionError("Erro ao baixar uma ou mais referencias selecionadas");
+    } finally {
+      setBulkDownloading(false);
+    }
+  }
+
+  async function handleBulkMoveLabel() {
+    const rotulo = bulkLabelInput.trim();
+    const ids = [...globalSelectedIds];
+    if (!rotulo || ids.length === 0) return;
+    setLabelBusy(true);
+    setActionError(null);
+    try {
+      await bulkUpdateEvidenceGroupLabel(caseId, ids, rotulo);
+      setBulkLabelInput("");
+      setGlobalSelectedIds(new Set());
+      await load();
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        "Erro ao aplicar rotulo nas referencias selecionadas";
+      setActionError(typeof msg === "string" ? msg : "Erro ao aplicar rotulo");
+    } finally {
+      setLabelBusy(false);
+    }
   }
 
   async function handleUpload(files: FileList) {
@@ -322,11 +414,17 @@ export default function CaseReferencesPanel({ caseId, refreshKey = 0 }: Props) {
             Rotulo do grupo
             <input
               type="text"
+              list="global-reference-group-labels"
               value={groupLabel}
               onChange={(e) => setGroupLabel(e.target.value)}
               placeholder="Ex.: Cameras de referencia"
               style={{ display: "block", width: "100%", marginTop: 4, padding: "0.35rem 0.5rem", borderRadius: 4, border: "1px solid #d1d5db" }}
             />
+            <datalist id="global-reference-group-labels">
+              {uniqueGlobalLabels.map((label) => (
+                <option key={label} value={label} />
+              ))}
+            </datalist>
           </label>
           <label style={{ fontSize: "0.82rem", color: "#374151" }}>
             Tipo de arquivo
@@ -355,13 +453,125 @@ export default function CaseReferencesPanel({ caseId, refreshKey = 0 }: Props) {
         {uploadError && <p style={{ color: "#b91c1c", fontSize: "0.82rem", marginTop: "0.5rem" }}>{uploadError}</p>}
       </div>
 
+      {actionError && (
+        <p style={{ color: "#b91c1c", fontSize: "0.85rem", marginBottom: "0.75rem" }}>{actionError}</p>
+      )}
+
       {globalGroups.length > 0 && (
         <div style={{ marginBottom: "2rem" }}>
-          <h2 style={{ fontSize: "1.1rem", color: "#111827", margin: "0 0 1rem", borderBottom: "2px solid #0369a1", paddingBottom: "0.35rem" }}>
+          <h2 style={{ fontSize: "1.1rem", color: "#111827", margin: "0 0 0.75rem", borderBottom: "2px solid #0369a1", paddingBottom: "0.35rem" }}>
             Referencias globais
           </h2>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.75rem",
+              flexWrap: "wrap",
+              marginBottom: "1rem",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={allGlobalFiles.length > 0 && globalSelectedIds.size === allGlobalFiles.length}
+              onChange={toggleSelectAllGlobal}
+              style={{ cursor: "pointer" }}
+            />
+            <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+              {globalSelectedIds.size > 0
+                ? `${globalSelectedIds.size} selecionada(s)`
+                : `${allGlobalFiles.length} arquivo(s)`}
+            </span>
+            {globalSelectedIds.size > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleDownloadSelected()}
+                  disabled={bulkDownloading}
+                  style={{
+                    padding: "0.35rem 0.75rem",
+                    background: "#e0f2fe",
+                    color: "#0369a1",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: bulkDownloading ? "wait" : "pointer",
+                    fontSize: "0.8rem",
+                    fontWeight: 500,
+                    opacity: bulkDownloading ? 0.7 : 1,
+                  }}
+                >
+                  {bulkDownloading ? "Baixando…" : "⬇️ Baixar selecionadas"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteSelected}
+                  style={{
+                    padding: "0.35rem 0.75rem",
+                    background: "#fee2e2",
+                    color: "#991b1b",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontSize: "0.8rem",
+                    fontWeight: 500,
+                  }}
+                >
+                  🗑️ Excluir selecionadas
+                </button>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                  <input
+                    type="text"
+                    list="global-reference-group-labels-bulk"
+                    value={bulkLabelInput}
+                    onChange={(e) => setBulkLabelInput(e.target.value)}
+                    placeholder="Mover para rotulo…"
+                    disabled={labelBusy}
+                    style={{
+                      padding: "0.3rem 0.5rem",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: "0.8rem",
+                      width: 160,
+                    }}
+                  />
+                  <datalist id="global-reference-group-labels-bulk">
+                    {uniqueGlobalLabels.map((label) => (
+                      <option key={label} value={label} />
+                    ))}
+                  </datalist>
+                  <button
+                    type="button"
+                    onClick={() => void handleBulkMoveLabel()}
+                    disabled={labelBusy || !bulkLabelInput.trim()}
+                    style={{
+                      padding: "0.35rem 0.75rem",
+                      background: "#e0e7ff",
+                      color: "#3730a3",
+                      border: "none",
+                      borderRadius: "4px",
+                      cursor: labelBusy ? "wait" : "pointer",
+                      fontSize: "0.8rem",
+                      fontWeight: 500,
+                      opacity: labelBusy || !bulkLabelInput.trim() ? 0.6 : 1,
+                    }}
+                  >
+                    Aplicar rotulo
+                  </button>
+                </span>
+              </>
+            )}
+          </div>
+
           {globalGroups.map((group) => (
-            <ReferenceGroupList key={`global-${group.reference_type}-${group.group_label}`} group={group} onRequestDelete={requestDelete} viewMode={viewMode} />
+            <ReferenceGroupList
+              key={`global-${group.reference_type}-${group.group_label}`}
+              group={group}
+              onRequestDelete={requestDelete}
+              viewMode={viewMode}
+              selectedIds={globalSelectedIds}
+              onToggleSelect={toggleGlobalSelect}
+            />
           ))}
         </div>
       )}
@@ -372,7 +582,14 @@ export default function CaseReferencesPanel({ caseId, refreshKey = 0 }: Props) {
             Referencias de plugins
           </h2>
           {pluginGroups.map((group) => (
-            <ReferenceGroupList key={`plugin-${group.technique}-${group.group_label}`} group={group} onRequestDelete={requestDelete} viewMode={viewMode} />
+            <ReferenceGroupList
+              key={`plugin-${group.technique}-${group.group_label}`}
+              group={group}
+              onRequestDelete={requestDelete}
+              viewMode={viewMode}
+              selectedIds={pluginSelectedIds}
+              onToggleSelect={togglePluginSelect}
+            />
           ))}
         </div>
       )}

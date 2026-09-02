@@ -1036,11 +1036,6 @@ export default function CaseDetail() {
                 }}
               />
             </label>
-            <p style={{ margin: "0 0 0.5rem", fontSize: "0.75rem", color: "#6b7280", maxWidth: 520 }}>
-              Vale para <strong>novos uploads</strong>. Arquivos ja na lista (ex.: &quot;Sem rotulo&quot;)
-              nao mudam sozinho — use o botao abaixo, clique no rotulo da linha, ou selecione
-              e aplique em lote.
-            </p>
             <datalist id="questioned-group-labels">
               {uniqueQuestionedLabels(evidences).map((label) => (
                 <option key={label} value={label} />
