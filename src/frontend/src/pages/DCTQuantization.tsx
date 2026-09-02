@@ -769,6 +769,7 @@ export default function DCTQuantization() {
           progress={progress}
           progressLabel={progressLabel}
           label="Processar DCT"
+          background="#0369a1"
         />
         {processHint && (
           <p style={{ fontSize: "0.8rem", color: "#6b7280", margin: "0.5rem 0 0" }}>{processHint}</p>

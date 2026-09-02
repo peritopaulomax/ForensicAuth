@@ -221,6 +221,7 @@ export function ProcessButton({
   progress,
   progressLabel,
   inferenceDevice,
+  background = "#1a1a2e",
 }: {
   onClick: () => void;
   disabled?: boolean;
@@ -230,6 +231,8 @@ export function ProcessButton({
   progress?: number;
   progressLabel?: string;
   inferenceDevice?: string | null;
+  /** Cor de fundo do botao (padrao navy do shell; use #0369a1 para alinhar ao grupo JPEG). */
+  background?: string;
 }) {
   const showBar = Boolean(running);
   const pct = Math.round(Math.min(100, Math.max(0, progress ?? 0)));
@@ -243,7 +246,7 @@ export function ProcessButton({
           disabled={disabled || running}
           style={{
             padding: "0.6rem 1.5rem",
-            background: "#1a1a2e",
+            background,
             color: "#fff",
             border: "none",
             borderRadius: "6px",
