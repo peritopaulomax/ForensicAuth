@@ -95,10 +95,17 @@ export default function AudioForensicsHub({
   const { caseId } = useParams<{ caseId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  // Use prefixed params so the embedded hub does not fight with the parent
+  // MediaAnalysisGroupPage over the same `tab`/`group` query string.
   const tabParam =
-    forceAudioTab ?? (searchParams.get("tab") as AudioTab | null);
+    forceAudioTab ??
+    (searchParams.get("audio_tab") as AudioTab | null) ??
+    (searchParams.get("tab") as AudioTab | null);
   const groupParam =
-    (forceAudioGroup ?? (searchParams.get("group") as AudioGroup | null)) || "spectral";
+    (forceAudioGroup ??
+      (searchParams.get("audio_group") as AudioGroup | null) ??
+      (searchParams.get("group") as AudioGroup | null)) ||
+    "spectral";
   const embedLocked = forceAudioGroup != null;
 
   const [localTab, setLocalTab] = useState<AudioTab | null>(null);
@@ -217,7 +224,7 @@ export default function AudioForensicsHub({
       setLocalTab(defaultTab);
       return;
     }
-    setSearchParams({ tab: defaultTab, group: next });
+    setSearchParams({ audio_tab: defaultTab, audio_group: next });
   }
 
   function setTab(next: AudioTab) {
@@ -230,7 +237,7 @@ export default function AudioForensicsHub({
       return;
     }
     const group: AudioGroup = LEVELS_TAB_IDS.has(next) ? "levels" : "spectral";
-    setSearchParams({ tab: next, group });
+    setSearchParams({ audio_tab: next, audio_group: group });
   }
 
   function clearOverlays() {
