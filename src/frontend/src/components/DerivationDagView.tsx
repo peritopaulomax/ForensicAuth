@@ -165,7 +165,14 @@ function OperationMergeBox({ op, inputNodes }: { op: LineageOperation; inputNode
           {outputs.reference_population_count != null && (
             <div>Populacao LR: {String(outputs.reference_population_count)} subgrupos</div>
           )}
-          {outputs.use_augmented_reference === true && <div>Augmentacao de referencia: sim</div>}
+          {outputs.use_augmented_reference === true && (
+            <div>
+              Augmentacao de referencia:{" "}
+              {Array.isArray(outputs.reference_augmentations) && outputs.reference_augmentations.length
+                ? outputs.reference_augmentations.join(", ")
+                : "sim"}
+            </div>
+          )}
           {lr?.log10_lr != null && <div>log10 LR: {String(lr.log10_lr)}</div>}
           {lr?.lr != null && <div>LR: {String(lr.lr)}</div>}
         </div>

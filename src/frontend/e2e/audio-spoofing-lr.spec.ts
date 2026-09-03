@@ -224,6 +224,7 @@ test.describe("audio spoofing LR typicality UI", () => {
 
     await expect.poll(() => postBody?.parameters?.use_latent_typicality).toBe(true);
     expect(postBody?.parameters?.use_augmented_reference).toBe(false);
+    expect(postBody?.parameters?.reference_augmentations).toEqual([]);
     expect(postBody?.parameters?.meta_classifier).toBe("logistic");
     expect(postBody?.parameters?.selected_analyses).toEqual([
       "df_arena_1b",
@@ -282,7 +283,7 @@ test.describe("audio spoofing LR typicality UI", () => {
     await expect(page.getByText(/Cache de calibração reutilizado/i)).toBeVisible();
   });
 
-  test("regressao: use_augmented_reference ainda enviado no payload", async ({ page }) => {
+  test("regressao: reference_augmentations enviado no payload", async ({ page }) => {
     await mockCommon(page);
 
     let postBody: { parameters?: Record<string, unknown> } | undefined;
@@ -323,10 +324,14 @@ test.describe("audio spoofing LR typicality UI", () => {
     await page.goto("/cases/case-audio-lr/analysis/audio_spoofing");
     await selectAudioEvidence(page);
     await page.getByLabel(/DF Arena 1B/i).uncheck();
-    await page.getByLabel(/Usar população de referência aumentada/i).check();
+    await page.getByLabel("População de referência aumentada").check();
+    await expect(page.getByLabel(/MP3 128 kbps/i)).toBeVisible();
+    await page.getByLabel(/Ruído ambiente 20 dB SNR/i).uncheck();
+    await page.getByLabel(/Ruído ambiente 15 dB SNR/i).uncheck();
     await page.getByRole("button", { name: /analisar audio/i }).click();
 
     await expect.poll(() => postBody?.parameters?.use_augmented_reference).toBe(true);
+    expect(postBody?.parameters?.reference_augmentations).toEqual(["mp3_128k", "opus_32k"]);
     expect(postBody?.parameters?.selected_analyses).toEqual(["wedefense_wavlm_mhfa"]);
   });
 });

@@ -59,6 +59,7 @@ BACKEND_ROOT = REPO_ROOT / "src" / "backend"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+# Keep in sync with core.audio_spoofing_lr_reference.AUGMENTATION_CATALOG
 AUGMENTATION_NAMES: tuple[str, ...] = ("mp3_128k", "opus_32k", "noise_snr_20", "noise_snr_15")
 ORIGINAL_TAG = "original"
 SAMPLE_RATE = 16000

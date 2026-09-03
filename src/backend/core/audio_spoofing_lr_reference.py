@@ -97,8 +97,72 @@ def default_representations_matrix() -> Path:
 DEFAULT_SCORE_MATRIX = _audio_score_matrix()
 DEFAULT_AUGMENTED_SCORE_MATRIX = _audio_augmented_score_matrix()
 DEFAULT_REPRESENTATIONS_MATRIX = _audio_representations_matrix()
-AUGMENTATION_NAMES: tuple[str, ...] = ("mp3_128k", "opus_32k", "noise_snr_20", "noise_snr_15")
+# Catalog order is the contract with published score/embedding matrices.
+# Adding a new means: ingest the variant, append here, expose the same id in the UI.
+AUGMENTATION_CATALOG: dict[str, str] = {
+    "mp3_128k": "MP3 128 kbps",
+    "opus_32k": "Opus/OGG 32 kbps",
+    "noise_snr_20": "Ruido ambiente 20 dB SNR",
+    "noise_snr_15": "Ruido ambiente 15 dB SNR",
+}
+AUGMENTATION_NAMES: tuple[str, ...] = tuple(AUGMENTATION_CATALOG.keys())
 AUGMENTATION_MULTIPLIER = 1 + len(AUGMENTATION_NAMES)
+_ORIGINAL_AUGMENTATION_TAGS = frozenset(("", ORIGINAL_AUGMENTATION_TAG))
+
+
+def normalize_reference_augmentations(
+    selected: object | None = None,
+    *,
+    use_augmented_reference: bool | None = None,
+) -> tuple[str, ...]:
+    """Return catalog-ordered augmentation tags (excluding original).
+
+    Empty tuple means originals only. ``reference_augmentations`` wins when
+    provided (including an empty list). Legacy ``use_augmented_reference=True``
+    with no list selects the full catalog.
+    """
+    if selected is not None:
+        if not isinstance(selected, (list, tuple, set)):
+            raise TypeError("reference_augmentations deve ser uma lista")
+        seen: set[str] = set()
+        unknown: list[str] = []
+        for raw in selected:
+            name = str(raw).strip()
+            if not name:
+                continue
+            if name not in AUGMENTATION_CATALOG:
+                unknown.append(name)
+            else:
+                seen.add(name)
+        if unknown:
+            valid = ", ".join(AUGMENTATION_NAMES)
+            raise ValueError(
+                "Augmentacoes invalidas: "
+                + ", ".join(sorted(set(unknown)))
+                + ". Validas: "
+                + valid
+            )
+        return tuple(name for name in AUGMENTATION_NAMES if name in seen)
+    if use_augmented_reference:
+        return AUGMENTATION_NAMES
+    return ()
+
+
+def sample_multiplier_for_augmentations(selected: tuple[str, ...]) -> int:
+    """Originals plus one stratum per selected augmentation."""
+    return 1 + len(selected)
+
+
+def augmentation_labels(selected: tuple[str, ...]) -> list[str]:
+    return [AUGMENTATION_CATALOG[name] for name in selected]
+
+
+def _cache_augmentations_for_key(selected: tuple[str, ...]) -> list[str] | None:
+    """Include the subset in the cache key; keep full/empty compatible with old caches."""
+    if not selected or selected == AUGMENTATION_NAMES:
+        return None
+    return list(selected)
+
 # Cap paralelismo na materializacao k-NN (SSD + varios usuarios concorrentes).
 TYPICALITY_MATERIALIZE_JOBS = min(
     12,
@@ -824,13 +888,21 @@ def _build_reference_sample(
     return pd.concat(frames, ignore_index=True)
 
 
-def _filter_matrix_scope(df: pd.DataFrame, *, augmented_reference: bool) -> pd.DataFrame:
+def _filter_matrix_scope(
+    df: pd.DataFrame,
+    *,
+    selected_augmentations: tuple[str, ...] | None = None,
+    augmented_reference: bool | None = None,
+) -> pd.DataFrame:
+    """Keep originals plus the requested augmentation tags."""
     if "augmentation" not in df.columns:
         return df.copy()
+    if selected_augmentations is None:
+        selected_augmentations = AUGMENTATION_NAMES if augmented_reference else ()
     aug = df["augmentation"].fillna("").astype(str)
-    if augmented_reference:
-        return df.copy()
-    return df[aug.isin(("", ORIGINAL_AUGMENTATION_TAG))].copy()
+    allowed = set(_ORIGINAL_AUGMENTATION_TAGS)
+    allowed.update(selected_augmentations)
+    return df[aug.isin(allowed)].copy()
 
 
 def _parallel_load_embeddings(paths: list[str]) -> list[np.ndarray]:
@@ -1036,6 +1108,7 @@ def _cache_key_from_parts(
     typicality_k: int = TYPICALITY_K,
     typicality_distance: str = TYPICALITY_DISTANCE,
     typicality_system: str = TYPICALITY_SYSTEM,
+    selected_augmentations: tuple[str, ...] = (),
 ) -> str:
     import hashlib
 
@@ -1056,6 +1129,11 @@ def _cache_key_from_parts(
         "typicality_distance": typicality_distance if use_latent_typicality else None,
         "typicality_system": typicality_system if use_latent_typicality else None,
     }
+    # Subsets must not collide with each other (same multiplier, different tags).
+    # Empty and full-catalog stay compatible with caches keyed only by multiplier.
+    subset = _cache_augmentations_for_key(selected_augmentations)
+    if subset is not None:
+        canonical["selected_augmentations"] = subset
     payload = json.dumps(canonical, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
@@ -1096,6 +1174,7 @@ def _cache_key(
     typicality_k: int = TYPICALITY_K,
     typicality_distance: str = TYPICALITY_DISTANCE,
     typicality_system: str = TYPICALITY_SYSTEM,
+    selected_augmentations: tuple[str, ...] = (),
 ) -> str:
     return _cache_key_from_parts(
         score_matrix_hash=_score_matrix_hash(score_matrix),
@@ -1108,6 +1187,7 @@ def _cache_key(
         typicality_k=typicality_k,
         typicality_distance=typicality_distance,
         typicality_system=typicality_system,
+        selected_augmentations=selected_augmentations,
     )
 
 
@@ -1123,6 +1203,7 @@ def _cache_key_candidates(
     typicality_k: int = TYPICALITY_K,
     typicality_distance: str = TYPICALITY_DISTANCE,
     typicality_system: str = TYPICALITY_SYSTEM,
+    selected_augmentations: tuple[str, ...] = (),
 ) -> list[str]:
     """Primary path-stable hash; raw-file hash only if primary cache is missing."""
     from core.synthetic_lr_reference import _raw_file_hash
@@ -1138,6 +1219,7 @@ def _cache_key_candidates(
         typicality_k=typicality_k,
         typicality_distance=typicality_distance,
         typicality_system=typicality_system,
+        selected_augmentations=selected_augmentations,
     )
     keys = [primary]
     primary_path = _cache_dir() / f"{primary}.joblib"
@@ -1155,6 +1237,7 @@ def _cache_key_candidates(
         typicality_k=typicality_k,
         typicality_distance=typicality_distance,
         typicality_system=typicality_system,
+        selected_augmentations=selected_augmentations,
     )
     if raw_key not in keys:
         keys.append(raw_key)
@@ -1218,10 +1301,17 @@ def _write_summary_txt(path: Path, report: dict[str, Any]) -> None:
         f"Amostras por classe/subgrupo: {report.get('sample_per_class_per_subgroup', '—')}",
     ]
     if report.get("augmented_reference"):
+        selected = tuple(report.get("selected_augmentations") or [])
+        labels = (
+            augmentation_labels(selected)
+            if selected
+            else list(AUGMENTATION_CATALOG.values())
+        )
         lines.extend(
             [
                 f"Referencia aumentada: sim (multiplicador={report.get('sample_multiplier', '—')})",
-                f"Augmentacoes: {', '.join(AUGMENTATION_NAMES)}",
+                "Originais sempre incluidos.",
+                f"Augmentacoes: {', '.join(labels)}",
             ]
         )
     for item in items:
@@ -1267,6 +1357,7 @@ def _build_report(
     used_cache: bool,
     sample_multiplier: int = 1,
     augmented_reference: bool = False,
+    selected_augmentations: tuple[str, ...] = (),
     scored: pd.DataFrame | None = None,
     use_latent_typicality: bool = False,
     typicality_refs: dict[str, TypicalityReference] | None = None,
@@ -1332,6 +1423,8 @@ def _build_report(
         ),
         "sample_multiplier": int(sample_multiplier),
         "augmented_reference": bool(augmented_reference),
+        "selected_augmentations": list(selected_augmentations),
+        "selected_augmentation_labels": augmentation_labels(selected_augmentations),
         "selected_detectors": list(selected_detectors),
         "meta_classifier": classifier,
         "meta_classifier_label": _classifier_label(classifier),
@@ -1401,6 +1494,7 @@ def compute_reference_lr(
     selected_detectors: tuple[str, ...] = ALL_DETECTORS,
     classifier: str = DEFAULT_META_CLASSIFIER,
     sample_multiplier: int = 1,
+    selected_augmentations: tuple[str, ...] | None = None,
     use_latent_typicality: bool = False,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
@@ -1411,8 +1505,13 @@ def compute_reference_lr(
     if not selected_detectors:
         raise RuntimeError("Pelo menos um detector deve ser selecionado para calibracao LR.")
     classifier = _validate_classifier(classifier)
+    if selected_augmentations is None:
+        selected_augmentations = AUGMENTATION_NAMES if int(sample_multiplier) > 1 else ()
+    else:
+        selected_augmentations = normalize_reference_augmentations(list(selected_augmentations))
+        sample_multiplier = sample_multiplier_for_augmentations(selected_augmentations)
     sample_multiplier = max(1, int(sample_multiplier))
-    augmented_reference = sample_multiplier > 1
+    augmented_reference = bool(selected_augmentations)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if use_latent_typicality:
@@ -1442,6 +1541,7 @@ def compute_reference_lr(
         seed=seed,
         sample_multiplier=sample_multiplier,
         use_latent_typicality=use_latent_typicality,
+        selected_augmentations=selected_augmentations,
     )
     cache_key = cache_keys[0]
     used_cache = False
@@ -1528,6 +1628,7 @@ def compute_reference_lr(
                         "created_at": pd.Timestamp.now(tz="UTC").isoformat(),
                         "use_latent_typicality": use_latent_typicality,
                         "sample_multiplier": sample_multiplier,
+                        "selected_augmentations": list(selected_augmentations),
                         "slim_rewrite": True,
                     },
                     scored=scored,
@@ -1555,6 +1656,7 @@ def compute_reference_lr(
             used_cache=True,
             sample_multiplier=sample_multiplier,
             augmented_reference=augmented_reference,
+            selected_augmentations=selected_augmentations,
             scored=scored,
             use_latent_typicality=use_latent_typicality,
             typicality_refs=typicality_refs,
@@ -1590,11 +1692,18 @@ def compute_reference_lr(
                 12,
                 f"Matriz filtrada: {len(df):,}/{before:,} linhas com logits finitos",
             )
-    df = _filter_matrix_scope(df, augmented_reference=augmented_reference)
+    df = _filter_matrix_scope(df, selected_augmentations=selected_augmentations)
     sample = _build_reference_sample(df, union_items, seed, sample_multiplier=sample_multiplier)
     split = _assign_splits(sample, seed, sample_multiplier=sample_multiplier)
     split = _filter_working_split(split, roles)
-    aug_label = f", aumentada x{sample_multiplier}" if augmented_reference else ""
+    if selected_augmentations:
+        aug_label = (
+            f", aumentada x{sample_multiplier} ("
+            + ", ".join(selected_augmentations)
+            + ")"
+        )
+    else:
+        aug_label = ""
     tip_label = ", tipicidade latente" if use_latent_typicality else ""
     role_label = (
         f" (fit {len(roles.fit_items)}, test {len(roles.test_items)})"
@@ -1657,6 +1766,7 @@ def compute_reference_lr(
         "created_at": pd.Timestamp.now(tz="UTC").isoformat(),
         "use_latent_typicality": use_latent_typicality,
         "sample_multiplier": sample_multiplier,
+        "selected_augmentations": list(selected_augmentations),
     }
     _save_audio_lr_cache(
         cache_key=cache_key,
@@ -1689,6 +1799,7 @@ def compute_reference_lr(
         used_cache=False,
         sample_multiplier=sample_multiplier,
         augmented_reference=augmented_reference,
+        selected_augmentations=selected_augmentations,
         scored=scored,
         use_latent_typicality=use_latent_typicality,
         typicality_refs=typicality_refs,

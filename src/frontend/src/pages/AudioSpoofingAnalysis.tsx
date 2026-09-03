@@ -6,6 +6,7 @@ import AudioEvidenceSelector from "@/components/AudioEvidenceSelector";
 import {
   MacroCategory,
   MetaClassifierSelect,
+  ReferenceAugmentationSelector,
   ReferenceLrFeatureWeightsPanel,
   ReferenceLrPanel,
   ReferenceLrResult,
@@ -21,6 +22,12 @@ import { useForensicJob } from "@/hooks/useForensicJob";
 import { useGroupAwareEvidence } from "@/hooks/useGroupAwareEvidence";
 import { useDerivativeSave } from "@/hooks/useDerivativeSave";
 import { useTechniqueRuntime } from "@/hooks/useTechniqueRuntime";
+import {
+  AUDIO_REFERENCE_AUGMENTATIONS,
+  describeAudioAugmentations,
+  orderedAudioAugmentations,
+  type AudioReferenceAugmentationId,
+} from "@/config/audioReferenceAugmentations";
 import { getEvidenceFileUrl } from "@/services/evidence";
 import api from "@/services/api";
 
@@ -369,7 +376,9 @@ export default function AudioSpoofingAnalysis() {
   const [detectorEerLabels, setDetectorEerLabels] = useState<string[]>([]);
   const [referenceEntries, setReferenceEntries] = useState<ReferencePopulationEntry[]>(DEFAULT_AUDIO_REFERENCE);
   const [metaClassifier, setMetaClassifier] = useState<string>("logistic");
-  const [useAugmentedReference, setUseAugmentedReference] = useState(false);
+  const [selectedAugmentations, setSelectedAugmentations] = useState<
+    AudioReferenceAugmentationId[]
+  >([]);
   const [useLatentTypicality, setUseLatentTypicality] = useState(false);
   const [referenceLrTippettUrl, setReferenceLrTippettUrl] = useState<string | null>(null);
   const [referenceLrDistributionUrl, setReferenceLrDistributionUrl] = useState<string | null>(null);
@@ -513,6 +522,7 @@ export default function AudioSpoofingAnalysis() {
     [referenceEntries]
   );
   const referenceSelectionValid = referenceCounts.fit > 0 && referenceCounts.test > 0;
+  const useAugmentedReference = selectedAugmentations.length > 0;
 
   const clearLrArtifacts = useCallback(() => {
     setReferenceLrTippettUrl(null);
@@ -537,6 +547,7 @@ export default function AudioSpoofingAnalysis() {
           reference_population: referencePayload,
           meta_classifier: metaClassifier,
           use_augmented_reference: useAugmentedReference,
+          reference_augmentations: selectedAugmentations,
           use_latent_typicality: useLatentTypicality,
         },
         {
@@ -570,6 +581,7 @@ export default function AudioSpoofingAnalysis() {
     referencePayload,
     metaClassifier,
     useAugmentedReference,
+    selectedAugmentations,
     useLatentTypicality,
     runAnalysis,
     fetchImage,
@@ -589,6 +601,7 @@ export default function AudioSpoofingAnalysis() {
         reference_population: referencePayload,
         meta_classifier: metaClassifier,
         use_augmented_reference: useAugmentedReference,
+        reference_augmentations: selectedAugmentations,
         use_latent_typicality: useLatentTypicality,
       });
     } finally {
@@ -762,33 +775,6 @@ export default function AudioSpoofingAnalysis() {
         >
           <input
             type="checkbox"
-            checked={useAugmentedReference}
-            disabled={running}
-            onChange={(e) => setUseAugmentedReference(e.target.checked)}
-            style={{ marginTop: "0.15rem" }}
-          />
-          <span>
-            Usar população de referência aumentada
-            <span style={{ display: "block", fontSize: "0.74rem", color: "#6b7280", marginTop: "0.15rem" }}>
-              Inclui variações MP3 128 kbps, Opus 32 kbps, ruído ambiente 20 dB e 15 dB SNR na calibração LR.
-              {useLatentTypicality
-                ? " Requer matriz de representações (scores+embeddings) com variantes aumentadas."
-                : " Requer score matrix aumentado gerado offline."}
-            </span>
-          </span>
-        </label>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "0.5rem",
-            marginTop: "0.55rem",
-            fontSize: "0.85rem",
-            color: "#374151",
-          }}
-        >
-          <input
-            type="checkbox"
             checked={useLatentTypicality}
             disabled={running}
             onChange={(e) => setUseLatentTypicality(e.target.checked)}
@@ -803,6 +789,17 @@ export default function AudioSpoofingAnalysis() {
             </span>
           </span>
         </label>
+        <ReferenceAugmentationSelector
+          options={AUDIO_REFERENCE_AUGMENTATIONS}
+          selected={selectedAugmentations}
+          disabled={running}
+          onChange={(next) => setSelectedAugmentations(orderedAudioAugmentations(next))}
+          intro={
+            useLatentTypicality
+              ? "Originais entram sempre. Ao ligar, abre os tipos com scores e embeddings já calculados. Desmarque o que não quiser usar."
+              : "Originais entram sempre. Ao ligar, abre os tipos com scores já calculados. Desmarque o que não quiser usar."
+          }
+        />
       </div>
 
       <div style={{ marginTop: "1rem" }}>
@@ -852,7 +849,12 @@ export default function AudioSpoofingAnalysis() {
             lrPositiveLabel="bonafide"
             augmentedDescription={
               referenceLr?.augmented_reference
-                ? `População aumentada ativa (multiplicador ${referenceLr.sample_multiplier ?? "—"}×) — MP3, Opus e ruído ambiente.`
+                ? `População aumentada ativa (multiplicador ${referenceLr.sample_multiplier ?? "—"}×) — originais + ${
+                    (referenceLr.selected_augmentation_labels &&
+                      referenceLr.selected_augmentation_labels.join(", ")) ||
+                    describeAudioAugmentations(referenceLr.selected_augmentations) ||
+                    "variantes selecionadas"
+                  }.`
                 : undefined
             }
           />

@@ -362,10 +362,13 @@ class DerivationLineageBuilder:
         node_id = f"synthetic:lr_population:{pop_hash or pop_count}"
         classifier = outputs.get("meta_classifier") or (meta.get("parameters") or {}).get("meta_classifier")
         augmented = outputs.get("use_augmented_reference")
+        selected_augs = outputs.get("reference_augmentations") or outputs.get("selected_augmentations")
         summary = f"Populacao LR · {pop_count or 0} subgrupo(s)"
         if classifier:
             summary += f" · meta {classifier}"
-        if augmented:
+        if isinstance(selected_augs, (list, tuple)) and selected_augs:
+            summary += " · " + ", ".join(str(item) for item in selected_augs)
+        elif augmented:
             summary += " · augmentada"
 
         nodes_map.setdefault(
@@ -384,6 +387,7 @@ class DerivationLineageBuilder:
                     "reference_population_hash": pop_hash,
                     "meta_classifier": classifier,
                     "use_augmented_reference": augmented,
+                    "reference_augmentations": selected_augs,
                 },
             },
         )

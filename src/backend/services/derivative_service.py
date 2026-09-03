@@ -278,6 +278,7 @@ class DerivativeService:
                 "meta_classifier_label": lr_report.get("meta_classifier_label"),
                 "selected_count": lr_report.get("selected_count"),
                 "augmented_reference": lr_report.get("augmented_reference"),
+                "selected_augmentations": lr_report.get("selected_augmentations"),
                 "log10_lr": questioned.get("log10_lr"),
                 "lr": questioned.get("lr"),
             }
@@ -288,6 +289,7 @@ class DerivativeService:
             "reference_population_hash": reference_population_digest(ref_pop if isinstance(ref_pop, dict) else None),
             "meta_classifier": params.get("meta_classifier") or job_result.get("meta_classifier"),
             "use_augmented_reference": params.get("use_augmented_reference"),
+            "reference_augmentations": params.get("reference_augmentations"),
             "use_latent_typicality": params.get("use_latent_typicality"),
             "typicality_system": params.get("typicality_system"),
             "typicality_k": params.get("typicality_k"),

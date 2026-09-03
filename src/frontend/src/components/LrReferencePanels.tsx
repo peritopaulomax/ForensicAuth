@@ -183,6 +183,8 @@ export type ReferenceLrResult = {
   meta_classifier_label?: string;
   augmented_reference?: boolean;
   sample_multiplier?: number;
+  selected_augmentations?: string[];
+  selected_augmentation_labels?: string[];
   latent_typicality?: boolean;
   used_cache?: boolean;
   typicality_config?: {
@@ -1412,6 +1414,110 @@ export const META_CLASSIFIER_OPTIONS = [
   { value: "logistic", label: "Regressao Logistica" },
   { value: "xgboost", label: "XGBoost" },
 ] as const;
+
+export type ReferenceAugmentationOption = {
+  id: string;
+  label: string;
+};
+
+export function ReferenceAugmentationSelector({
+  options,
+  selected,
+  onChange,
+  disabled,
+  intro = "Originais entram sempre. Ao ligar, os tipos abaixo entram na calibração LR.",
+}: {
+  options: readonly ReferenceAugmentationOption[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  disabled?: boolean;
+  intro?: string;
+}) {
+  const allIds = options.map((item) => item.id);
+  const selectedSet = new Set(selected);
+  const enabled = selected.length > 0;
+
+  function setParent(nextEnabled: boolean) {
+    onChange(nextEnabled ? allIds : []);
+  }
+
+  function toggleChild(id: string, checked: boolean) {
+    const next = new Set(selectedSet);
+    if (checked) next.add(id);
+    else {
+      if (next.size <= 1) return;
+      next.delete(id);
+    }
+    onChange(allIds.filter((itemId) => next.has(itemId)));
+  }
+
+  return (
+    <div style={{ marginTop: "0.55rem" }}>
+      <label
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: "0.5rem",
+          fontSize: "0.85rem",
+          color: "#374151",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={disabled}
+          onChange={(e) => setParent(e.target.checked)}
+          style={{ marginTop: "0.15rem" }}
+          aria-label="População de referência aumentada"
+          aria-expanded={enabled}
+          aria-controls="reference-augmentation-options"
+        />
+        <span>
+          População de referência aumentada
+          <span style={{ display: "block", fontSize: "0.74rem", color: "#6b7280", marginTop: "0.15rem" }}>
+            {intro}
+          </span>
+        </span>
+      </label>
+      {enabled ? (
+        <div
+          id="reference-augmentation-options"
+          style={{
+            margin: "0.4rem 0 0 0.35rem",
+            padding: "0.35rem 0 0.1rem 0.85rem",
+            borderLeft: "2px solid #d1d5db",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.32rem",
+          }}
+        >
+          {options.map((option) => (
+            <label
+              key={option.id}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "0.5rem",
+                fontSize: "0.82rem",
+                color: "#374151",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={selectedSet.has(option.id)}
+                disabled={disabled}
+                onChange={(e) => toggleChild(option.id, e.target.checked)}
+                style={{ marginTop: "0.15rem" }}
+                aria-label={option.label}
+              />
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function MetaClassifierSelect({
   value,

@@ -21,13 +21,14 @@ from forensics.audio_spoofing.runtime import (
 )
 from core.progress import pop_progress_callback, report_progress
 from core.audio_spoofing_lr_reference import (
-    AUGMENTATION_MULTIPLIER,
     META_CLASSIFIERS,
     compute_reference_lr,
     default_augmented_score_matrix,
     default_representations_matrix,
     default_score_matrix,
     normalize_meta_classifier,
+    normalize_reference_augmentations,
+    sample_multiplier_for_augmentations,
 )
 from core.latent_typicality.representations_utils import representations_matrix_available
 from core.technique_ids import AUDIO_SPOOFING_DETECTION
@@ -154,6 +155,16 @@ class AudioSpoofingAdapter(ForensicPlugin):
         if use_aug is not None and not isinstance(use_aug, bool):
             return False, "use_augmented_reference deve ser booleano"
 
+        try:
+            selected_augs = normalize_reference_augmentations(
+                parameters.get("reference_augmentations"),
+                use_augmented_reference=bool(use_aug),
+            )
+        except TypeError as exc:
+            return False, str(exc)
+        except ValueError as exc:
+            return False, str(exc)
+
         use_latent = parameters.get("use_latent_typicality")
         if use_latent is not None and not isinstance(use_latent, bool):
             return False, "use_latent_typicality deve ser booleano"
@@ -167,7 +178,7 @@ class AudioSpoofingAdapter(ForensicPlugin):
             )
 
         if (
-            use_aug
+            selected_augs
             and not use_latent
             and not default_augmented_score_matrix().is_file()
             and not rep_available
@@ -298,7 +309,13 @@ class AudioSpoofingAdapter(ForensicPlugin):
                     report_progress(on_progress, mapped, message)
 
                 try:
-                    use_augmented = bool(parameters.get("use_augmented_reference"))
+                    selected_augs = normalize_reference_augmentations(
+                        parameters.get("reference_augmentations"),
+                        use_augmented_reference=bool(
+                            parameters.get("use_augmented_reference")
+                        ),
+                    )
+                    use_augmented = bool(selected_augs)
                     reps = default_representations_matrix()
                     rep_available = representations_matrix_available(reps)
                     if use_latent_typicality or (use_augmented and rep_available):
@@ -307,7 +324,7 @@ class AudioSpoofingAdapter(ForensicPlugin):
                         score_matrix = default_augmented_score_matrix()
                     else:
                         score_matrix = default_score_matrix()
-                    sample_multiplier = AUGMENTATION_MULTIPLIER if use_augmented else 1
+                    sample_multiplier = sample_multiplier_for_augmentations(selected_augs)
                     lr_report = compute_reference_lr(
                         detector_scores=analysis.get("detector_scores", {}),
                         selection=parameters.get("reference_population"),
@@ -322,6 +339,7 @@ class AudioSpoofingAdapter(ForensicPlugin):
                         ),
                         classifier=str(parameters.get("meta_classifier", "logistic")).lower().strip(),
                         sample_multiplier=sample_multiplier,
+                        selected_augmentations=selected_augs,
                         use_latent_typicality=use_latent_typicality,
                         on_progress=lr_progress,
                     )
