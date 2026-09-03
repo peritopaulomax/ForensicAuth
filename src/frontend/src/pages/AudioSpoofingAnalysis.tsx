@@ -50,6 +50,13 @@ const DEFAULT_AUDIO_REFERENCE: ReferencePopulationEntry[] = itemsToEntries(
   "both"
 );
 
+const AUDIO_LR_POPULATION_DISCLAIMER_TITLE = "Atenção — população de referência LR";
+
+const AUDIO_LR_POPULATION_DISCLAIMER_BODY =
+  "Os resultados da LR numérica são fortemente dependentes da escolha apropriada da população de referência. " +
+  "Seleção default de população de referência engloba modelos open-source de geração sintética mais recentes, " +
+  "e os modelos comerciais nanobana2 e gpt-image.";
+
 type ResultRow = [string, string, string, string, string, string];
 
 type PlotSeries = {
@@ -729,6 +736,11 @@ export default function AudioSpoofingAnalysis() {
         subgroupUnitLabel="subgrupos"
         detectorEerLabels={detectorEerLabels}
         hypothesisHint="Defina subgrupos para treino/calibração (splits 1–2) e para avaliação (split 3). LR positiva favorece H1 = bonafide/autêntico."
+        editDisclaimer={{
+          title: AUDIO_LR_POPULATION_DISCLAIMER_TITLE,
+          body: AUDIO_LR_POPULATION_DISCLAIMER_BODY,
+          storageKey: "forensicauth:audio-lr-population-disclaimer-ack-date",
+        }}
       />
       {!referenceSelectionValid && (
         <p style={{ margin: "0.55rem 0 0", fontSize: "0.78rem", color: "#b91c1c" }}>
