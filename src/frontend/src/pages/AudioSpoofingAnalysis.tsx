@@ -53,9 +53,9 @@ const DEFAULT_AUDIO_REFERENCE: ReferencePopulationEntry[] = itemsToEntries(
 const AUDIO_LR_POPULATION_DISCLAIMER_TITLE = "Atenção — população de referência LR";
 
 const AUDIO_LR_POPULATION_DISCLAIMER_BODY =
-  "Os resultados da LR numérica são fortemente dependentes da escolha apropriada da população de referência. " +
-  "Seleção default de população de referência engloba modelos open-source de geração sintética mais recentes, " +
-  "e os modelos comerciais nanobana2 e gpt-image.";
+  "Os resultados da LR numérica são fortemente dependentes da escolha apropriada da população de referência, " +
+  "especialmente em relação ao idioma. " +
+  "Seleção default de população de referência engloba modelos open-source de geração sintética mais recentes no idioma português.";
 
 type ResultRow = [string, string, string, string, string, string];
 
