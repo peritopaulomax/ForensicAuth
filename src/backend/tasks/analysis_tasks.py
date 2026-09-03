@@ -83,10 +83,10 @@ def _execute_job(self, job_id: str) -> dict:
                 and self.request.retries < self.max_retries
             ):
                 raise self.retry(
-                    countdown=45,
+                    countdown=1,
                     exc=GpuVramExhausted(
                         f"VRAM livre ({free_mb} MiB) abaixo do minimo "
-                        f"({settings.GPU_MIN_FREE_MB} MiB); aguardando GPU liberar"
+                        f"({settings.GPU_MIN_FREE_MB} MiB); re-enfileirando para outra GPU"
                     ),
                 )
             t_lock = time.monotonic()
