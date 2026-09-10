@@ -1177,9 +1177,15 @@ Adicione **no final** (troque a rede se precisar):
 /opt/forensicauth/data/results      192.168.1.0/24(rw,sync,no_subtree_check,no_root_squash)
 /opt/forensicauth/data/derivatives  192.168.1.0/24(rw,sync,no_subtree_check,no_root_squash)
 /opt/forensicauth/data/peritus_cases 192.168.1.0/24(rw,sync,no_subtree_check,no_root_squash)
+/opt/forensicauth/data/cache        192.168.1.0/24(rw,sync,no_subtree_check,no_root_squash)
 /opt/forensicauth/models            192.168.1.0/24(ro,sync,no_subtree_check,no_root_squash)
 /opt/forensicauth/reference_data    192.168.1.0/24(ro,sync,no_subtree_check,no_root_squash)
+/opt/forensicauth/vendor            192.168.1.0/24(ro,sync,no_subtree_check,no_root_squash)
 ```
+
+> **`vendor` também é exportado (e é obrigatório):** o `vendor/` não está completo no Git — quem instala a máquina worker só com `git clone` fica com código de terceiros incompleto e os jobs quebram com `Repositorio MIML ausente` / `No module named 'models.cmx'` (vimos isso em set/2026 na PROD-3). Com o NFS, o vendor vira fonte única aqui da PROD-1.
+>
+> **`data/cache` também é exportado (rw):** o cache de hashes de modelos (`data/cache/`) é escrito por qualquer worker que processe job; sem o mount, cada máquina cai no diretório local — que tipicamente fica com dono errado (root) e quebra com `[Errno 13] Permission denied`. Alinhado o UID do usuário worker (mesmo valor na PROD-1 e nas workers), a escrita via NFS funciona.
 
 Aplique:
 
@@ -1235,8 +1241,10 @@ sudo mkdir -p \
   /opt/forensicauth/data/results \
   /opt/forensicauth/data/derivatives \
   /opt/forensicauth/data/peritus_cases \
+  /opt/forensicauth/data/cache \
   /opt/forensicauth/models \
-  /opt/forensicauth/reference_data
+  /opt/forensicauth/reference_data \
+  /opt/forensicauth/vendor
 ```
 
 ### Passo 9.4 — Testar montagem NFS
@@ -1265,8 +1273,10 @@ Adicione (uma linha por recurso):
 <IP_PROD1>:/opt/forensicauth/data/results       /opt/forensicauth/data/results       nfs defaults,_netdev 0 0
 <IP_PROD1>:/opt/forensicauth/data/derivatives   /opt/forensicauth/data/derivatives   nfs defaults,_netdev 0 0
 <IP_PROD1>:/opt/forensicauth/data/peritus_cases /opt/forensicauth/data/peritus_cases nfs defaults,_netdev 0 0
+<IP_PROD1>:/opt/forensicauth/data/cache         /opt/forensicauth/data/cache         nfs defaults,_netdev 0 0
 <IP_PROD1>:/opt/forensicauth/models             /opt/forensicauth/models             nfs defaults,_netdev 0 0
 <IP_PROD1>:/opt/forensicauth/reference_data     /opt/forensicauth/reference_data     nfs defaults,_netdev 0 0
+<IP_PROD1>:/opt/forensicauth/vendor             /opt/forensicauth/vendor             nfs defaults,_netdev 0 0
 ```
 
 Monte tudo:
@@ -1275,6 +1285,17 @@ Monte tudo:
 sudo mount -a
 df -h | grep forensicauth
 ```
+
+Valide que os dois caminhos críticos vieram do NFS (e não do disco local):
+
+```bash
+mountpoint /opt/forensicauth/vendor /opt/forensicauth/data/cache   # ambos devem dizer "is a mountpoint"
+ls "/opt/forensicauth/vendor/MIML/models for IML" | head -3        # tem que listar
+ls /opt/forensicauth/vendor/grip-unina-trufor/src/models/cmx | head -3  # tem que listar
+touch /opt/forensicauth/data/cache/.t && rm /opt/forensicauth/data/cache/.t && echo CACHE_OK
+```
+
+> Se `mountpoint` disser "not a mountpoint", o worker vai cair no diretório local (vendor incompleto do git clone, cache com dono errado) e quebrar os jobs — exatamente os erros `[Errno 13] Permission denied` / `Repositorio MIML ausente` / `No module named 'models.cmx'` vistos em set/2026.
 
 ### Passo 9.6 — Ambiente conda + deps na PROD-2
 
