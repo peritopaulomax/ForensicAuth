@@ -28,17 +28,20 @@ REDIS_URL=redis://redis:6379/0
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
 
-# Storage (paths DENTRO do container).
-# No host, o Compose monta ./data/{uploads,results,derivatives,peritus_cases} → /app/...
-UPLOAD_DIR=/app/uploads
-RESULTS_DIR=/app/results
-DERIVATIVES_DIR=/app/derivatives
-PERITUS_CASES_DIR=/app/peritus_cases
-MODELS_DIR=/app/models
+# Storage — caminhos IDENTICOS no container e no host.
+# O compose de producao monta ./data/... e ./models nos mesmos /opt/forensicauth/...
+# dentro do container (nada de /app, nada de symlink).
+UPLOAD_DIR=/opt/forensicauth/data/uploads
+RESULTS_DIR=/opt/forensicauth/data/results
+DERIVATIVES_DIR=/opt/forensicauth/data/derivatives
+PERITUS_CASES_DIR=/opt/forensicauth/data/peritus_cases
+MODELS_DIR=/opt/forensicauth/models
+REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
+FORENSICAUTH_REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
 JOB_PREVIEW_RETENTION_DAYS=0
 JOB_PREVIEW_DAILY_CLEANUP=true
 JOB_PREVIEW_CLEANUP_HOUR=2
-HF_HUB_CACHE=/app/models/synthetic_image_detection/huggingface
+HF_HUB_CACHE=/opt/forensicauth/models/synthetic_image_detection/huggingface
 TRANSFORMERS_OFFLINE=1
 
 # GPU (set true only on GPU hosts)

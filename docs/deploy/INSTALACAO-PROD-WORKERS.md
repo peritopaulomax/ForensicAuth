@@ -793,14 +793,16 @@ REDIS_URL=redis://redis:6379/0
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
 
-UPLOAD_DIR=/app/uploads
-RESULTS_DIR=/app/results
-DERIVATIVES_DIR=/app/derivatives
-PERITUS_CASES_DIR=/app/peritus_cases
-MODELS_DIR=/app/models
-REFERENCE_DATA_DIR=/app/reference_data
-FORENSICAUTH_REFERENCE_DATA_DIR=/app/reference_data
-HF_HUB_CACHE=/app/models/synthetic_image_detection/huggingface
+# Caminhos IDENTICOS no container e no host: o docker-compose.prod.yml monta
+# os volumes em /opt/forensicauth/... dentro do container. Nao use /app.
+UPLOAD_DIR=/opt/forensicauth/data/uploads
+RESULTS_DIR=/opt/forensicauth/data/results
+DERIVATIVES_DIR=/opt/forensicauth/data/derivatives
+PERITUS_CASES_DIR=/opt/forensicauth/data/peritus_cases
+MODELS_DIR=/opt/forensicauth/models
+REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
+FORENSICAUTH_REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
+HF_HUB_CACHE=/opt/forensicauth/models/synthetic_image_detection/huggingface
 TRANSFORMERS_OFFLINE=1
 
 FORENSICAUTH_PROCESS_ROLE=api
@@ -855,16 +857,16 @@ services:
   app:
     environment:
       DATABASE_URL: postgresql+psycopg2://forensicauth:<SENHA_DB>@db:5432/forensicauth
-      REFERENCE_DATA_DIR: /app/reference_data
-      FORENSICAUTH_REFERENCE_DATA_DIR: /app/reference_data
-      MODELS_DIR: /app/models
+      REFERENCE_DATA_DIR: /opt/forensicauth/reference_data
+      FORENSICAUTH_REFERENCE_DATA_DIR: /opt/forensicauth/reference_data
+      MODELS_DIR: /opt/forensicauth/models
 
   worker:
     environment:
       DATABASE_URL: postgresql+psycopg2://forensicauth:<SENHA_DB>@db:5432/forensicauth
-      REFERENCE_DATA_DIR: /app/reference_data
-      FORENSICAUTH_REFERENCE_DATA_DIR: /app/reference_data
-      MODELS_DIR: /app/models
+      REFERENCE_DATA_DIR: /opt/forensicauth/reference_data
+      FORENSICAUTH_REFERENCE_DATA_DIR: /opt/forensicauth/reference_data
+      MODELS_DIR: /opt/forensicauth/models
     command: celery -A app.celery_app worker -Q celery -c 4 -n cpu-prod1@%h --loglevel=info
 ```
 
@@ -961,6 +963,9 @@ Cole (troque senha e IP — aqui o worker fala com Postgres/Redis **no host**, e
 ```env
 FORENSICAUTH_PROCESS_ROLE=worker-gpu
 FORENSICAUTH_WORKER_QUEUE=gpu
+# Raiz do workspace: o codigo resolve vendor/, models/ e src/backend/lib/native
+# a partir daqui (forensics/paths.py). Sem isto o worker quebra com caminho errado.
+FORENSICAUTH_WORKSPACE_ROOT=/opt/forensicauth
 GPU_AVAILABLE=true
 # Warmup desabilitado em produção: carregar modelos no startup de vários workers
 # GPU simultaneamente causa contenção de VRAM/disco e pode travar processos filhos.
@@ -970,7 +975,10 @@ SYNTHETIC_KEEP_RESIDENT=true
 GPU_RESIDENT_TECHNIQUES=synthetic,effort,safe
 GPU_DISTRIBUTED_LOCK=true
 GPU_MIN_FREE_MB=1500
-GPU_RESERVED_FUTURE_MB=4000
+# Reserva extra de VRAM para jobs futuros; 0 = decide só por GPU_MIN_FREE_MB.
+GPU_RESERVED_FUTURE_MB=0
+# Politica GPU (ago/2026): OOM => purge -> retry -> re-enfileira. Nunca cai para CPU.
+GPU_ALLOW_CPU_FALLBACK=false
 # TTL do lock Redis: se um processo filho travar, o lock libera em 5 minutos.
 GPU_LOCK_TTL_SECONDS=300
 
@@ -992,9 +1000,8 @@ TRANSFORMERS_OFFLINE=1
 # Obrigatório: o console script do celery não coloca o cwd no sys.path dos
 # processos filhos — sem isto imports de app/forensics/models falham.
 PYTHONPATH=/opt/forensicauth/src/backend
-# Bibliotecas nativas do projeto (libzero, libtiff, etc.) não ficam no PATH
-# padrão do sistema. Sem isto técnicas como ZERO falham com "libtiff.so.5 not found".
-LD_LIBRARY_PATH=/opt/forensicauth/src/backend/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+# libzero/libtiff são localizados pelo próprio código via FORENSICAUTH_WORKSPACE_ROOT
+# (src/backend/lib/native) — não é preciso LD_LIBRARY_PATH.
 # Reduz fragmentação do alocador CUDA (OOM de TruFor com VRAM reservada-não-alocada).
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
@@ -1078,14 +1085,9 @@ Torne executáveis:
 chmod +x /opt/forensicauth/run/start-gpu-prod1-3090.sh /opt/forensicauth/run/start-gpu-prod1-ada.sh
 ```
 
-### Passo 7.4.1 — Symlink de compatibilidade de caminhos (workers GPU no host)
+### Passo 7.4.1 — Compatibilidade de caminhos (container × host)
 
-O `file_path` das evidências é gravado no banco como caminho absoluto do **container** (`/app/uploads/<uuid>.<ext>`). Os workers GPU no host leem esse campo e procuram o arquivo em `/app/uploads` — que não existe no host. Crie o symlink uma vez:
-
-```bash
-sudo mkdir -p /app
-sudo ln -sfn /opt/forensicauth/data/uploads /app/uploads
-```
+O `docker-compose.prod.yml` monta os volumes nos **mesmos caminhos** dentro e fora do container (`/opt/forensicauth/...`) e define `UPLOAD_DIR`/`RESULTS_DIR`/etc. com esses caminhos. Assim, o `file_path` gravado no banco (`/opt/forensicauth/data/uploads/<uuid>.<ext>`) é válido de forma idêntica para a API (container), os workers locais (host) e os workers remotos (NFS). **Nenhum symlink `/app` é necessário** — isso era da configuração antiga.
 
 ### Passo 7.5 — Testar manualmente (duas janelas de terminal)
 
@@ -1299,6 +1301,9 @@ Cole (note o IP da PROD-1, **não** 127.0.0.1):
 ```env
 FORENSICAUTH_PROCESS_ROLE=worker-gpu
 FORENSICAUTH_WORKER_QUEUE=gpu
+# Raiz do workspace: o codigo resolve vendor/, models/ e src/backend/lib/native
+# a partir daqui (forensics/paths.py). Sem isto o worker quebra com caminho errado.
+FORENSICAUTH_WORKSPACE_ROOT=/opt/forensicauth
 GPU_AVAILABLE=true
 # Warmup desabilitado em produção: carregar modelos no startup de vários workers
 # GPU simultaneamente causa contenção de VRAM/disco e pode travar processos filhos.
@@ -1308,7 +1313,10 @@ SYNTHETIC_KEEP_RESIDENT=true
 GPU_RESIDENT_TECHNIQUES=synthetic,effort,safe
 GPU_DISTRIBUTED_LOCK=true
 GPU_MIN_FREE_MB=1500
-GPU_RESERVED_FUTURE_MB=4000
+# Reserva extra de VRAM para jobs futuros; 0 = decide só por GPU_MIN_FREE_MB.
+GPU_RESERVED_FUTURE_MB=0
+# Politica GPU (ago/2026): OOM => purge -> retry -> re-enfileira. Nunca cai para CPU.
+GPU_ALLOW_CPU_FALLBACK=false
 # TTL do lock Redis: se um processo filho travar, o lock libera em 5 minutos.
 GPU_LOCK_TTL_SECONDS=300
 
@@ -1330,9 +1338,8 @@ TRANSFORMERS_OFFLINE=1
 # Obrigatório: o console script do celery não coloca o cwd no sys.path dos
 # processos filhos — sem isto imports de app/forensics/models falham.
 PYTHONPATH=/opt/forensicauth/src/backend
-# Bibliotecas nativas do projeto (libzero, libtiff, etc.) não ficam no PATH
-# padrão do sistema. Sem isto técnicas como ZERO falham com "libtiff.so.5 not found".
-LD_LIBRARY_PATH=/opt/forensicauth/src/backend/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+# libzero/libtiff são localizados pelo próprio código via FORENSICAUTH_WORKSPACE_ROOT
+# (src/backend/lib/native) — não é preciso LD_LIBRARY_PATH.
 # Reduz fragmentação do alocador CUDA (OOM de TruFor com VRAM reservada-não-alocada).
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
@@ -1402,7 +1409,50 @@ exec celery -A app.celery_app worker -Q gpu -c 1 -n gpu-prod2-ada@%h --loglevel=
 chmod +x /opt/forensicauth/run/start-gpu-prod2-*.sh
 ```
 
-Suba (manual ou systemd, espelhando a seção 7.6).
+### Passo 9.7.1 — (Recomendado) systemd na PROD-2
+
+```bash
+sudo nano /etc/systemd/system/forensicauth-gpu-prod2-3090.service
+```
+
+Cole:
+
+```ini
+[Unit]
+Description=ForensicAuth Celery GPU worker PROD2 3090
+# remote-fs.target garante que os workers só sobem DEPOIS dos mounts NFS
+# (senão o worker sobe sem enxergar models/ e os dados).
+After=network-online.target remote-fs.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=USUARIO
+Group=USUARIO
+WorkingDirectory=/opt/forensicauth/src/backend
+ExecStart=/opt/forensicauth/run/start-gpu-prod2-3090.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo nano /etc/systemd/system/forensicauth-gpu-prod2-ada.service
+```
+
+Cole o mesmo, trocando o nome e o `ExecStart` para `...-ada.sh`.
+
+Ative (troque `USUARIO` nos arquivos antes):
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now forensicauth-gpu-prod2-3090.service
+sudo systemctl enable --now forensicauth-gpu-prod2-ada.service
+sudo systemctl status forensicauth-gpu-prod2-3090.service --no-pager
+sudo systemctl status forensicauth-gpu-prod2-ada.service --no-pager
+```
 
 ### Passo 9.8 — (Opcional) worker CPU na PROD-2 para aliviar a PRINCIPAL
 
@@ -1418,6 +1468,7 @@ eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 conda activate forensicauth
 export FORENSICAUTH_PROCESS_ROLE=worker-cpu
 export FORENSICAUTH_WORKER_QUEUE=celery
+export FORENSICAUTH_WORKSPACE_ROOT=/opt/forensicauth
 export GPU_AVAILABLE=false
 export ML_WARMUP_ON_STARTUP=false
 export DATABASE_URL=postgresql+psycopg2://forensicauth:<SENHA_DB>@<IP_PROD1>:5432/forensicauth
@@ -1431,12 +1482,14 @@ export PERITUS_CASES_DIR=/opt/forensicauth/data/peritus_cases
 export MODELS_DIR=/opt/forensicauth/models
 export REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
 export FORENSICAUTH_REFERENCE_DATA_DIR=/opt/forensicauth/reference_data
+export HF_HUB_CACHE=/opt/forensicauth/models/synthetic_image_detection/huggingface
+export TRANSFORMERS_OFFLINE=1
 export SECRET_KEY=<MESMO_SECRET_KEY_DO_PROD1>
+export DEBUG=false
 # Obrigatório: o console script do celery não coloca o cwd no sys.path dos
 # processos filhos — sem isto imports de app/forensics/models falham.
 export PYTHONPATH=/opt/forensicauth/src/backend
-# Bibliotecas nativas do projeto (libzero, libtiff, etc.) não ficam no PATH padrão.
-export LD_LIBRARY_PATH=/opt/forensicauth/src/backend/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+# libzero/libtiff são localizados pelo próprio código via FORENSICAUTH_WORKSPACE_ROOT.
 exec celery -A app.celery_app worker -Q celery -c 2 -n cpu-prod2@%h --loglevel=info
 ```
 
@@ -1444,6 +1497,18 @@ exec celery -A app.celery_app worker -Q celery -c 2 -n cpu-prod2@%h --loglevel=i
 chmod +x /opt/forensicauth/run/start-cpu-prod2.sh
 /opt/forensicauth/run/start-cpu-prod2.sh
 ```
+
+(Opcional) Unit systemd `forensicauth-cpu-prod2.service`, espelhando o passo 9.7.1.
+
+### Passo 9.9 — Diagnóstico GPU na PROD-2
+
+```bash
+cd /opt/forensicauth
+conda activate forensicauth
+python scripts/diagnose_gpu.py
+```
+
+Corrija tudo que aparecer como `FAIL` crítico antes de liberar a máquina para produção.
 
 ---
 
