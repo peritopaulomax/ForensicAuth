@@ -1269,14 +1269,14 @@ sudo nano /etc/fstab
 Adicione (uma linha por recurso):
 
 ```text
-<IP_PROD1>:/opt/forensicauth/data/uploads       /opt/forensicauth/data/uploads       nfs defaults,_netdev 0 0
-<IP_PROD1>:/opt/forensicauth/data/results       /opt/forensicauth/data/results       nfs defaults,_netdev 0 0
-<IP_PROD1>:/opt/forensicauth/data/derivatives   /opt/forensicauth/data/derivatives   nfs defaults,_netdev 0 0
-<IP_PROD1>:/opt/forensicauth/data/peritus_cases /opt/forensicauth/data/peritus_cases nfs defaults,_netdev 0 0
-<IP_PROD1>:/opt/forensicauth/data/cache         /opt/forensicauth/data/cache         nfs defaults,_netdev 0 0
-<IP_PROD1>:/opt/forensicauth/models             /opt/forensicauth/models             nfs defaults,_netdev 0 0
-<IP_PROD1>:/opt/forensicauth/reference_data     /opt/forensicauth/reference_data     nfs defaults,_netdev 0 0
-<IP_PROD1>:/opt/forensicauth/vendor             /opt/forensicauth/vendor             nfs defaults,_netdev 0 0
+<IP_PROD1>:/opt/forensicauth/data/uploads       /opt/forensicauth/data/uploads       nfs defaults,_netdev,nofail,x-systemd.automount,x-systemd.requires=network-online.target 0 0
+<IP_PROD1>:/opt/forensicauth/data/results       /opt/forensicauth/data/results       nfs defaults,_netdev,nofail,x-systemd.automount,x-systemd.requires=network-online.target 0 0
+<IP_PROD1>:/opt/forensicauth/data/derivatives   /opt/forensicauth/data/derivatives   nfs defaults,_netdev,nofail,x-systemd.automount,x-systemd.requires=network-online.target 0 0
+<IP_PROD1>:/opt/forensicauth/data/peritus_cases /opt/forensicauth/data/peritus_cases nfs defaults,_netdev,nofail,x-systemd.automount,x-systemd.requires=network-online.target 0 0
+<IP_PROD1>:/opt/forensicauth/data/cache         /opt/forensicauth/data/cache         nfs defaults,_netdev,nofail,x-systemd.automount,x-systemd.requires=network-online.target 0 0
+<IP_PROD1>:/opt/forensicauth/models             /opt/forensicauth/models             nfs defaults,_netdev,nofail,x-systemd.automount,x-systemd.requires=network-online.target 0 0
+<IP_PROD1>:/opt/forensicauth/reference_data     /opt/forensicauth/reference_data     nfs defaults,_netdev,nofail,x-systemd.automount,x-systemd.requires=network-online.target 0 0
+<IP_PROD1>:/opt/forensicauth/vendor             /opt/forensicauth/vendor             nfs defaults,_netdev,nofail,x-systemd.automount,x-systemd.requires=network-online.target 0 0
 ```
 
 Monte tudo:
@@ -1289,13 +1289,34 @@ df -h | grep forensicauth
 Valide que os dois caminhos críticos vieram do NFS (e não do disco local):
 
 ```bash
-mountpoint /opt/forensicauth/vendor /opt/forensicauth/data/cache   # ambos devem dizer "is a mountpoint"
+mountpoint /opt/forensicauth/vendor        # deve dizer "is a mountpoint"
+mountpoint /opt/forensicauth/data/cache    # deve dizer "is a mountpoint"
 ls "/opt/forensicauth/vendor/MIML/models for IML" | head -3        # tem que listar
 ls /opt/forensicauth/vendor/grip-unina-trufor/src/models/cmx | head -3  # tem que listar
 touch /opt/forensicauth/data/cache/.t && rm /opt/forensicauth/data/cache/.t && echo CACHE_OK
 ```
 
 > Se `mountpoint` disser "not a mountpoint", o worker vai cair no diretório local (vendor incompleto do git clone, cache com dono errado) e quebrar os jobs — exatamente os erros `[Errno 13] Permission denied` / `Repositorio MIML ausente` / `No module named 'models.cmx'` vistos em set/2026.
+
+### Passo 9.5.1 — Blindagem: retry automático de mount (obrigatório em produção)
+
+Os mounts usam `x-systemd.automount` (montam sob demanda, no primeiro acesso). **Se a máquina bootar sem rota para a PROD-1** (ex.: queda de energia no ramal/switch), o primeiro acesso falha e o automount falho **não tenta de novo** — a pasta fica o dia inteiro mostrando o diretório local vazio e os jobs quebram com "peso ausente". Incidente real de set/2026 na PROD-2: passou ~29h desmontada após reboot por falta de energia.
+
+Correção automática — um cron de root que roda `mount -a` a cada 5 minutos (idempotente: não faz nada no que já está montado):
+
+```bash
+echo '*/5 * * * * root mount -a 2>/dev/null || true' | sudo tee /etc/cron.d/forensicauth-nfs-retry
+```
+
+**Diagnóstico rápido após qualquer reboot** (pasta "vazia" = mount não subiu; o `findmnt` não dispara automount, então lista só o que já está montado de verdade):
+
+```bash
+findmnt -t nfs | grep forensicauth   # esperado: 8 linhas; vazio = nada montado
+sudo mount -a                        # remonta na hora
+df -h | grep forensicauth
+```
+
+> Como o fstab tem `nofail`, o boot **nunca trava** por causa de mount NFS — mas também **não reclama** quando falha. Por isso o cron de retry acima é o que garante recuperação sem intervenção.
 
 ### Passo 9.6 — Ambiente conda + deps na PROD-2
 
