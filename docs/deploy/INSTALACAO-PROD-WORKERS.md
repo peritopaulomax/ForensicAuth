@@ -74,7 +74,7 @@ Assim o Celery entrega o próximo job da fila `gpu` para qualquer worker livre, 
 ```text
                     [Usuários na LAN]
                            |
-                      http://IP_PROD1
+                      https://IP_PROD1
                            |
         +------------------+------------------+
         |              PROD-1                 |
@@ -815,8 +815,10 @@ GPU_DISTRIBUTED_LOCK=true
 # GPU_ALLOW_CPU_FALLBACK=false
 
 # OBRIGATÓRIO em produção: origens reais do frontend (o validador rejeita localhost).
-# Formato JSON. Ajuste para o IP/hostname da PROD-1:
-CORS_ORIGINS=["http://<IP_PROD1>"]
+# Formato JSON. Use HTTPS (TLS no container frontend — ver deploy/ssl/README.md):
+CORS_ORIGINS=["https://<IP_PROD1>"]
+# Se também usarem hostname no browser, inclua ambos, ex.:
+# CORS_ORIGINS=["https://labfaces02","https://10.61.229.231"]
 
 JPEG_GHOSTS_N_JOBS=12
 PRNU_LOCALIZED_N_JOBS=8
@@ -884,6 +886,19 @@ Salve (`Ctrl+O`, Enter, `Ctrl+X`).
 
 ## 6. Na PROD-1 — subir API + banco + Redis + frontend + worker CPU
 
+### Passo 6.0 — Certificado TLS do frontend (HTTPS)
+
+O container `frontend` escuta **443** (TLS) e redireciona **80 → HTTPS**. Gere um certificado autoassinado **antes** do `up` (os arquivos ficam em `deploy/ssl/`, fora do git):
+
+```bash
+cd /opt/forensicauth
+chmod +x scripts/generate_frontend_tls_cert.sh
+./scripts/generate_frontend_tls_cert.sh <HOSTNAME_OU_IP> <IP_PROD1>
+# Exemplo: ./scripts/generate_frontend_tls_cert.sh labfaces02 10.61.229.231
+```
+
+Detalhes: [`deploy/ssl/README.md`](../../deploy/ssl/README.md). Workers PROD-2/PROD-3 **não** usam este TLS (só Redis/Postgres/NFS).
+
 ### Passo 6.1 — Construir e iniciar
 
 ```bash
@@ -904,7 +919,8 @@ Quando a API subir, saia dos logs com `Ctrl+C`.
 
 ```bash
 curl -s http://127.0.0.1:8000/health
-curl -s http://127.0.0.1/health
+# Via nginx: HTTP redireciona; use HTTPS (-k aceita cert autoassinado)
+curl -sk https://127.0.0.1/health
 ```
 
 Deve aparecer JSON com `"status":"ok"` (ou similar).
@@ -939,8 +955,10 @@ db.close()
 No navegador de outro PC da LAN abra:
 
 ```text
-http://<IP_PROD1>/
+https://<IP_PROD1>/
 ```
+
+(`http://` redireciona para `https://`; o browser pode avisar sobre o certificado autoassinado — aceite a exceção ou importe `deploy/ssl/tls.crt`.)
 
 Use **Primeiro Acesso**, username `admin`, defina senha (mín. 8 caracteres, 1 maiúscula, 1 número).
 
@@ -1676,7 +1694,10 @@ cp -a .env.production secrets backup/secrets_$(date +%F)/ 2>/dev/null || mkdir -
 | Só 1 GPU trabalha no cluster | Todos os workers com o **mesmo** `GPU_LOCK_KEY`. Corrija para chaves distintas por placa. |
 | Job fica `running` por minutos sem progresso / lock preso | Processo filho pode ter travado. O lock expira em `GPU_LOCK_TTL_SECONDS` (padrão 300s). Para liberar imediatamente: mate o processo filho, delete a chave `forensicauth:gpu:<worker>` no Redis e resete o job no banco. |
 | Ada devolve jobs `imdlbenco` com retry no log | **Comportamento esperado.** Ada 2000 16 GB exclui `imdlbenco` (`GPU_EXCLUDED_TECHNIQUES=imdlbenco`) e devolve em 1s para uma 3090 processar. |
-| Página/site não abre de outro PC | Firewall / IP errado. `curl http://<IP_PROD1>/` na PROD-1 e no cliente. |
+| Página/site não abre de outro PC | Firewall / IP errado. `curl -sk https://<IP_PROD1>/` na PROD-1 e no cliente. Confira `deploy/ssl/tls.{crt,key}` e porta 443. |
+| Browser avisa certificado inválido | Esperado com autoassinado. Importe `deploy/ssl/tls.crt` ou aceite a exceção. SAN do cert deve incluir o host/IP digitado. |
+| Login falha após migrar para HTTPS | `CORS_ORIGINS` ainda em `http://…`. Use `https://…` e reinicie o `app`. |
+| Frontend não sobe (`ssl` / mount) | Faltam `deploy/ssl/tls.crt` e `tls.key`. Rode `scripts/generate_frontend_tls_cert.sh`. |
 | Login ok, análise ML “indisponível” | Falta pasta em `models/` ou worker GPU parado. |
 | `403 Forbidden` no `apt-get` durante o build Docker | Rede exige proxy. Configure `~/.docker/config.json` (seção 2.3.1). |
 | `pip install` “trava” baixando metadata de muitas versões | Resolvedor antigo em backtracking. Na imagem já há constraints; manualmente: `pip install --upgrade pip` antes. |

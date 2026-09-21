@@ -111,6 +111,11 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    # Self-signed (or CA-issued) material from scripts/generate_frontend_tls_cert.sh
+    volumes:
+      - ./deploy/ssl/tls.crt:/etc/nginx/ssl/tls.crt:ro
+      - ./deploy/ssl/tls.key:/etc/nginx/ssl/tls.key:ro
     depends_on:
       app:
         condition: service_started

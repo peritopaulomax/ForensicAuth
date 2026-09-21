@@ -14,7 +14,7 @@ npm install
 npm run dev -- --host 0.0.0.0 --port 3000
 ```
 
-Produção: imagem nginx no Compose (`frontend` service).
+Produção: imagem nginx no Compose (`frontend` service) com **TLS na 443** e redirect **80 → HTTPS**. Certificados em `deploy/ssl/` (ver `deploy/ssl/README.md` e `scripts/generate_frontend_tls_cert.sh`).
 
 ## Auth na UI
 
@@ -120,6 +120,7 @@ Em specs que mockam a API, registre um catch-all `**/api/v1/**` **antes** das ro
 - Token em `localStorage` → risco XSS; manter CSP e higiene de deps.  
 - Registry dessincronizado → página 404 ou técnica “sumida”.  
 - Produção sem proxy Vite: nginx deve encaminhar `/api` à API.
+- Em produção o nginx do frontend termina TLS (443) e redireciona HTTP→HTTPS; workers remotos não passam por esse nginx.
 - `index.html` usa Google Fonts; um ambiente air-gapped precisa servir fontes
   localmente ou aceitar o fallback tipográfico.
 - `services/analysis.ts` ainda contém uma chamada legada a `/analysis/jobs`,

@@ -105,6 +105,9 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    # Optional: mount ./deploy/ssl/tls.{crt,key} for a stable SAN.
+    # Without mounts the entrypoint generates an ephemeral self-signed cert.
     depends_on:
       app:
         condition: service_started

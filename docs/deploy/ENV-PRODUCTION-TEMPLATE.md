@@ -58,4 +58,4 @@ COPY_MOVE_PCA_N_JOBS=0
 1. Replace `SECRET_KEY` with a cryptographically secure random string.
 2. Generate Ed25519 custody keys with the Python one-liner in the comments above (conda `forensicauth` + `cryptography`) and paste into `CUSTODY_SIGNING_PRIVATE_KEY` / `CUSTODY_SIGNING_PUBLIC_KEY`.
 3. Replace `POSTGRES_PASSWORD` with a strong database password.
-4. Ensure `CORS_ORIGINS` in `src/backend/app/config.py` or via env is restricted to production origins.
+4. Ensure `CORS_ORIGINS` is restricted to production **HTTPS** origins (see `deploy/ssl/README.md`).

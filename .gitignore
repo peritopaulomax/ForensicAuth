@@ -78,6 +78,12 @@ src/backend/.env
 !.env.example
 !.env.production.example
 
+# Frontend TLS material (option B) — never commit private keys
+deploy/ssl/*.crt
+deploy/ssl/*.key
+deploy/ssl/*.pem
+!deploy/ssl/README.md
+
 # Database
 *.db
 *.sqlite

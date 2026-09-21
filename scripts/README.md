@@ -3,6 +3,7 @@
 | Pasta / arquivo | Uso |
 |-------|-----|
 | `diagnose_gpu.py` | Diagnóstico GPU / deps pesadas / pesos (`MODELS_DIR`) |
+| `generate_frontend_tls_cert.sh` | Certificado autoassinado para o frontend (HTTPS no container nginx) |
 | `technique/` | Scaffold de novas técnicas forenses (simple/medium/comparison/ensemble) |
 | `ingest_synthetic_image_reference.py` | Ingestão de base de imagens sintéticas na população de referência LR |
 | `ingest_audio_spoofing_reference.py` | Ingestão de base de spoofing de áudio na população de referência LR |
