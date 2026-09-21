@@ -65,7 +65,7 @@ export default function FirstAccess() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={8}
+              minLength={10}
             />
           </div>
           <div className="form-group">
@@ -76,10 +76,12 @@ export default function FirstAccess() {
               value={passwordConfirm}
               onChange={(e) => setPasswordConfirm(e.target.value)}
               required
-              minLength={8}
+              minLength={10}
             />
           </div>
-          <p className="form-hint">Mínimo 8 caracteres, 1 maiúscula e 1 número.</p>
+          <p className="form-hint">
+            Mínimo 10 caracteres, com letra maiúscula, minúscula e caractere especial.
+          </p>
           {error && <div className="error-message">{error}</div>}
           {success && <div className="success-message">{success}</div>}
           <button type="submit" disabled={loading}>

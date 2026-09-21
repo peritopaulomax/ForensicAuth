@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = Field(default="HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=15)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=14)
+    # Brute-force throttle (Redis). Existing passwords remain valid until reset/first-access.
+    AUTH_MAX_FAILURES: int = Field(default=8, ge=3, le=50)
+    AUTH_FAILURE_WINDOW_SECONDS: int = Field(default=900, ge=60, le=86400)
+    AUTH_LOCKOUT_SECONDS: int = Field(default=1800, ge=60, le=86400)
 
     @model_validator(mode="after")
     def _validate_production_secrets(self):

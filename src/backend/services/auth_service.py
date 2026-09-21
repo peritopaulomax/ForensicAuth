@@ -74,13 +74,21 @@ class AuthService:
         return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
     def validate_password_strength(self, password: str) -> tuple[bool, str]:
-        """Validate password strength."""
-        if len(password) < 8:
-            return False, "Senha menor que o minimo: deve ter pelo menos 8 caracteres, 1 maiuscula e 1 numero"
+        """Validate password strength for new/changed passwords only.
+
+        Existing hashes remain usable at login until the user resets / first-access.
+        """
+        rule = (
+            "pelo menos 10 caracteres, 1 maiuscula, 1 minuscula e 1 caractere especial"
+        )
+        if len(password) < 10:
+            return False, f"Senha menor que o minimo: deve ter {rule}"
         if not re.search(r"[A-Z]", password):
-            return False, "Senha deve conter pelo menos 1 letra maiuscula e 1 numero"
-        if not re.search(r"\d", password):
-            return False, "Senha deve conter pelo menos 1 numero"
+            return False, f"Senha deve conter {rule}"
+        if not re.search(r"[a-z]", password):
+            return False, f"Senha deve conter {rule}"
+        if not re.search(r"[^A-Za-z0-9]", password):
+            return False, f"Senha deve conter {rule}"
         return True, ""
 
     def create_access_token(self, data: dict) -> str:

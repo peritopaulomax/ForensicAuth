@@ -88,7 +88,13 @@ Gerenciar identidade de usuarios, autenticacao via JWT de acesso curto + refresh
 
 ## Regras de Negocio Especificas
 
-- Senhas devem ter no minimo 8 caracteres, 1 letra maiuscula e 1 numero.
+- Senhas novas devem ter no minimo 10 caracteres, 1 letra maiuscula, 1 minuscula e 1 caractere especial.
+  Senhas ja definidas continuam validas no login ate reset / primeiro acesso.
+- Protecao contra forca bruta: contagem Redis de falhas por username e IP
+  (`AUTH_MAX_FAILURES` padrao 8 na janela `AUTH_FAILURE_WINDOW_SECONDS` 900s);
+  ao atingir o limite, lockout `AUTH_LOCKOUT_SECONDS` (1800s). Evento `AUTH_LOCKOUT`
+  nos logs (`forensicauth.security`). Nginx aplica `limit_req` em `/auth/login` e
+  `/auth/first-access`. A API em producao publica `8000` apenas em `127.0.0.1`.
 - Access JWT: TTL curto via `ACCESS_TOKEN_EXPIRE_MINUTES` (default 15).
 - Refresh opaco: TTL longo via `REFRESH_TOKEN_EXPIRE_DAYS` (default 14); armazenado apenas como hash no DB.
 - Rotacao obrigatoria em `POST /auth/refresh` (one-time refresh).
@@ -107,7 +113,7 @@ Gerenciar identidade de usuarios, autenticacao via JWT de acesso curto + refresh
 | Sem permissao | 403 | "Acesso negado para este recurso" |
 | Username duplicado | 409 | "Username ja existe" |
 | Email duplicado | 409 | "Email ja cadastrado" |
-| Senha fraca | 422 | "Senha deve ter no minimo 8 caracteres, 1 maiuscula e 1 numero" |
+| Senha fraca | 422 | "Senha deve ter pelo menos 10 caracteres, 1 maiuscula, 1 minuscula e 1 caractere especial" |
 
 ## Dados de Entrada/Saida
 

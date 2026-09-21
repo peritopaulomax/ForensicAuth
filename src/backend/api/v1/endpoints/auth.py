@@ -1,15 +1,23 @@
 """Authentication endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_role
+from core.login_throttle import LoginThrottle
+from core.request_client import client_ip_from_request
 from models.user import User
 from services.auth_service import AuthService, AuthenticationError, PermissionDenied
 
 router = APIRouter()
+
+# Generic messages — do not reveal lockout vs bad password (enumeration).
+_LOGIN_FAIL_DETAIL = "Usuario ou senha incorretos"
+_FIRST_ACCESS_FAIL_DETAIL = (
+    "Usuario invalido ou senha ja definida. Verifique o username ou faca login."
+)
 
 
 class LoginRequest(BaseModel):
@@ -72,14 +80,28 @@ class LogoutResponse(BaseModel):
 @router.post("/login", response_model=TokenResponse)
 def login(
     request: LoginRequest,
+    http_request: Request,
     db: Session = Depends(get_db),
 ):
     service = AuthService(db)
-    try:
-        result = service.authenticate(request.username, request.password)
-    except AuthenticationError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+    throttle = LoginThrottle()
+    ip = client_ip_from_request(http_request)
+    username = request.username
 
+    if throttle.is_locked(username=username, ip=ip):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=_LOGIN_FAIL_DETAIL
+        )
+
+    try:
+        result = service.authenticate(username, request.password)
+    except AuthenticationError:
+        throttle.record_failure(username=username, ip=ip)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=_LOGIN_FAIL_DETAIL
+        )
+
+    throttle.clear(username=username, ip=ip)
     return TokenResponse(
         access_token=result.access_token,
         refresh_token=result.refresh_token,
@@ -128,16 +150,33 @@ def logout(
 @router.post("/first-access", response_model=UserResponse)
 def first_access(
     request: FirstAccessRequest,
+    http_request: Request,
     db: Session = Depends(get_db),
 ):
     service = AuthService(db)
+    throttle = LoginThrottle()
+    ip = client_ip_from_request(http_request)
+    username = request.username
+
+    if throttle.is_locked(username=username, ip=ip):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=_FIRST_ACCESS_FAIL_DETAIL
+        )
+
     try:
         user = service.first_access(
-            request.username, request.password, request.password_confirm
+            username, request.password, request.password_confirm
         )
-    except AuthenticationError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+    except AuthenticationError:
+        throttle.record_failure(username=username, ip=ip)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=_FIRST_ACCESS_FAIL_DETAIL
+        )
+    except HTTPException:
+        # Password strength / validation errors (422) — do not count as auth failures.
+        raise
 
+    throttle.clear(username=username, ip=ip)
     return UserResponse(
         id=str(user.id),
         username=user.username,

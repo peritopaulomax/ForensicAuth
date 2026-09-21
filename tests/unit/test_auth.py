@@ -73,9 +73,10 @@ class TestAuthService:
         "password,expected_valid,expected_msg",
         [
             ("abc", False, "menor"),
-            ("abcdefgh", False, "maiuscula"),
-            ("Abcdefgh", False, "numero"),
-            ("Abcdefg1", True, ""),
+            ("abcdefghij", False, "maiuscula"),
+            ("ABCDEFGHIJ", False, "minuscula"),
+            ("Abcdefghij", False, "especial"),
+            ("Abcdefgh1!", True, ""),
         ],
     )
     def test_password_strength(self, password, expected_valid, expected_msg):
@@ -94,14 +95,14 @@ class TestAuthService:
         data = {
             "username": "novoperito",
             "email": "novo@pf.gov.br",
-            "password": "NovaSenha1",
+            "password": "NovaSenha1!",
             "role": "perito",
         }
         user = auth_service.register(data, test_admin)
 
         assert user.username == "novoperito"
         assert user.role == "perito"
-        assert user.hashed_password != "NovaSenha1"
+        assert user.hashed_password != "NovaSenha1!"
 
     def test_register_denied_for_non_admin(self, db_session, test_user):
         """TU-AUTH-007: Non-admin cannot register users."""
@@ -110,7 +111,7 @@ class TestAuthService:
         data = {
             "username": "novoperito",
             "email": "novo@pf.gov.br",
-            "password": "NovaSenha1",
+            "password": "NovaSenha1!",
             "role": "perito",
         }
         with pytest.raises(Exception) as exc_info:
@@ -122,17 +123,17 @@ class TestAuthService:
         from services.auth_service import AuthService
         auth_service = AuthService(db_session)
         with pytest.raises(Exception) as exc_info:
-            auth_service.authenticate("novo.perito", "Qualquer1")
+            auth_service.authenticate("novo.perito", "Qualquer1!")
         assert "primeiro acesso" in str(exc_info.value).lower()
 
     def test_first_access_sets_password(self, db_session, provisioned_user):
         """TU-AUTH-009: First access sets password and enables login."""
         from services.auth_service import AuthService
         auth_service = AuthService(db_session)
-        user = auth_service.first_access("novo.perito", "NovaSenha1", "NovaSenha1")
+        user = auth_service.first_access("novo.perito", "NovaSenha1!", "NovaSenha1!")
         assert user.password_set is True
 
-        result = auth_service.authenticate("novo.perito", "NovaSenha1")
+        result = auth_service.authenticate("novo.perito", "NovaSenha1!")
         assert result.user.username == "novo.perito"
 
     def test_first_access_password_mismatch(self, db_session, provisioned_user):
@@ -140,7 +141,7 @@ class TestAuthService:
         from services.auth_service import AuthService
         auth_service = AuthService(db_session)
         with pytest.raises(Exception) as exc_info:
-            auth_service.first_access("novo.perito", "NovaSenha1", "OutraSenha1")
+            auth_service.first_access("novo.perito", "NovaSenha1!", "OutraSenha1!")
         assert "coincidem" in str(exc_info.value).lower()
 
     def test_refresh_rotates_token(self, db_session, test_user):
@@ -236,10 +237,10 @@ class TestUserService:
             test_admin,
         )
         auth = AuthService(db_session)
-        user = auth.first_access("  pad.user  ", "NovaSenha1", "NovaSenha1")
+        user = auth.first_access("  pad.user  ", "NovaSenha1!", "NovaSenha1!")
         assert user.username == "pad.user"
         assert user.password_set is True
-        result = auth.authenticate(" pad.user ", "NovaSenha1")
+        result = auth.authenticate(" pad.user ", "NovaSenha1!")
         assert result.user.username == "pad.user"
 
     def test_trim_migration_fixes_legacy_whitespace(self, db_session):
@@ -297,8 +298,8 @@ class TestAuthIntegration:
             "/api/v1/auth/first-access",
             json={
                 "username": "novo.perito",
-                "password": "NovaSenha1",
-                "password_confirm": "NovaSenha1",
+                "password": "NovaSenha1!",
+                "password_confirm": "NovaSenha1!",
             },
         )
         assert response.status_code == 200
@@ -306,7 +307,7 @@ class TestAuthIntegration:
 
         login = client.post(
             "/api/v1/auth/login",
-            json={"username": "novo.perito", "password": "NovaSenha1"},
+            json={"username": "novo.perito", "password": "NovaSenha1!"},
         )
         assert login.status_code == 200
         body = login.json()

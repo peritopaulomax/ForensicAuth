@@ -40,11 +40,13 @@
 ### TU-AUTH-005: Validacao de forca de senha
 - **Funcao**: `AuthService.validate_password_strength(password)`
 - **Casos**:
-  - "abc" → False (menor que 8)
-  - "abcdefgh" → False (sem maiuscula)
-  - "Abcdefgh" → False (sem numero)
-  - "Abcdefg1" → True
+  - "abc" → False (menor que 10)
+  - "abcdefghij" → False (sem maiuscula)
+  - "ABCDEFGHIJ" → False (sem minuscula)
+  - "Abcdefghij" → False (sem caractere especial)
+  - "Abcdefgh1!" → True
 - **Saida esperada**: Tupla (bool, mensagem_erro)
+- **Nota**: validacao so em senhas novas (register / first-access / apos reset); hashes existentes seguem validos no login
 
 ### TU-AUTH-006: Registro por Admin
 - **Funcao**: `AuthService.register(data, current_user)`

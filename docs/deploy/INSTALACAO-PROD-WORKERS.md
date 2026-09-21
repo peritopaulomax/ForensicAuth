@@ -918,6 +918,7 @@ Quando a API subir, saia dos logs com `Ctrl+C`.
 ### Passo 6.3 — Testar saúde
 
 ```bash
+# API só em loopback (127.0.0.1:8000) — LAN usa HTTPS no nginx
 curl -s http://127.0.0.1:8000/health
 # Via nginx: HTTP redireciona; use HTTPS (-k aceita cert autoassinado)
 curl -sk https://127.0.0.1/health
@@ -960,7 +961,7 @@ https://<IP_PROD1>/
 
 (`http://` redireciona para `https://`; o browser pode avisar sobre o certificado autoassinado — aceite a exceção ou importe `deploy/ssl/tls.crt`.)
 
-Use **Primeiro Acesso**, username `admin`, defina senha (mín. 8 caracteres, 1 maiúscula, 1 número).
+Use **Primeiro Acesso**, username `admin`, defina senha (mín. **10** caracteres, 1 maiúscula, 1 minúscula e 1 caractere especial). Senhas antigas continuam válidas no login até um reset/primeiro acesso gerar senha nova.
 
 ---
 

@@ -36,8 +36,9 @@ services:
     container_name: forensicauth-app-prod
     user: "1000:1000"
     restart: unless-stopped
+    # Bind to loopback only — LAN clients must use nginx (:443). Workers use Docker DNS `app:8000`.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env.production
     environment:
