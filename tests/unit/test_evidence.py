@@ -155,6 +155,23 @@ class TestEvidenceService:
                 uploaded_by=test_user.id,
             )
 
+    def test_upload_m4a_even_when_browser_sends_video_mp4(
+        self, db_session, sample_case, test_user
+    ):
+        """M4A entra como audio; alguns browsers rotulam o arquivo como video/mp4."""
+        service = EvidenceService(db_session)
+        evidence = service.upload_evidence(
+            case_id=sample_case.id,
+            filename="gravacao.m4a",
+            mime_type="video/mp4",
+            file_obj=io.BytesIO(b"\x00\x00\x00\x18ftypM4A "),
+            uploaded_by=test_user.id,
+        )
+        assert evidence.file_type == "audio"
+
+        by_mime = service._infer_file_type("audio/mp4", "sem-extensao")
+        assert by_mime == "audio"
+
     def test_reject_unsupported_type(self, db_session, sample_case, test_user):
         """TU-EVD-005: Reject unsupported file type."""
         service = EvidenceService(db_session)

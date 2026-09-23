@@ -30,6 +30,10 @@ MIME_TYPE_MAP = {
     "audio/x-wav": "audio",
     "audio/ogg": "audio",
     "audio/opus": "audio",
+    "audio/mp4": "audio",
+    "audio/m4a": "audio",
+    "audio/x-m4a": "audio",
+    "audio/aac": "audio",
     "video/mp4": "video",
     "video/avi": "video",
     "video/x-msvideo": "video",
@@ -64,16 +68,17 @@ class EvidenceService:
 
     def _infer_file_type(self, mime_type: str | None, filename: str) -> str:
         """Infer evidence type from MIME type or filename extension."""
+        ext = Path(filename).suffix.lower()
+        # Extensao de audio vence MIME ambiguo (browsers mandam video/mp4 para .m4a).
+        if ext in (".mp3", ".wav", ".ogg", ".opus", ".oga", ".m4a", ".aac"):
+            return "audio"
         if mime_type:
             mapped = MIME_TYPE_MAP.get(mime_type.lower())
             if mapped:
                 return mapped
         # Extension when MIME is missing or unmapped.
-        ext = Path(filename).suffix.lower()
         if ext in (".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".webp"):
             return "imagem"
-        if ext in (".mp3", ".wav", ".ogg", ".opus", ".oga"):
-            return "audio"
         if ext in (".mp4", ".avi", ".mpeg", ".mpg", ".mov"):
             return "video"
         if ext == ".pdf":
