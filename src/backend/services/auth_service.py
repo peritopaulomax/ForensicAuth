@@ -79,13 +79,16 @@ class AuthService:
         Existing hashes remain usable at login until the user resets / first-access.
         """
         rule = (
-            "pelo menos 10 caracteres, 1 maiuscula, 1 minuscula e 1 caractere especial"
+            "pelo menos 10 caracteres, 1 maiuscula, 1 minuscula, 1 numero "
+            "e 1 caractere especial"
         )
         if len(password) < 10:
             return False, f"Senha menor que o minimo: deve ter {rule}"
         if not re.search(r"[A-Z]", password):
             return False, f"Senha deve conter {rule}"
         if not re.search(r"[a-z]", password):
+            return False, f"Senha deve conter {rule}"
+        if not re.search(r"\d", password):
             return False, f"Senha deve conter {rule}"
         if not re.search(r"[^A-Za-z0-9]", password):
             return False, f"Senha deve conter {rule}"

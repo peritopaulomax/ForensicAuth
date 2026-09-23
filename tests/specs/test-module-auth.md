@@ -43,7 +43,8 @@
   - "abc" → False (menor que 10)
   - "abcdefghij" → False (sem maiuscula)
   - "ABCDEFGHIJ" → False (sem minuscula)
-  - "Abcdefghij" → False (sem caractere especial)
+  - "Abcdefghij" → False (sem numero)
+  - "Abcdefgh1x" → False (sem caractere especial)
   - "Abcdefgh1!" → True
 - **Saida esperada**: Tupla (bool, mensagem_erro)
 - **Nota**: validacao so em senhas novas (register / first-access / apos reset); hashes existentes seguem validos no login

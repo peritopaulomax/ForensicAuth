@@ -75,7 +75,8 @@ class TestAuthService:
             ("abc", False, "menor"),
             ("abcdefghij", False, "maiuscula"),
             ("ABCDEFGHIJ", False, "minuscula"),
-            ("Abcdefghij", False, "especial"),
+            ("Abcdefghij", False, "numero"),
+            ("Abcdefgh1x", False, "especial"),
             ("Abcdefgh1!", True, ""),
         ],
     )

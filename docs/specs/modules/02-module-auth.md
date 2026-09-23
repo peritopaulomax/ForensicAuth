@@ -88,7 +88,8 @@ Gerenciar identidade de usuarios, autenticacao via JWT de acesso curto + refresh
 
 ## Regras de Negocio Especificas
 
-- Senhas novas devem ter no minimo 10 caracteres, 1 letra maiuscula, 1 minuscula e 1 caractere especial.
+- Senhas novas devem ter no minimo 10 caracteres, 1 letra maiuscula, 1 minuscula,
+  1 numero e 1 caractere especial.
   Senhas ja definidas continuam validas no login ate reset / primeiro acesso.
 - Protecao contra forca bruta: contagem Redis de falhas por username e IP
   (`AUTH_MAX_FAILURES` padrao 8 na janela `AUTH_FAILURE_WINDOW_SECONDS` 900s);
@@ -113,7 +114,7 @@ Gerenciar identidade de usuarios, autenticacao via JWT de acesso curto + refresh
 | Sem permissao | 403 | "Acesso negado para este recurso" |
 | Username duplicado | 409 | "Username ja existe" |
 | Email duplicado | 409 | "Email ja cadastrado" |
-| Senha fraca | 422 | "Senha deve ter pelo menos 10 caracteres, 1 maiuscula, 1 minuscula e 1 caractere especial" |
+| Senha fraca | 422 | "Senha deve ter pelo menos 10 caracteres, 1 maiuscula, 1 minuscula, 1 numero e 1 caractere especial" |
 
 ## Dados de Entrada/Saida
 

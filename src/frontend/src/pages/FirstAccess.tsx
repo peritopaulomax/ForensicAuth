@@ -80,7 +80,8 @@ export default function FirstAccess() {
             />
           </div>
           <p className="form-hint">
-            Mínimo 10 caracteres, com letra maiúscula, minúscula e caractere especial.
+            Mínimo 10 caracteres, com letra maiúscula, minúscula, número e caractere
+            especial.
           </p>
           {error && <div className="error-message">{error}</div>}
           {success && <div className="success-message">{success}</div>}

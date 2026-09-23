@@ -961,7 +961,7 @@ https://<IP_PROD1>/
 
 (`http://` redireciona para `https://`; o browser pode avisar sobre o certificado autoassinado — aceite a exceção ou importe `deploy/ssl/tls.crt`.)
 
-Use **Primeiro Acesso**, username `admin`, defina senha (mín. **10** caracteres, 1 maiúscula, 1 minúscula e 1 caractere especial). Senhas antigas continuam válidas no login até um reset/primeiro acesso gerar senha nova.
+Use **Primeiro Acesso**, username `admin`, defina senha (mín. **10** caracteres, 1 maiúscula, 1 minúscula, 1 número e 1 caractere especial). Senhas antigas continuam válidas no login até um reset/primeiro acesso gerar senha nova.
 
 ---
 
