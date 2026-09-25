@@ -180,13 +180,13 @@ def test_signed_pdf_human_relatorio_and_integrity(signed_pdf_ready: Path, tmp_pa
     assert out.get("anchors_from_file") is True
 
     report = (out_dir / "signatures_report.txt").read_text(encoding="utf-8")
-    assert report.splitlines()[0] == "# Relatório"
+    assert report.splitlines()[0] == "# Relatório — assinaturas digitais em PDF"
     assert "Laudo" not in report
     assert "Relatório técnico" not in report
-    assert "## Resumo" in report
+    assert "## 1. Resumo" in report
     assert "Veredito resumido" not in report
     assert "Perito Assinante" in report or "SigForense" in report
-    assert "Íntegra" in report or "Integridade" in report or "integra" in report.lower()
+    assert "Confere" in report
     assert "PAdES" in report or "B-B" in report
     assert (
         "circular" in report.lower()
