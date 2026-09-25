@@ -35,6 +35,11 @@ from core.preview_effective import (
     sync_job_runtime_receipt,
 )
 from core.preview_materialize import materialize_preview_artifact
+from forensics.audio.audio_overlay_html import (
+    AUDIO_OVERLAY_HTML_FILES,
+    load_plot_bundle,
+    write_overlay_html,
+)
 from core.reproducibility import (
     build_promoted_reproducibility_record,
     load_job_execution_receipt,
@@ -48,6 +53,11 @@ def _sanitize_display_stem(value: str) -> str:
     text = re.sub(r"[^\w.\- +()\[\]]+", "_", text, flags=re.UNICODE)
     text = re.sub(r"_+", "_", text).strip("._ ")
     return text[:180]
+
+
+_AUDIO_OVERLAY_TECHNIQUES = frozenset(
+    {"audio_enf", "audio_levels", "audio_dc_local", "audio_ltas"}
+)
 
 
 class DerivativeSaveError(Exception):
@@ -172,6 +182,7 @@ class DerivativeService:
             ".jpx2": ("imagem", "image/jpx"),
             ".json": ("documento", "application/json"),
             ".txt": ("documento", "text/plain"),
+            ".html": ("documento", "text/html"),
         }
         hit = mapping.get(ext.lower())
         if hit:
@@ -436,6 +447,73 @@ class DerivativeService:
             parents_ev.append((fingerprint, "fingerprint"))
         return [parent_ref_from_evidence(ev, role) for ev, role in parents_ev]
 
+    def _audio_overlay_parent_inputs(
+        self,
+        job: AnalysisJob,
+        questioned: Evidence,
+        job_result: dict[str, Any] | None,
+    ) -> Tuple[List[dict[str, Any]], str, str] | None:
+        """Varias curvas visiveis viram varios pais. Uma curva segue o pai unico."""
+        if job.technique not in _AUDIO_OVERLAY_TECHNIQUES:
+            return None
+        params = (job_result or {}).get("effective_parameters")
+        if not isinstance(params, dict) or params.get("view") != "client_overlay_composite":
+            return None
+        layers = params.get("comparison_layers")
+        if not isinstance(layers, list) or len(layers) < 2:
+            return None
+
+        parents: list[dict[str, Any]] = []
+        seen_jobs: set[str] = set()
+        for index, layer in enumerate(layers):
+            if not isinstance(layer, dict):
+                raise DerivativeSaveError("Camada de comparacao de audio invalida")
+            try:
+                layer_job_id = uuid.UUID(str(layer.get("job_id")))
+                layer_evidence_id = uuid.UUID(str(layer.get("evidence_id")))
+            except (TypeError, ValueError) as exc:
+                raise DerivativeSaveError(
+                    "Camada de comparacao de audio sem job ou evidencia"
+                ) from exc
+            job_key = str(layer_job_id)
+            if job_key in seen_jobs:
+                raise DerivativeSaveError("Camada de comparacao de audio repetida")
+            seen_jobs.add(job_key)
+
+            layer_job = (
+                self.db.query(AnalysisJob).filter(AnalysisJob.id == layer_job_id).first()
+            )
+            if layer_job is None or layer_job.status != "completed":
+                raise DerivativeSaveError(
+                    "Job de uma camada da comparacao nao esta concluido"
+                )
+            if layer_job.technique != job.technique:
+                raise DerivativeSaveError(
+                    "Camadas da comparacao precisam ser da mesma tecnica"
+                )
+            if layer_job.evidence_id != layer_evidence_id:
+                raise DerivativeSaveError("Evidencia da camada nao corresponde ao job")
+
+            evidence = self._load_evidence(layer_evidence_id)
+            if evidence is None or evidence.case_id != questioned.case_id:
+                raise DerivativeSaveError(
+                    "Evidencia da camada nao pertence ao mesmo caso"
+                )
+
+            label = layer.get("evidence_label") or evidence.original_filename
+            ref = parent_ref_from_evidence(
+                evidence, "compared", label=str(label) if label else None
+            )
+            ref["order"] = index
+            ref["source_job_id"] = str(layer_job_id)
+            parents.append(ref)
+
+        if str(job.id) not in seen_jobs:
+            raise DerivativeSaveError(
+                "O job ancorado da comparacao nao esta entre as camadas"
+            )
+        return parents, "audio_overlay_comparison_save", "audio_overlay_html"
+
     def _resolve_job_parent_inputs(
         self,
         job: AnalysisJob,
@@ -444,6 +522,10 @@ class DerivativeService:
         job_result: dict[str, Any] | None = None,
     ) -> Tuple[List[dict[str, Any]], str, str]:
         """Retorna (parent_inputs, derivation_step, artifact_role)."""
+        overlay = self._audio_overlay_parent_inputs(job, questioned, job_result)
+        if overlay is not None:
+            return overlay
+
         if job.technique == "prnu":
             lower = artifact_filename.lower()
             if "correlation_surface" in lower:
@@ -569,6 +651,68 @@ class DerivativeService:
         step = f"{job.technique}_artifact_save"
         return parent_inputs, step, artifact_role
 
+    def _materialize_audio_overlay_html(
+        self,
+        job: AnalysisJob,
+        questioned: Evidence,
+        results_dir: Path,
+        artifact_filename: str,
+        params: dict[str, Any],
+    ) -> None:
+        """Grava o HTML da composicao no job ancora, a partir do JSON de cada camada."""
+        if artifact_filename not in AUDIO_OVERLAY_HTML_FILES:
+            return
+        panel = AUDIO_OVERLAY_HTML_FILES[artifact_filename]
+        layers = params.get("comparison_layers")
+        if not isinstance(layers, list) or len(layers) < 2:
+            layers = [
+                {
+                    "job_id": str(job.id),
+                    "evidence_id": str(questioned.id),
+                    "evidence_label": questioned.original_filename,
+                }
+            ]
+
+        from services.job_service import build_job_result_dir
+
+        loaded: list[tuple[str, dict[str, Any]]] = []
+        for layer in layers:
+            if not isinstance(layer, dict):
+                raise DerivativeSaveError("Camada de comparacao de audio invalida")
+            try:
+                layer_job_id = uuid.UUID(str(layer.get("job_id")))
+            except (TypeError, ValueError) as exc:
+                raise DerivativeSaveError(
+                    "Camada de comparacao de audio sem job"
+                ) from exc
+            layer_job = (
+                self.db.query(AnalysisJob).filter(AnalysisJob.id == layer_job_id).first()
+            )
+            if layer_job is None:
+                raise DerivativeSaveError("Job de uma camada da comparacao nao encontrado")
+            evidence = self._load_evidence(layer_job.evidence_id)
+            if evidence is None:
+                raise DerivativeSaveError("Evidencia da camada nao encontrada")
+            layer_dir = build_job_result_dir(
+                self.settings.RESULTS_DIR,
+                evidence.case_id,
+                evidence.id,
+                layer_job.id,
+            )
+            label = str(layer.get("evidence_label") or evidence.original_filename or "audio")
+            try:
+                bundle = load_plot_bundle(layer_dir, panel)
+            except (OSError, json.JSONDecodeError, FileNotFoundError) as exc:
+                raise DerivativeSaveError(
+                    f"Dados do grafico ausentes para '{label}'"
+                ) from exc
+            loaded.append((label, bundle))
+
+        try:
+            write_overlay_html(results_dir, artifact_filename, loaded)
+        except (OSError, ValueError) as exc:
+            raise DerivativeSaveError(str(exc)) from exc
+
     def _register_derivative_custody(
         self,
         *,
@@ -654,6 +798,12 @@ class DerivativeService:
         sync_job_parameters(job, params)
         sync_job_runtime_receipt(job, results_dir, params)
         job_result = _load_result_json_from_dir(results_dir)
+        parent_inputs, derivation_step, artifact_role = self._resolve_job_parent_inputs(
+            job, parent, artifact_filename, job_result=job_result
+        )
+        self._materialize_audio_overlay_html(
+            job, parent, results_dir, artifact_filename, params
+        )
 
         artifact_path = results_dir / artifact_filename
         if not artifact_path.exists():
@@ -680,10 +830,6 @@ class DerivativeService:
         out_file_type, out_mime = self._file_type_and_mime_for_derivative(ext, parent)
 
         provenance_technique = self._effective_derivation_technique(job, job_result)
-
-        parent_inputs, derivation_step, artifact_role = self._resolve_job_parent_inputs(
-            job, parent, artifact_filename, job_result=job_result
-        )
 
         outputs_metrics = None
         if job.technique == "prnu" and "correlation_surface" in artifact_filename.lower():
@@ -837,6 +983,18 @@ class DerivativeService:
                 outputs_metrics["method"] = provenance_technique
         else:
             procedure_summary = procedure_summary
+
+        if derivation_step == "audio_overlay_comparison_save":
+            names = [
+                str(p.get("original_filename") or p.get("label") or "")
+                for p in parent_inputs
+            ]
+            procedure_summary = "Comparacao de audio · " + " · ".join(n for n in names if n)
+            outputs_metrics = {
+                "input_count": len(parent_inputs),
+                "source_job_ids": [str(p.get("source_job_id")) for p in parent_inputs],
+                "view": "client_overlay_composite",
+            }
 
         job_completed_at = None
         if job.completed_at:

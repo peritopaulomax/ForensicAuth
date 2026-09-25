@@ -180,8 +180,11 @@ def test_signed_pdf_human_relatorio_and_integrity(signed_pdf_ready: Path, tmp_pa
     assert out.get("anchors_from_file") is True
 
     report = (out_dir / "signatures_report.txt").read_text(encoding="utf-8")
-    assert "Relatório técnico" in report
-    assert "Veredito resumido" in report or "veredito" in report.lower()
+    assert report.splitlines()[0] == "# Relatório"
+    assert "Laudo" not in report
+    assert "Relatório técnico" not in report
+    assert "## Resumo" in report
+    assert "Veredito resumido" not in report
     assert "Perito Assinante" in report or "SigForense" in report
     assert "Íntegra" in report or "Integridade" in report or "integra" in report.lower()
     assert "PAdES" in report or "B-B" in report
@@ -200,6 +203,46 @@ def test_signed_pdf_human_relatorio_and_integrity(signed_pdf_ready: Path, tmp_pa
     assert (out_dir / "signatures.json").exists()
     pems = list((out_dir / "signatures" / "certs").glob("*.pem"))
     assert len(pems) >= 1
+
+
+def test_orphan_signature_survives_empty_acroform(signed_pdf_ready: Path, tmp_path: Path, monkeypatch):
+    """Campo removido do AcroForm depois da assinatura ainda entra no laudo."""
+    from pyhanko.pdf_utils.generic import ArrayObject
+    from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+
+    from forensics.pdf import pdf_signatures as ps
+    from forensics.pdf import pdfsig_forense as eng
+
+    gutted = tmp_path / "gutted.pdf"
+    with open(signed_pdf_ready, "rb") as inf:
+        writer = IncrementalPdfFileWriter(inf)
+        acro = writer.root["/AcroForm"]
+        acro["/Fields"] = ArrayObject()
+        writer.update_container(acro)
+        with open(gutted, "wb") as outf:
+            writer.write(outf)
+
+    monkeypatch.setattr(
+        ps,
+        "_options_from_settings",
+        lambda: eng.AnalysisOptions(
+            trust_anchors=[],
+            fetch=False,
+            redact=True,
+            tz=-3.0,
+        ),
+    )
+    out_dir = tmp_path / "orphan_out"
+    out = analyze_pdf_signatures(str(gutted), out_dir)
+    report = (out_dir / "signatures_report.txt").read_text(encoding="utf-8")
+
+    assert out["signed"] is True
+    assert out["signature_count"] == 1
+    assert out["signatures"][0]["orphan"] is True
+    assert out["signatures"][0]["digest_ok"] is True
+    assert "órfã" in out["signatures"][0]["human_verdict"]["headline"].lower()
+    assert "não contém assinatura digital alguma" not in report.lower()
+    assert "ORPHAN_SIGNATURE" in report or "órfã" in report.lower()
 
 
 def test_run_extract_pipeline_includes_signatures(signed_pdf_ready: Path, tmp_path: Path):

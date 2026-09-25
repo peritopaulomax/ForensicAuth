@@ -507,7 +507,11 @@ export default function PDFForensicExtractAnalysis() {
         <AnalysisPanel title="Assinaturas digitais">
           <p style={hintStyle}>
             {pdfSigned
-              ? `${signatureCount} assinatura(s) analisada(s) com pdfsig_forense (PAdES/ICP). Relatório abaixo, não substitui validar.iti.gov.br.`
+              ? `${signatureCount} assinatura(s) analisada(s) com pdfsig_forense (PAdES/ICP).${
+                  sigMessage.includes("órf")
+                    ? " Há assinatura recuperada fora do AcroForm: validadores comuns podem não vê-la."
+                    : ""
+                } Relatório abaixo, não substitui validar.iti.gov.br.`
               : "Nenhuma assinatura digital embutida neste PDF."}
           </p>
           {sigMessage && (

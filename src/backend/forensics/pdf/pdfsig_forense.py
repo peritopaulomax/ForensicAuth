@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-pdfsig_forense: análise forense de assinaturas digitais em PDF (PAdES/CAdES),
+pdfsig_forense.py — Análise forense de assinaturas digitais em PDF (PAdES/CAdES),
 com ênfase em ICP-Brasil, produzindo relatório humanizado em Markdown.
 
-Integrado ao ForensicAuth (`forensics.pdf.pdf_signatures`). Também pode ser
-executado como CLI:
+Integrado ao ForensicAuth (`forensics.pdf.pdf_signatures.analyze_pdf_signatures`),
+que chama `analyze_pdf_file`. Também roda como CLI.
 
-    python -m forensics.pdf.pdfsig_forense documento.pdf -o relatorio.md
+Uso básico:
+    python3 pdfsig_forense.py documento.pdf
+    python3 pdfsig_forense.py documento.pdf -o laudo.md --json dados.json
 
-O motor é offline por padrão (não consulta rede). Use --fetch / PDF_SIG_FETCH
-para permitir download de intermediárias/LCR/OCSP durante a validação de caminho.
+Dependências:
+    pip install pyhanko asn1crypto cryptography
+
+O script é 100%% offline por padrão (não consulta rede). Use --fetch para
+permitir download de intermediárias/LCR/OCSP durante a validação de caminho.
+
+Licença: uso livre. Fornecido "como está", sem garantia.
 """
 
 from __future__ import annotations
@@ -20,7 +27,9 @@ import asyncio
 import datetime
 import hashlib
 import json
+import logging
 import os
+import re
 import sys
 import textwrap
 import traceback
@@ -32,20 +41,16 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 # ----------------------------------------------------------------------------
 try:
     from asn1crypto import cms, core, crl as asn1crl, ocsp as asn1ocsp, tsp, x509
-except ImportError as exc:  # pragma: no cover
-    raise ImportError(
-        "Falta a biblioteca asn1crypto. Instale: pip install asn1crypto"
-    ) from exc
+except ImportError:  # pragma: no cover
+    sys.exit("Falta a biblioteca asn1crypto. Instale: pip install asn1crypto")
 
 try:
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives import hashes as chashes
     from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa, utils as asym_utils
     from cryptography.hazmat.primitives.serialization import load_der_public_key
-except ImportError as exc:  # pragma: no cover
-    raise ImportError(
-        "Falta a biblioteca cryptography. Instale: pip install cryptography"
-    ) from exc
+except ImportError:  # pragma: no cover
+    sys.exit("Falta a biblioteca cryptography. Instale: pip install cryptography")
 
 try:
     from pyhanko.pdf_utils import generic
@@ -53,13 +58,15 @@ try:
     from pyhanko.sign.diff_analysis import DEFAULT_DIFF_POLICY
     from pyhanko.sign.validation.settings import KeyUsageConstraints  # noqa: F401
     from pyhanko_certvalidator import CertificateValidator, ValidationContext
-except ImportError as exc:  # pragma: no cover
-    raise ImportError(
-        "Falta a biblioteca pyHanko. Instale: pip install pyhanko"
-    ) from exc
+except ImportError:  # pragma: no cover
+    sys.exit("Falta a biblioteca pyHanko. Instale: pip install pyhanko")
 
+VERSION = "1.2"
 
-VERSION = "1.1-forensicauth"
+# A varredura histórica consulta objetos que podem não existir em revisões
+# antigas; o pyHanko registra isso como aviso. É esperado, e poluiria o console.
+logging.getLogger("pyhanko").setLevel(logging.ERROR)
+logging.getLogger("pyhanko_certvalidator").setLevel(logging.ERROR)
 
 # ----------------------------------------------------------------------------
 # Tabelas de OIDs
@@ -89,23 +96,25 @@ ICPBR_POLICY_ARCS = [
     ("2.16.76.1.2.103.", "Certificado de sigilo tipo S3 (ICP-Brasil)"),
     ("2.16.76.1.2.104.", "Certificado de sigilo tipo S4 (ICP-Brasil)"),
     ("2.16.76.1.6.", "Política de Carimbo do Tempo (ICP-Brasil)"),
+    ("2.16.76.3.", "Assinatura eletrônica AVANÇADA gov.br — hierarquia do Governo "
+                   "Federal, distinta da ICP-Brasil"),
     ("2.16.76.1.", "Política ICP-Brasil (arco não mapeado por este script)"),
 ]
 
 # Extensões proprietárias encontradas dentro de TSTInfo na ICP-Brasil.
 TST_EXT_HINTS = {
-    "1.3.6.1.4.1.44588": "Arco ITI/ICP-Brasil (Declaração de Sincronismo da "
+    "1.3.6.1.4.1.44588": "Arco ITI/ICP-Brasil — Declaração de Sincronismo da "
                          "Entidade de Auditoria do Tempo (EAT)",
 }
 
 SEVERITY_ORDER = {"CRITICO": 0, "ALERTA": 1, "ATENCAO": 2, "OK": 3, "INFO": 4}
 MODLEVEL_HUMAN = {
     "NONE": "nada foi alterado",
-    "LTA_UPDATES": "apenas material de validação de longo prazo (DSS/carimbo), "
+    "LTA_UPDATES": "apenas material de validação de longo prazo (DSS/carimbo) — "
                    "reconhecidamente benigno",
     "FORM_FILLING": "preenchimento de campos de formulário",
     "ANNOTATIONS": "inclusão de anotações",
-    "OTHER": "alterações fora do escopo permitido (exigem exame manual)",
+    "OTHER": "alterações fora do escopo permitido — exigem exame manual",
 }
 
 SEVERITY_LABEL = {
@@ -116,7 +125,6 @@ SEVERITY_LABEL = {
     "INFO": "INFO",
 }
 
-
 # ----------------------------------------------------------------------------
 # Utilidades
 # ----------------------------------------------------------------------------
@@ -124,14 +132,12 @@ SEVERITY_LABEL = {
 def fp(cert: x509.Certificate, algo: str = "sha256") -> str:
     return getattr(cert, algo).hex().upper()
 
-
 def dn(name) -> str:
     """Distinguished Name legível, em ordem estável."""
     try:
         return name.human_friendly
     except Exception:
         return str(name.native)
-
 
 def cn_of(cert: x509.Certificate) -> str:
     try:
@@ -141,7 +147,6 @@ def cn_of(cert: x509.Certificate) -> str:
         return v or dn(cert.subject)
     except Exception:
         return "<sem CN>"
-
 
 def fmt_dt(dt: Optional[datetime.datetime], tz_offset_hours: Optional[float] = None) -> str:
     if dt is None:
@@ -158,14 +163,12 @@ def fmt_dt(dt: Optional[datetime.datetime], tz_offset_hours: Optional[float] = N
                 f"{abs(int(tz_offset_hours)):02d})")
     return out
 
-
 def fmt_size(n: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if abs(n) < 1024 or unit == "GB":
             return f"{n:,.0f} {unit}".replace(",", ".") if unit == "B" else f"{n / 1:,.1f} {unit}".replace(",", ".")
         n /= 1024.0
     return str(n)
-
 
 def human_bytes(n: int) -> str:
     if n < 1024:
@@ -174,10 +177,8 @@ def human_bytes(n: int) -> str:
         return f"{n / 1024:.1f} KB"
     return f"{n / 1024 ** 2:.2f} MB"
 
-
 def thousands(n: int) -> str:
     return f"{n:,}".replace(",", ".")
-
 
 def redact_digits(s: str, keep_head: int = 0) -> str:
     out = []
@@ -188,20 +189,17 @@ def redact_digits(s: str, keep_head: int = 0) -> str:
             out.append(ch)
     return "".join(out)
 
-
 def policy_meaning(oid: str) -> Optional[str]:
     for prefix, label in ICPBR_POLICY_ARCS:
         if oid.startswith(prefix):
             return label
     return None
 
-
 def safe(fn, default=None):
     try:
         return fn()
     except Exception:
         return default
-
 
 # ----------------------------------------------------------------------------
 # Achados
@@ -215,16 +213,11 @@ class Finding:
     detail: str = ""
     scope: str = "documento"
 
-    def __post_init__(self) -> None:
-        # Relatório: apenas o título (descrição geral); sem texto explicativo.
-        self.detail = ""
-
     def as_dict(self) -> dict:
         return {
             "severity": self.severity, "code": self.code, "title": self.title,
             "detail": self.detail, "scope": self.scope,
         }
-
 
 # ----------------------------------------------------------------------------
 # Verificação criptográfica genérica
@@ -239,7 +232,6 @@ HASHES = {
 
 WEAK_HASHES = {"md5", "sha1"}
 
-
 def algo_label(name: Optional[str]) -> str:
     """'sha256' -> 'SHA-256'; 'sha3_512' -> 'SHA3-512'."""
     if not name:
@@ -251,14 +243,12 @@ def algo_label(name: Optional[str]) -> str:
         return "SHA-" + n[3:]
     return name.upper()
 
-
 def digest_bytes(data: bytes, algo: str) -> bytes:
     algo = algo.replace("-", "_")
     h = hashlib.new({"sha3_256": "sha3_256", "sha3_384": "sha3_384",
                      "sha3_512": "sha3_512"}.get(algo, algo))
     h.update(data)
     return h.digest()
-
 
 def verify_raw_signature(pubkey_der: bytes, signature: bytes, signed_bytes: bytes,
                          sig_algo, fallback_hash: Optional[str] = None
@@ -267,7 +257,7 @@ def verify_raw_signature(pubkey_der: bytes, signature: bytes, signed_bytes: byte
     Verifica assinatura RSA (PKCS#1 v1.5 ou PSS), ECDSA ou DSA.
 
     Em CMS é comum o signatureAlgorithm ser apenas 'rsaEncryption', sem indicar a
-    função de hash (que nesse caso vem do campo digestAlgorithm do SignerInfo).
+    função de hash — que nesse caso vem do campo digestAlgorithm do SignerInfo.
     É para isso que serve fallback_hash.
     """
     try:
@@ -310,7 +300,6 @@ def verify_raw_signature(pubkey_der: bytes, signature: bytes, signed_bytes: byte
     except Exception as e:
         return False, f"erro na verificação: {e}"
 
-
 def verify_cert_signature(child: x509.Certificate,
                           parent: x509.Certificate) -> Tuple[bool, str]:
     return verify_raw_signature(
@@ -318,14 +307,12 @@ def verify_cert_signature(child: x509.Certificate,
         child["tbs_certificate"].dump(), child["signature_algorithm"],
     )
 
-
 def verify_crl_signature(crl_obj: asn1crl.CertificateList,
                          issuer: x509.Certificate) -> Tuple[bool, str]:
     return verify_raw_signature(
         issuer.public_key.dump(), crl_obj["signature"].native,
         crl_obj["tbs_cert_list"].dump(), crl_obj["signature_algorithm"],
     )
-
 
 def key_description(cert: x509.Certificate) -> str:
     try:
@@ -337,7 +324,6 @@ def key_description(cert: x509.Certificate) -> str:
         return f"{algo.upper()} {bits} bits"
     except Exception:
         return "?"
-
 
 # ----------------------------------------------------------------------------
 # Coleta de material criptográfico espalhado pelo arquivo
@@ -385,7 +371,6 @@ class Harvest:
     def crl_list(self) -> List[asn1crl.CertificateList]:
         return list(self.crls.values())
 
-
 def try_parse_der(blob: bytes, harvest: Harvest, origin: str) -> bool:
     """Tenta interpretar um blob como certificado, LCR ou resposta OCSP."""
     if not blob or len(blob) < 64 or blob[0] != 0x30:
@@ -406,11 +391,10 @@ def try_parse_der(blob: bytes, harvest: Harvest, origin: str) -> bool:
             continue
     return False
 
-
 def harvest_from_pdf(reader: PdfFileReader, max_obj_scan: int = 100000) -> Harvest:
     """
     Varre TODOS os objetos de TODAS as revisões procurando certificados, LCRs e
-    respostas OCSP em DER, inclusive objetos órfãos (desreferenciados por
+    respostas OCSP em DER — inclusive objetos órfãos (desreferenciados por
     revisões incrementais posteriores), que validadores comuns não veem.
     """
     h = Harvest()
@@ -439,7 +423,6 @@ def harvest_from_pdf(reader: PdfFileReader, max_obj_scan: int = 100000) -> Harve
                 try_parse_der(data, h, origin)
     return h
 
-
 def harvest_from_cms(signed_data: cms.SignedData, harvest: Harvest, label: str):
     """Certificados, LCRs e revinfo embutidos no próprio CMS."""
     for c in signed_data["certificates"] or []:
@@ -457,7 +440,6 @@ def harvest_from_cms(signed_data: cms.SignedData, harvest: Harvest, label: str):
                         harvest.add_ocsp(other["other_rev_info"], f"CMS de {label}")
             except Exception:
                 continue
-
 
 def harvest_from_revinfo_attr(signer_info: cms.SignerInfo, harvest: Harvest, label: str):
     """Atributo adbe-revocationInfoArchival (1.2.840.113583.1.1.8)."""
@@ -480,10 +462,8 @@ def harvest_from_revinfo_attr(signer_info: cms.SignerInfo, harvest: Harvest, lab
             for child in safe(lambda: list(_iter_any(raw)), []) or []:
                 try_parse_der(child, harvest, f"adbe-revocationInfoArchival de {label}")
 
-
 class _AnySeq(core.SequenceOf):
     _child_spec = core.Any
-
 
 def _iter_any(raw: bytes) -> List[bytes]:
     """Extrai recursivamente sub-estruturas DER de nível 1 e 2."""
@@ -509,7 +489,6 @@ def _iter_any(raw: bytes) -> List[bytes]:
     walk(raw, 0)
     return out
 
-
 # ----------------------------------------------------------------------------
 # Descrição de certificados
 # ----------------------------------------------------------------------------
@@ -520,7 +499,6 @@ class CertReport:
     role: str = ""
     findings: List[Finding] = dc_field(default_factory=list)
     info: Dict[str, Any] = dc_field(default_factory=dict)
-
 
 def describe_cert(cert: x509.Certificate, redact: bool = True) -> Dict[str, Any]:
     tbs = cert["tbs_certificate"]
@@ -604,7 +582,6 @@ def describe_cert(cert: x509.Certificate, redact: bool = True) -> Dict[str, Any]
 
     return d
 
-
 def cert_time_findings(cert: x509.Certificate, role: str,
                        moment: Optional[datetime.datetime]) -> List[Finding]:
     out: List[Finding] = []
@@ -642,7 +619,6 @@ def cert_time_findings(cert: x509.Certificate, role: str,
                            f"{role}: certificado emitido com hash frágil ({halgo})", ""))
     return out
 
-
 # ----------------------------------------------------------------------------
 # Cadeia de certificação
 # ----------------------------------------------------------------------------
@@ -653,7 +629,6 @@ class ChainLink:
     issuer: Optional[x509.Certificate]
     verified: Optional[bool]
     note: str = ""
-
 
 def build_chain(leaf: x509.Certificate,
                 pool: Sequence[x509.Certificate]) -> Tuple[List[x509.Certificate], List[ChainLink], List[Finding]]:
@@ -672,7 +647,7 @@ def build_chain(leaf: x509.Certificate,
         if current.self_signed in ("yes", "maybe") and current.subject.dump() == current.issuer.dump():
             ok, note = verify_cert_signature(current, current)
             links.append(ChainLink(current, current, ok,
-                                   "âncora autoassinada" + ("" if ok else f" ({note})")))
+                                   "âncora autoassinada" + ("" if ok else f" — {note}")))
             break
         candidates = by_subject.get(current.issuer.dump(), [])
         parent = None
@@ -710,7 +685,6 @@ def build_chain(leaf: x509.Certificate,
 
     return chain, links, findings
 
-
 def validate_path(cert: x509.Certificate, pool: Sequence[x509.Certificate],
                   crls: Sequence[asn1crl.CertificateList],
                   ocsps: Sequence[Any],
@@ -733,7 +707,6 @@ def validate_path(cert: x509.Certificate, pool: Sequence[x509.Certificate],
     except Exception as e:
         msg = str(e).strip().replace("\n", " ")
         return False, f"{type(e).__name__}: {msg[:400]}"
-
 
 def revocation_status(cert: x509.Certificate,
                       crls: Sequence[asn1crl.CertificateList],
@@ -770,7 +743,6 @@ def revocation_status(cert: x509.Certificate,
                         result["reason"] = safe(lambda: ext["extn_value"].parsed.native)
     return result
 
-
 # ----------------------------------------------------------------------------
 # Carimbos de tempo
 # ----------------------------------------------------------------------------
@@ -798,7 +770,6 @@ class TimestampReport:
     path_results: Dict[str, str] = dc_field(default_factory=dict)
     revocation: Dict[str, Any] = dc_field(default_factory=dict)
 
-
 def fmt_accuracy(acc) -> Optional[str]:
     if acc is None:
         return None
@@ -814,7 +785,6 @@ def fmt_accuracy(acc) -> Optional[str]:
     if n.get("micros"):
         parts.append(f"{n['micros']} µs")
     return "± " + " ".join(parts) if parts else None
-
 
 def analyze_tst(tst: cms.ContentInfo, kind: str, imprint_target_bytes: bytes,
                 imprint_target_label: str, harvest: Harvest) -> TimestampReport:
@@ -908,7 +878,6 @@ def analyze_tst(tst: cms.ContentInfo, kind: str, imprint_target_bytes: bytes,
             "Sem ele não é possível verificar a assinatura do carimbo apenas com o arquivo."))
     return rep
 
-
 def describe_sync_declaration(raw: bytes) -> Optional[Dict[str, Any]]:
     """
     Tenta ler a Declaração de Sincronismo da ICP-Brasil embutida no TSTInfo.
@@ -968,7 +937,6 @@ def describe_sync_declaration(raw: bytes) -> Optional[Dict[str, Any]]:
     out["names"] = interesting[:12] or out["names"][:8]
     return out
 
-
 # ----------------------------------------------------------------------------
 # Helpers de CMS
 # ----------------------------------------------------------------------------
@@ -991,7 +959,6 @@ def pick_signer_cert(sd: cms.SignedData,
                 return c
     return certs[0] if certs else None
 
-
 def cms_signed_bytes(sd: cms.SignedData, si: cms.SignerInfo) -> bytes:
     """Bytes efetivamente cobertos pela assinatura do SignerInfo."""
     attrs = si["signed_attrs"]
@@ -999,7 +966,6 @@ def cms_signed_bytes(sd: cms.SignedData, si: cms.SignerInfo) -> bytes:
         return attrs.untag().dump()
     content = sd["encap_content_info"]["content"]
     return content.native if isinstance(content.native, bytes) else content.dump()
-
 
 def attr_map(si: cms.SignerInfo, which: str) -> Dict[str, List[Any]]:
     out: Dict[str, List[Any]] = {}
@@ -1010,7 +976,6 @@ def attr_map(si: cms.SignerInfo, which: str) -> Dict[str, List[Any]]:
         name = safe(lambda: a["type"].native) or safe(lambda: a["type"].dotted, "?")
         out.setdefault(str(name), []).extend(list(a["values"]))
     return out
-
 
 def check_signing_cert_attr(si: cms.SignerInfo,
                             cert: Optional[x509.Certificate]) -> List[Finding]:
@@ -1079,7 +1044,6 @@ def check_signing_cert_attr(si: cms.SignerInfo,
             continue
     return out
 
-
 # ----------------------------------------------------------------------------
 # Análise do DSS / VRI (material de validação de longo prazo)
 # ----------------------------------------------------------------------------
@@ -1096,7 +1060,6 @@ class DSSReport:
     history: List[str] = dc_field(default_factory=list)
     findings: List[Finding] = dc_field(default_factory=list)
 
-
 def dss_history(reader_hist: PdfFileReader) -> List[Tuple[int, List[str]]]:
     """Chaves presentes no dicionário DSS em cada revisão em que ele aparece."""
     out: List[Tuple[int, List[str]]] = []
@@ -1112,7 +1075,6 @@ def dss_history(reader_hist: PdfFileReader) -> List[Tuple[int, List[str]]]:
                     continue
                 out.append((rev + 1, sorted(keys)))
     return out
-
 
 def analyze_dss(reader: PdfFileReader, harvest: Harvest) -> DSSReport:
     rep = DSSReport()
@@ -1195,7 +1157,6 @@ def analyze_dss(reader: PdfFileReader, harvest: Harvest) -> DSSReport:
             f"O DSS arquiva {rep.n_crls} LCR(s) e {rep.n_ocsps} resposta(s) OCSP", ""))
     return rep
 
-
 # ----------------------------------------------------------------------------
 # Revisões incrementais
 # ----------------------------------------------------------------------------
@@ -1207,7 +1168,6 @@ class RevisionReport:
     startxref: Optional[int]
     objects: List[int] = dc_field(default_factory=list)
     notes: List[str] = dc_field(default_factory=list)
-
 
 def analyze_revisions(reader: PdfFileReader) -> Tuple[List[RevisionReport], List[Finding]]:
     reps: List[RevisionReport] = []
@@ -1251,7 +1211,6 @@ def analyze_revisions(reader: PdfFileReader) -> Tuple[List[RevisionReport], List
         reps.append(rr)
     return reps, findings
 
-
 def diff_dicts(reader: PdfFileReader, idnum: int, rev_a: int,
                rev_b: int) -> Optional[Dict[str, Tuple[str, str]]]:
     a = safe(lambda: reader.get_object(generic.Reference(idnum, 0, reader), revision=rev_a))
@@ -1264,7 +1223,6 @@ def diff_dicts(reader: PdfFileReader, idnum: int, rev_a: int,
         if str(va) != str(vb):
             out[str(k)] = (str(va), str(vb))
     return out or None
-
 
 def find_info_and_metadata_changes(reader: PdfFileReader, signed_rev: int
                                    ) -> List[Finding]:
@@ -1309,7 +1267,6 @@ def find_info_and_metadata_changes(reader: PdfFileReader, signed_rev: int
                     "Verifique se a mudança é apenas de conformidade ou se altera "
                     "informação relevante (título, autor, datas)."))
     return out
-
 
 # ----------------------------------------------------------------------------
 # Análise de cada assinatura
@@ -1364,8 +1321,167 @@ class SigReport:
     fieldmdp: bool = False
     pades_level: str = ""
     pades_note: str = ""
+    orphan: bool = False
+    orphan_reason: str = ""
+    obj_idnum: Optional[int] = None
+    widget_idnum: Optional[int] = None
+    alignment: Dict[str, Any] = dc_field(default_factory=dict)
     findings: List[Finding] = dc_field(default_factory=list)
 
+class RawSignatureRef:
+    """
+    Adaptador que expõe um dicionário /Sig cru com a mesma interface que o
+    pyHanko oferece para assinaturas registradas no AcroForm.
+
+    Serve para analisar assinaturas ÓRFÃS: o dicionário existe no arquivo, mas
+    não é alcançável pelo formulário, de modo que validadores (inclusive o
+    pyHanko e o Adobe) simplesmente não a enxergam.
+    """
+
+    def __init__(self, sig_dict, idnum: int, revision: int,
+                 field_name: str, widget_idnum: Optional[int]):
+        self.sig_object = sig_dict
+        self.idnum = idnum
+        self.signed_revision = revision
+        self.field_name = field_name
+        self.widget_idnum = widget_idnum
+        self._sd = None
+
+    @property
+    def sig_object_type(self):
+        return str(safe(lambda: self.sig_object["/Type"], "/Sig"))
+
+    @property
+    def signed_data(self) -> cms.SignedData:
+        if self._sd is None:
+            raw = bytes(self.sig_object["/Contents"])
+            self._sd = cms.ContentInfo.load(raw)["content"]
+        return self._sd
+
+    @property
+    def self_reported_timestamp(self):
+        return parse_pdf_date(safe(lambda: str(self.sig_object["/M"])))
+
+    @property
+    def docmdp_level(self):
+        for ref in (safe(lambda: self.sig_object["/Reference"], []) or []):
+            ref = safe(lambda: ref.get_object())
+            if ref is None:
+                continue
+            if str(safe(lambda: ref["/TransformMethod"], "")) == "/DocMDP":
+                params = safe(lambda: ref["/TransformParams"].get_object())
+                if params is not None:
+                    return safe(lambda: int(params["/P"]), 2)
+                return 2
+        return None
+
+    @property
+    def fieldmdp(self):
+        for ref in (safe(lambda: self.sig_object["/Reference"], []) or []):
+            ref = safe(lambda: ref.get_object())
+            if ref is not None and str(safe(lambda: ref["/TransformMethod"], "")) == "/FieldMDP":
+                return ref
+        return None
+
+    def evaluate_signature_coverage(self):
+        raise NotImplementedError("assinatura órfã: cobertura avaliada manualmente")
+
+def parse_pdf_date(raw: Optional[str]) -> Optional[datetime.datetime]:
+    """Converte D:YYYYMMDDHHmmSS[+-]HH'mm' em datetime com fuso."""
+    if not raw:
+        return None
+    t = raw.strip()
+    if t.startswith("D:"):
+        t = t[2:]
+    t = t.replace("'", "")
+    try:
+        base = datetime.datetime.strptime(t[:14], "%Y%m%d%H%M%S")
+    except Exception:
+        return None
+    tzpart = t[14:]
+    if tzpart and tzpart[0] in "+-" and len(tzpart) >= 3:
+        sign = 1 if tzpart[0] == "+" else -1
+        hh = int(tzpart[1:3] or 0)
+        mm = int(tzpart[3:5] or 0) if len(tzpart) >= 5 else 0
+        off = datetime.timezone(sign * datetime.timedelta(hours=hh, minutes=mm))
+    else:
+        off = datetime.timezone.utc
+    return base.replace(tzinfo=off)
+
+def find_all_signature_dicts(reader_hist: PdfFileReader
+                             ) -> List[Tuple[int, int, Any, Optional[int], str]]:
+    """
+    Varre TODOS os objetos de TODAS as revisões procurando dicionários de
+    assinatura, estejam eles registrados no AcroForm ou não.
+
+    Retorna (idnum, revisão, dicionário, idnum do widget, nome do campo).
+    """
+    found: Dict[int, Tuple[int, int, Any, Optional[int], str]] = {}
+    widgets: Dict[int, Tuple[int, str]] = {}   # idnum do /Sig -> (widget, nome)
+
+    total = reader_hist.xrefs.total_revisions
+    for rev in range(total):
+        for ref in (safe(lambda: reader_hist.xrefs.explicit_refs_in_revision(rev), []) or []):
+            obj = safe(lambda: reader_hist.get_object(ref, revision=rev))
+            if not isinstance(obj, generic.DictionaryObject):
+                continue
+            # campo/widget de assinatura: guarda o nome e o alvo
+            if str(safe(lambda: obj.get("/FT"), "")) == "/Sig":
+                v = safe(lambda: obj.raw_get("/V"))
+                target = safe(lambda: v.idnum) if v is not None else None
+                name = str(safe(lambda: obj.get("/T"), "") or "")
+                if target is not None:
+                    widgets[target] = (ref.idnum, name)
+            # dicionário de assinatura propriamente dito
+            is_sig = str(safe(lambda: obj.get("/Type"), "")) in ("/Sig", "/DocTimeStamp")
+            has_parts = "/ByteRange" in obj and "/Contents" in obj
+            if (is_sig or has_parts) and "/Contents" in obj:
+                found.setdefault(ref.idnum, (ref.idnum, rev, obj, None, ""))
+
+    out = []
+    for idnum, (i, rev, obj, _, _) in found.items():
+        w, name = widgets.get(idnum, (None, ""))
+        out.append((i, rev, obj, w, name))
+    return sorted(out, key=lambda x: x[0])
+
+def check_byterange_alignment(data: bytes, br: Sequence[int],
+                              contents_len: int) -> Dict[str, Any]:
+    """
+    Verifica se o /ByteRange ainda aponta para o lugar certo dentro do arquivo.
+
+    Num PDF assinado íntegro, o byte imediatamente após o primeiro trecho é o
+    '<' que abre a cadeia hexadecimal de /Contents, e o byte anterior ao início
+    do segundo trecho é o '>' que a fecha. Se isso não bate, o arquivo foi
+    reescrito depois de assinado e o /ByteRange ficou defasado — a assinatura
+    passa a apontar para bytes que não são mais os dela.
+    """
+    res: Dict[str, Any] = {"aligned": None, "open_char": None, "close_char": None,
+                           "gap_ok": None, "ends_at_eof": None, "shift": None}
+    if len(br) < 4:
+        return res
+    a, b = br[0] + br[1], br[2]
+    res["gap_ok"] = (b - a) == 2 * contents_len + 2
+    if 0 <= a < len(data):
+        res["open_char"] = data[a:a + 1]
+    if 0 < b <= len(data):
+        res["close_char"] = data[b - 1:b]
+    res["aligned"] = (res["open_char"] == b"<" and res["close_char"] == b">")
+    end = br[-2] + br[-1]
+    tail = data[max(0, end - 24):end]
+    res["ends_at_eof"] = tail.rstrip().endswith(b"%%EOF")
+    if not res["aligned"]:
+        # tenta localizar o deslocamento procurando o '<' mais próximo
+        window = 1 << 16
+        lo, hi = max(0, a - window), min(len(data), a + window)
+        best = None
+        for pos in range(lo, hi):
+            if data[pos:pos + 1] == b"<" and \
+                    data[pos + 1 + 2 * contents_len:pos + 2 + 2 * contents_len] == b">":
+                if best is None or abs(pos - a) < abs(best - a):
+                    best = pos
+        if best is not None:
+            res["shift"] = best - a
+    return res
 
 def compute_diff(pdf_path: str, signed_revision: int) -> Tuple[Optional[str], List[str], Optional[str]]:
     """
@@ -1386,7 +1502,6 @@ def compute_diff(pdf_path: str, signed_revision: int) -> Tuple[Optional[str], Li
             return (lvl.name if lvl is not None else None), fields, None
     except Exception as e:
         return None, [], f"{type(e).__name__}: {e}"
-
 
 def analyze_signature(reader: PdfFileReader, sig, index: int, data: bytes,
                       harvest: Harvest, anchors: Sequence[x509.Certificate],
@@ -1435,8 +1550,10 @@ def analyze_signature(reader: PdfFileReader, sig, index: int, data: bytes,
         rep.findings.append(Finding("CRITICO", "NO_BYTERANGE",
                                     "Assinatura sem /ByteRange utilizável", ""))
 
-    rep.coverage_level = str(safe(lambda: sig.evaluate_signature_coverage().name, "?"))
+    rep.coverage_level = str(safe(lambda: sig.evaluate_signature_coverage().name,
+                                  "não avaliável (assinatura fora do formulário)"))
     contents = bytes(safe(lambda: sig.sig_object["/Contents"], b"") or b"")
+    rep.alignment = check_byterange_alignment(data, br, len(contents))
     rep.cms_der_bytes = len(safe(
         lambda: cms.ContentInfo.load(contents).dump(), b"") or b"") or len(sd.dump())
     if len(br) >= 4:
@@ -1461,7 +1578,40 @@ def analyze_signature(reader: PdfFileReader, sig, index: int, data: bytes,
                 "ATENCAO", "COVERAGE_INCREMENTAL",
                 f"Existem {human_bytes(rep.tail_bytes)} acrescentados após o trecho assinado",
                 "Isso é normal quando há atualizações incrementais posteriores (DSS/LTV "
-                "ou outras assinaturas). O que importa é o que essas revisões mudaram (ver a seção de revisões incrementais)."))
+                "ou outras assinaturas). O que importa é o que essas revisões mudaram — "
+                "ver a seção de revisões incrementais."))
+        al = rep.alignment
+        if al.get("aligned") is False:
+            shift = al.get("shift")
+            detalhe = (
+                f"O byte na posição indicada pelo /ByteRange deveria ser o '<' que "
+                f"abre a cadeia hexadecimal da assinatura; encontrou-se "
+                f"{al.get('open_char')!r}. O byte que deveria ser o '>' de "
+                f"fechamento é {al.get('close_char')!r}.")
+            if shift:
+                detalhe += (
+                    f" O dicionário de assinatura está fisicamente {abs(shift)} bytes "
+                    f"{'adiante' if shift > 0 else 'atrás'} da posição que o "
+                    f"/ByteRange declara: o arquivo foi REESCRITO depois de assinado "
+                    f"(não apenas acrescido em revisão incremental), deslocando todo "
+                    f"o conteúdo.")
+            detalhe += (
+                " Consequência: é impossível reconstruir os bytes originalmente "
+                "assinados, e a verificação de integridade não pode sequer ser "
+                "tentada de forma conclusiva. A assinatura está destruída como prova "
+                "de integridade, ainda que o bloco criptográfico em si permaneça "
+                "autêntico.")
+            rep.findings.append(Finding(
+                "CRITICO", "BYTERANGE_MISALIGNED",
+                "O /ByteRange não aponta mais para a própria assinatura — o arquivo "
+                "foi reescrito após a assinatura", detalhe))
+        elif al.get("ends_at_eof") is False and rep.tail_bytes > 0:
+            rep.findings.append(Finding(
+                "ATENCAO", "BYTERANGE_NOT_AT_EOF",
+                "O trecho assinado não termina em um marcador %%EOF",
+                "O normal é a cobertura ir até o fim da revisão assinada. Convém "
+                "examinar manualmente o limite declarado."))
+
         gap_expected = 2 * len(contents) + 2
         if rep.placeholder_bytes != gap_expected:
             rep.findings.append(Finding(
@@ -1645,7 +1795,7 @@ def analyze_signature(reader: PdfFileReader, sig, index: int, data: bytes,
             ok, note = validate_path(rep.signer_cert, pool, harvest.crl_list,
                                      list(harvest.ocsps.values()), anchors,
                                      moment, mode, args.fetch)
-            rep.path_results[label] = ("VÁLIDO: " + note) if ok else ("FALHOU: " + note)
+            rep.path_results[label] = ("VÁLIDO — " + note) if ok else ("FALHOU — " + note)
 
     # cadeias das ACTs
     for t in rep.timestamps:
@@ -1668,7 +1818,7 @@ def analyze_signature(reader: PdfFileReader, sig, index: int, data: bytes,
                 ok, note = validate_path(t.tsa_cert, pool, harvest.crl_list,
                                          list(harvest.ocsps.values()), anchors,
                                          t.gen_time, mode, args.fetch)
-                t.path_results[label] = ("VÁLIDO: " + note) if ok else ("FALHOU: " + note)
+                t.path_results[label] = ("VÁLIDO — " + note) if ok else ("FALHOU — " + note)
 
     # ---- modificações posteriores (calculado no início) ------------------
     lvl = rep.modification_level or ""
@@ -1701,7 +1851,7 @@ def analyze_signature(reader: PdfFileReader, sig, index: int, data: bytes,
     else:
         rep.findings.append(Finding(
             "ALERTA", "DIFF_SUSPECT",
-            f"Alterações posteriores classificadas como '{lvl}' (exigem exame manual)",
+            f"Alterações posteriores classificadas como '{lvl}' — exigem exame manual",
             "Podem incluir mudanças de conteúdo fora do escopo permitido."))
 
     rep.docmdp = safe(lambda: sig.docmdp_level and int(sig.docmdp_level))
@@ -1715,17 +1865,30 @@ def analyze_signature(reader: PdfFileReader, sig, index: int, data: bytes,
                 "incremental sem invalidar esta assinatura. Ela permite DETECTAR "
                 "alterações, não impedi-las."))
         else:
-            rep.findings.append(Finding(
-                "OK", "DOCMDP",
-                f"Assinatura de certificação com DocMDP nível {rep.docmdp}",
-                {1: "nenhuma alteração permitida",
-                 2: "permite preenchimento de formulário",
-                 3: "permite preenchimento e anotações"}.get(rep.docmdp, "")))
+            nivel_txt = {1: "nenhuma alteração permitida",
+                         2: "permite apenas preenchimento de formulário",
+                         3: "permite preenchimento e anotações"}.get(rep.docmdp, "")
+            quebrada = (rep.digest_ok is False or rep.orphan
+                        or rep.alignment.get("aligned") is False)
+            if quebrada:
+                rep.findings.append(Finding(
+                    "CRITICO", "DOCMDP_VIOLATED",
+                    f"Era uma assinatura de CERTIFICAÇÃO (DocMDP nível {rep.docmdp}) "
+                    f"e foi violada",
+                    f"O autor travou o documento declarando: {nivel_txt}. A "
+                    f"certificação é a modalidade mais forte de assinatura em PDF — "
+                    f"existe justamente para impedir alterações. O estado atual do "
+                    f"arquivo é incompatível com essa trava, o que caracteriza "
+                    f"modificação não autorizada posterior à certificação."))
+            else:
+                rep.findings.append(Finding(
+                    "OK", "DOCMDP",
+                    f"Assinatura de certificação com DocMDP nível {rep.docmdp}",
+                    nivel_txt))
 
     # ---- nível PAdES -----------------------------------------------------
     rep.pades_level, rep.pades_note = pades_level(rep, dss, harvest)
     return rep
-
 
 def pades_level(rep: SigReport, dss: DSSReport, harvest: Harvest,
                 has_doctimestamp: bool = False) -> Tuple[str, str]:
@@ -1742,8 +1905,8 @@ def pades_level(rep: SigReport, dss: DSSReport, harvest: Harvest,
     if dss.present and dss.has_certs and chain_ok and revinfo_ok:
         if has_doctimestamp:
             return "B-LTA", ("Material de validação completo no DSS e selado por "
-                             "carimbo de tempo de documento (perfil de arquivamento "
-                             "de longo prazo).")
+                             "carimbo de tempo de documento — perfil de arquivamento "
+                             "de longo prazo.")
         return "B-LT", ("Material de validação completo arquivado no DSS "
                         "(cadeia + revogação de todas as cadeias).")
     if dss.present:
@@ -1762,7 +1925,6 @@ def pades_level(rep: SigReport, dss: DSSReport, harvest: Harvest,
                        "parcialmente arquivado; falta " + "; ".join(faltas) + ".")
     return "B-T", ("Há carimbo de tempo válido, mas nenhum material de validação "
                    "arquivado no documento (sem DSS).")
-
 
 # ----------------------------------------------------------------------------
 # Análise do documento
@@ -1790,7 +1952,6 @@ class DocReport:
     n_startxref: int = 0
     empty_sig_fields: List[str] = dc_field(default_factory=list)
     findings: List[Finding] = dc_field(default_factory=list)
-
 
 def analyze_document(reader: PdfFileReader, data: bytes, path: str) -> DocReport:
     d = DocReport(path=path, size=len(data),
@@ -1877,6 +2038,55 @@ def analyze_document(reader: PdfFileReader, data: bytes, path: str) -> DocReport
             f"{d.n_revisions} revisões reconhecidas", ""))
     return d
 
+def check_acroform_coherence(reader: PdfFileReader, reader_hist: PdfFileReader,
+                             n_found: int, n_orphans: int) -> List[Finding]:
+    """
+    Cruza o que o AcroForm declara com o que existe de fato.
+
+    Um /SigFlags anunciando que há assinaturas, com /Fields vazio, é a marca
+    típica de um arquivo que foi assinado e depois reprocessado por uma
+    ferramenta que descartou o campo — deixando a assinatura órfã.
+    """
+    out: List[Finding] = []
+    acro = safe(lambda: reader.root["/AcroForm"])
+    fields = []
+    sigflags = None
+    if acro is not None:
+        acro = acro.get_object()
+        sigflags = safe(lambda: int(acro["/SigFlags"]))
+        fields = list(safe(lambda: acro["/Fields"], []) or [])
+
+    if sigflags is not None and (sigflags & 1) and not fields and n_found:
+        out.append(Finding(
+            "CRITICO", "ACROFORM_GUTTED",
+            "O formulário declara que existem assinaturas (/SigFlags), mas a lista "
+            "de campos (/Fields) está VAZIA",
+            "Contradição interna clássica de documento assinado e depois reprocessado "
+            "por software que não preserva assinaturas. O campo de assinatura foi "
+            "removido do formulário, embora o bloco assinado permaneça no arquivo."))
+
+    # histórico do AcroForm
+    hist = []
+    for rev in range(reader_hist.xrefs.total_revisions):
+        for ref in (safe(lambda: reader_hist.xrefs.explicit_refs_in_revision(rev), []) or []):
+            obj = safe(lambda: reader_hist.get_object(ref, revision=rev))
+            if isinstance(obj, generic.DictionaryObject) and "/Fields" in obj \
+                    and ("/SigFlags" in obj or "/DA" in obj):
+                n = len(safe(lambda: obj["/Fields"], []) or [])
+                hist.append((rev + 1, n, safe(lambda: int(obj["/SigFlags"]))))
+    if hist:
+        desc = "; ".join(f"revisão {r}: {n} campo(s), SigFlags={f}" for r, n, f in hist)
+        out.append(Finding("INFO", "ACROFORM_HISTORY",
+                           "Evolução do formulário ao longo das revisões", desc))
+
+    if n_orphans:
+        out.append(Finding(
+            "ALERTA", "ORPHAN_COUNT",
+            f"{n_orphans} assinatura(s) encontrada(s) apenas por varredura direta "
+            f"de objetos",
+            "Foram localizadas fora do caminho normal de leitura (AcroForm → "
+            "/Fields → /V). Ver a seção específica de cada uma."))
+    return out
 
 def check_dss_history(dss: DSSReport, history: List[Tuple[int, List[str]]],
                       harvest: Harvest) -> List[Finding]:
@@ -1895,11 +2105,11 @@ def check_dss_history(dss: DSSReport, history: List[Tuple[int, List[str]]],
             f"{', '.join(map(str, had_certs))}) e depois DESREFERENCIADA em revisão "
             f"posterior",
             f"O array /Certs deixou de constar no DSS final. Os {len(orphan)} fluxo(s) "
-            f"de certificado continuam fisicamente no arquivo, porém órfãos (inalcançáveis a partir do catálogo). Validadores comuns não os encontram, "
+            f"de certificado continuam fisicamente no arquivo, porém órfãos — "
+            f"inalcançáveis a partir do catálogo. Validadores comuns não os encontram, "
             f"embora uma perícia consiga recuperá-los (foi o que este script fez). "
             f"Efeito prático: a validação futura offline depende de material externo."))
     return out
-
 
 def check_lta_seal(sigs: List[SigReport], dss: DSSReport) -> List[Finding]:
     """Verifica se o material de LTV está selado por carimbo de documento."""
@@ -1916,8 +2126,8 @@ def check_lta_seal(sigs: List[SigReport], dss: DSSReport) -> List[Finding]:
                 "de tempo de documento",
                 "Como o DSS foi acrescentado depois da assinatura, ele fica fora de "
                 "qualquer /ByteRange: poderia ser removido ou substituído sem que a "
-                "assinatura acuse. O risco prático é baixo (as LCRs são assinadas "
-                "pelas próprias ACs e não podem ser forjadas, apenas suprimidas), mas "
+                "assinatura acuse. O risco prático é baixo — as LCRs são assinadas "
+                "pelas próprias ACs e não podem ser forjadas, apenas suprimidas — mas "
                 "a arquitetura correta (PAdES B-LTA) selaria o DSS com um "
                 "/DocTimeStamp. Sem isso não há preservação de longo prazo completa."))
         else:
@@ -1932,6 +2142,73 @@ def check_lta_seal(sigs: List[SigReport], dss: DSSReport) -> List[Finding]:
             f"O último cobre até a revisão {last.signed_revision + 1}."))
     return out
 
+def detect_content_replacement(reader_hist: PdfFileReader
+                               ) -> Tuple[List[str], List[Finding]]:
+    """Páginas cujo fluxo de conteúdo foi trocado entre a primeira e a última revisão."""
+    notas: List[str] = []
+    findings: List[Finding] = []
+    total = reader_hist.xrefs.total_revisions
+    if total < 2:
+        return notas, findings
+    trocadas = []
+    for rev in range(total):
+        for ref in (safe(lambda: reader_hist.xrefs.explicit_refs_in_revision(rev), []) or []):
+            obj = safe(lambda: reader_hist.get_object(ref, revision=rev))
+            if not isinstance(obj, generic.DictionaryObject):
+                continue
+            if str(safe(lambda: obj.get("/Type"), "")) != "/Page":
+                continue
+            antes = safe(lambda: reader_hist.get_object(ref, revision=rev - 1)) if rev else None
+            if antes is None:
+                continue
+            a = safe(lambda: antes.raw_get("/Contents"))
+            b = safe(lambda: obj.raw_get("/Contents"))
+            ia = getattr(a, "idnum", None)
+            ib = getattr(b, "idnum", None)
+            if ia is not None and ib is not None and ia != ib:
+                trocadas.append((ref.idnum, rev + 1, ia, ib))
+    for objnum, rev, ia, ib in trocadas:
+        notas.append(f"página (objeto {objnum}) teve o fluxo de conteúdo trocado na "
+                     f"revisão {rev}: {ia} → {ib}")
+    if trocadas:
+        findings.append(Finding(
+            "ALERTA", "PAGE_CONTENT_REPLACED",
+            f"O fluxo de conteúdo de {len(trocadas)} página(s) foi SUBSTITUÍDO em "
+            f"revisão posterior",
+            "Não se trata de anotação nem de preenchimento de campo: o texto "
+            "desenhado na página passou a vir de outro objeto. Isso é típico de um "
+            "programa que reescreve o documento inteiro (e, nesse processo, descarta "
+            "assinaturas). Compare visualmente as versões antes de assumir que o "
+            "conteúdo é o mesmo. Páginas afetadas: "
+            + "; ".join(f"objeto {n} (revisão {r})" for n, r, _, _ in trocadas) + "."))
+    return notas, findings
+
+def detect_govbr(cert: Optional[x509.Certificate]) -> Optional[Finding]:
+    """Distingue assinatura avançada gov.br de certificado qualificado ICP-Brasil."""
+    if cert is None:
+        return None
+    org = str(safe(lambda: cert.issuer.native.get("organization_name"), "") or "")
+    cn = str(safe(lambda: cert.issuer.native.get("common_name"), "") or "")
+    pols = []
+    try:
+        pols = [p["policy_identifier"].dotted for p in (cert.certificate_policies_value or [])]
+    except Exception:
+        pass
+    govbr = ("gov-br" in org.lower() or "governo federal do brasil" in cn.lower()
+             or any(p.startswith("2.16.76.3.") for p in pols))
+    if not govbr:
+        return None
+    return Finding(
+        "ATENCAO", "GOVBR_ADVANCED_SIGNATURE",
+        "Assinatura produzida pelo gov.br (assinatura eletrônica AVANÇADA), não por "
+        "certificado qualificado ICP-Brasil",
+        "O certificado é emitido pela hierarquia do Governo Federal (gov.br), "
+        "distinta da ICP-Brasil. Pela Lei 14.063/2020 é assinatura avançada: tem "
+        "valor jurídico e presunção de autoria perante os órgãos públicos, mas não "
+        "goza da presunção do art. 10, §1º da MP 2.200-2/2001, reservada à "
+        "assinatura qualificada. Entre particulares, sua eficácia depende de o uso "
+        "ser admitido pelas partes (art. 4º, II da Lei 14.063/2020). Certificados "
+        "gov.br são de curta duração e emitidos no ato da assinatura.")
 
 # ----------------------------------------------------------------------------
 # Relatório em Markdown
@@ -1941,7 +2218,6 @@ def yn(v: Optional[bool], yes="Sim", no="Não", unknown="Não apurado") -> str:
     if v is None:
         return unknown
     return yes if v else no
-
 
 class ReportWriter:
     def __init__(self, doc: DocReport, sigs: List[SigReport], dss: DSSReport,
@@ -2000,10 +2276,13 @@ class ReportWriter:
         self.revisions_section()
         self.material_section()
         self.findings_section()
+        self.meaning_section()
+        self.recommendations_section()
+        self.appendix()
         return "\n".join(self.lines).rstrip() + "\n"
 
     def header(self):
-        self.w(f"# Relatório técnico: assinaturas digitais em PDF")
+        self.w("# Relatório")
         self.w()
         self.w(f"**Arquivo analisado:** `{os.path.basename(self.doc.path)}`  ")
         self.w(f"**Tamanho:** {thousands(self.doc.size)} bytes "
@@ -2012,7 +2291,7 @@ class ReportWriter:
         self.w(f"**SHA-512 do arquivo:** `{self.doc.sha512}`  ")
         self.w(f"**Análise realizada em:** "
                f"{self.dt(datetime.datetime.now(datetime.timezone.utc))}  ")
-        self.w(f"**Ferramenta:** ForensicAuth / pdfsig_forense v{VERSION} "
+        self.w(f"**Ferramenta:** ForensicAuth · pdfsig_forense v{VERSION} "
                f"(pyHanko + asn1crypto + cryptography)  ")
         mode = "offline (sem consulta à rede)" if not self.args.fetch else \
             "online (consultas AIA/LCR/OCSP habilitadas)"
@@ -2023,7 +2302,7 @@ class ReportWriter:
                "e pode destruir as assinaturas.")
 
     def verdict(self):
-        self.h(2, "1. Veredito resumido")
+        self.h(2, "Resumo")
         approvals = [s for s in self.sigs if s.obj_type != "/DocTimeStamp"]
         if not self.sigs:
             self.w("**O arquivo NÃO contém assinatura digital alguma.** Não há campo "
@@ -2040,21 +2319,24 @@ class ReportWriter:
         for s in self.sigs:
             tag = f"#{s.index} `{s.field_name}`"
             titular = s.signer_info.get("cn", "—") if s.signer_info else "—"
-            rows.append([f"{tag}: titular", titular])
-            rows.append([f"{tag}: integridade do trecho assinado",
+            rows.append([f"{tag} — titular", titular])
+            rows.append([f"{tag} — integridade do trecho assinado",
                          "**Íntegra**" if s.digest_ok else
                          ("**ROMPIDA**" if s.digest_ok is False else "não apurada")])
-            rows.append([f"{tag}: verificação matemática",
+            rows.append([f"{tag} — verificação matemática",
                          "**Válida**" if s.math_ok else
                          ("**INVÁLIDA**" if s.math_ok is False else "não apurada")])
             ts = [t for t in s.timestamps if t.gen_time]
-            rows.append([f"{tag}: carimbo de tempo",
+            rows.append([f"{tag} — carimbo de tempo",
                          self.dt(ts[0].gen_time) if ts else "**ausente**"])
-            rows.append([f"{tag}: revogação do certificado",
+            rows.append([f"{tag} — revogação do certificado",
                          "**REVOGADO**" if s.revocation.get("revoked") else
                          ("Não revogado" if s.revocation.get("checked")
                           else "não apurável offline")])
-            rows.append([f"{tag}: nível PAdES", s.pades_level])
+            rows.append([f"{tag} — nível PAdES", s.pades_level])
+            if s.orphan:
+                rows.append([f"{tag} — visível para validadores comuns",
+                             "**NÃO — assinatura órfã**"])
         self.table(["Item", "Resultado"], rows)
 
         # parágrafo narrativo
@@ -2062,6 +2344,12 @@ class ReportWriter:
         alerts = [f for f in self.all_findings() if f.severity == "ALERTA"]
         s0 = approvals[0] if approvals else self.sigs[0]
         frases = []
+        if any(x.orphan for x in self.sigs):
+            frases.append(
+                "**Atenção: este arquivo aparenta não estar assinado para qualquer "
+                "validador comum**, porque o campo de assinatura foi removido do "
+                "formulário — mas o bloco de assinatura continua fisicamente no "
+                "documento e foi recuperado por varredura direta dos objetos.")
         if s0.digest_ok and s0.math_ok and not crit:
             frases.append(
                 "A assinatura é tecnicamente válida e o documento não sofreu "
@@ -2101,7 +2389,9 @@ class ReportWriter:
         elif alerts:
             frases.append(
                 f"Não há achados críticos, mas existem **{len(alerts)} alerta(s)** de "
-                f"conformidade.")
+                f"conformidade que convém conhecer antes de usar o documento como "
+                f"prova, pois são exatamente os pontos que um assistente técnico da "
+                f"parte contrária pode explorar.")
         else:
             frases.append("Nenhum achado crítico ou de alerta.")
         self.w(" ".join(frases))
@@ -2130,7 +2420,14 @@ class ReportWriter:
     def signature_section(self, s: SigReport):
         kind = ("Carimbo de tempo de documento" if s.obj_type == "/DocTimeStamp"
                 else "Assinatura")
-        self.h(2, f"3.{s.index} {kind} #{s.index}, campo `{s.field_name}`")
+        if s.orphan:
+            kind += " ÓRFÃ"
+        self.h(2, f"3.{s.index} {kind} #{s.index} — campo `{s.field_name}`")
+        if s.orphan:
+            self.w("> ⚠ **Esta assinatura não é vista por validadores comuns.** "
+                   + s.orphan_reason + " Ela foi localizada por varredura direta dos "
+                   "objetos do PDF. O que segue é a análise do bloco encontrado.")
+            self.w()
 
         self.h(3, f"3.{s.index}.1 Estrutura no PDF")
         rows = [
@@ -2152,13 +2449,26 @@ class ReportWriter:
             ["Cobertura (pyHanko)", s.coverage_level],
             ["Revisão assinada", f"{s.signed_revision + 1} de {s.total_revisions}"],
         ]
+        if s.obj_idnum is not None:
+            rows.insert(0, ["Objeto /Sig", f"{s.obj_idnum} 0 obj"])
+        if s.widget_idnum is not None:
+            rows.insert(1, ["Widget /Annot que o referencia", f"{s.widget_idnum} 0 obj"])
+        if s.alignment:
+            al = s.alignment
+            rows.append(["/ByteRange alinhado com a assinatura?",
+                         yn(al.get("aligned"), "Sim", "**NÃO**")])
+            if al.get("shift"):
+                rows.append(["Deslocamento físico detectado",
+                             f"{al['shift']:+d} bytes"])
+            rows.append(["Trecho assinado termina em %%EOF?",
+                         yn(al.get("ends_at_eof"))])
         self.table(["Campo", "Valor"], rows)
         if s.subfilter in ("/ETSI.CAdES.detached", "/ETSI.RFC3161"):
             self.w("O `/SubFilter` indica assinatura **CAdES conforme ETSI** "
                    "(família PAdES).")
         elif s.subfilter == "/adbe.pkcs7.detached":
             self.w("O `/SubFilter` indica o formato legado da Adobe "
-                   "(`adbe.pkcs7.detached`), funcional, mas anterior ao perfil PAdES "
+                   "(`adbe.pkcs7.detached`) — funcional, mas anterior ao perfil PAdES "
                    "da ETSI.")
         elif s.subfilter == "/adbe.x509.rsa_sha1":
             self.w("O `/SubFilter` `adbe.x509.rsa_sha1` é um formato antigo e "
@@ -2204,7 +2514,7 @@ class ReportWriter:
                             for k, v in s.path_results.items()):
                 self.w("A falha na validação \"na data de hoje\" normalmente **não "
                        "indica problema**: LCRs têm prazo de validade curto e vencem. "
-                       "É justamente para isso que existe o carimbo de tempo: a "
+                       "É justamente para isso que existe o carimbo de tempo — a "
                        "validação deve ser ancorada no instante da assinatura, onde, "
                        "como se vê acima, o caminho é válido.")
                 self.w()
@@ -2230,13 +2540,13 @@ class ReportWriter:
         if i["policies"]:
             self.w("**Políticas de certificado:**")
             self.bullets([
-                f"`{p['oid']}`" + (f" ({p['meaning']})" if p["meaning"] else "")
+                f"`{p['oid']}`" + (f" — {p['meaning']}" if p["meaning"] else "")
                 + (f" (DPC: {p['cps']})" if p["cps"] else "")
                 for p in i["policies"]])
         if i["san_icpbr"]:
             self.w("**Campos ICP-Brasil no subjectAltName:**")
             self.bullets([
-                f"`{e['oid']}` ({e['label']}): {e['value']}"
+                f"`{e['oid']}` — {e['label']}: {e['value']}"
                 + ("  _(dígitos ocultados por privacidade; use `--no-redact` para "
                    "exibir)_" if e["sensitive"] and self.args.redact else "")
                 for e in i["san_icpbr"]])
@@ -2263,7 +2573,7 @@ class ReportWriter:
         for l in s.chain_links:
             rows.append([
                 cn_of(l.child),
-                cn_of(l.issuer) if l.issuer is not None else "(ausente no arquivo)",
+                cn_of(l.issuer) if l.issuer is not None else "— ausente no arquivo —",
                 "verificado" if l.verified else ("NÃO CONFERE" if l.verified is False
                                                  else "não apurado"),
                 l.note or "",
@@ -2278,7 +2588,8 @@ class ReportWriter:
                    "arquivo (ou do repositório informado). Confiar nela apenas por "
                    "isso seria circular. Compare o fingerprint acima com o valor "
                    "publicado oficialmente pela autoridade (no caso da ICP-Brasil, "
-                   "pelo ITI em iti.gov.br).")
+                   "pelo ITI em iti.gov.br) — é o que o validador oficial faz "
+                   "automaticamente.")
             self.w()
 
     def revocation_block(self, s: SigReport, num: str):
@@ -2315,12 +2626,12 @@ class ReportWriter:
     def timestamp_block(self, s: SigReport, num: str):
         self.h(3, f"{num} Carimbo(s) de tempo")
         for k, t in enumerate(s.timestamps, 1):
-            self.w(f"**Carimbo {k} (tipo `{t.kind}`)**")
+            self.w(f"**Carimbo {k} — tipo `{t.kind}`**")
             self.w()
             self.table(["Campo", "Valor"], [
                 ["Instante atestado (genTime)", self.dt(t.gen_time)],
                 ["Política de carimbo", (f"`{t.policy}`" +
-                                         (f" ({policy_meaning(t.policy)})"
+                                         (f" — {policy_meaning(t.policy)}"
                                           if t.policy and policy_meaning(t.policy) else ""))
                  if t.policy else "—"],
                 ["Nº de série do carimbo", t.serial or "—"],
@@ -2335,13 +2646,13 @@ class ReportWriter:
                 ["EKU exclusivo de timeStamping", yn(t.eku_ok)],
             ])
             if t.tsa_cert is not None:
-                self.w(f"Certificado da ACT: **{cn_of(t.tsa_cert)}** ("
+                self.w(f"Certificado da ACT: **{cn_of(t.tsa_cert)}** — "
                        f"emissor {cn_of(t.tsa_cert) if False else dn(t.tsa_cert.issuer)}, "
                        f"série 0x{t.tsa_cert.serial_number:X}, "
                        f"{key_description(t.tsa_cert)}, validade "
                        f"{self.dt(t.tsa_cert['tbs_certificate']['validity']['not_before'].native)} → "
                        f"{self.dt(t.tsa_cert['tbs_certificate']['validity']['not_after'].native)}, "
-                       f"SHA-256 `{fp(t.tsa_cert)}`).")
+                       f"SHA-256 `{fp(t.tsa_cert)}`.")
                 self.w()
             if t.chain_links:
                 self.w("Cadeia da ACT: " + " ← ".join(
@@ -2362,7 +2673,7 @@ class ReportWriter:
             for ext in t.extensions:
                 self.w(f"**Extensão proprietária no TSTInfo:** `{ext['oid']}` "
                        f"({human_bytes(ext['size'])})"
-                       + (f" ({ext['hint']})" if ext["hint"] else ""))
+                       + (f" — {ext['hint']}" if ext["hint"] else ""))
                 d = ext.get("details") or {}
                 if d:
                     if d.get("times"):
@@ -2382,8 +2693,8 @@ class ReportWriter:
         if not d.present:
             self.w("O documento **não possui** Document Security Store. Todo o "
                    "material necessário à validação futura teria de ser buscado em "
-                   "repositórios externos das autoridades certificadoras (que podem "
-                   "sair do ar, mudar de endereço ou descontinuar LCRs antigas).")
+                   "repositórios externos das autoridades certificadoras — que podem "
+                   "sair do ar, mudar de endereço ou descontinuar LCRs antigas.")
             self.w()
             return
         self.table(["Item", "Quantidade"], [
@@ -2406,17 +2717,17 @@ class ReportWriter:
         if not d.has_certs:
             self.w("**Atenção:** o DSS final não referencia certificados. Se o "
                    "histórico acima mostra um `/Certs` em revisão anterior, os "
-                   "certificados ficaram **órfãos** (fisicamente presentes no "
-                   "arquivo, mas inalcançáveis pelo catálogo). A seção 6 lista o que "
+                   "certificados ficaram **órfãos** — fisicamente presentes no "
+                   "arquivo, mas inalcançáveis pelo catálogo. A seção 6 lista o que "
                    "foi recuperado por varredura direta.")
             self.w()
 
     def revisions_section(self):
-        self.h(2, "5. Revisões incrementais: o que mudou e quando")
+        self.h(2, "5. Revisões incrementais — o que mudou e quando")
         self.w("Todo PDF assinado pode receber atualizações incrementais: blocos "
                "acrescentados ao fim do arquivo, sem reescrever o que veio antes. "
                "É assim que se adicionam carimbos, dados de LTV e novas assinaturas. "
-               "Também é assim que se tenta adulterar um documento; por isso cada "
+               "Também é assim que se tenta adulterar um documento — por isso cada "
                "revisão é examinada individualmente.")
         self.w()
         rows = []
@@ -2493,8 +2804,175 @@ class ReportWriter:
             for f in group:
                 self.w(f"**{f.title}**  ")
                 self.w(f"_Escopo: {f.scope} · código: `{f.code}`_")
+                if f.detail:
+                    self.w()
+                    for para in textwrap.wrap(f.detail, 100):
+                        self.w(para)
                 self.w()
 
+    def meaning_section(self):
+        self.h(2, "8. O que a assinatura prova — e o que não prova")
+        approvals = [s for s in self.sigs if s.obj_type != "/DocTimeStamp"]
+        if not approvals:
+            self.w("Sem assinatura, não há nada a provar por esta via.")
+            self.w()
+            return
+        s = approvals[0]
+        prova = []
+        if s.digest_ok and s.math_ok:
+            prova.append(
+                "**Integridade** — o trecho assinado do arquivo não sofreu um único "
+                "bit de alteração desde o momento da assinatura.")
+            titular = s.signer_info.get("cn", "o titular do certificado")
+            prova.append(
+                f"**Origem** — foi assinado com a chave privada correspondente ao "
+                f"certificado de {titular}"
+                + (", então vigente e não revogado"
+                   if s.revocation.get("checked") and not s.revocation.get("revoked")
+                   else "") + ".")
+        ts = [t for t in s.timestamps if t.gen_time and t.sig_ok]
+        if ts:
+            prova.append(
+                f"**Tempestividade** — o documento existia, com este conteúdo exato, "
+                f"em {self.dt(ts[0].gen_time)}, atestado por autoridade de carimbo do "
+                f"tempo cuja assinatura foi verificada.")
+        if prova:
+            self.w("**Prova:**")
+            self.bullets(prova)
+        naoprova = [
+            "**A veracidade do conteúdo.** Assinatura digital garante que o "
+            "documento não mudou e de quem partiu — não que o que ele afirma seja "
+            "verdadeiro, nem que o material nele reproduzido (telas, fotos, textos "
+            "de terceiros) corresponda à realidade.",
+            "**Nada anterior ao momento da assinatura.** Se o documento consolida "
+            "uma captura, coleta ou digitalização, a cadeia de confiança começa no "
+            "instante em que o conteúdo entrou no processo de assinatura; o que "
+            "aconteceu antes disso é matéria de prova por outros meios.",
+        ]
+        if s.docmdp is None:
+            naoprova.append(
+                "**Que o documento esteja travado.** Sem DocMDP, esta assinatura "
+                "permite *detectar* alterações posteriores, não impedi-las.")
+        self.w("**Não prova:**")
+        self.bullets(naoprova)
+
+    def recommendations_section(self):
+        self.h(2, "9. Recomendações práticas")
+        codes = {f.code for f in self.all_findings()}
+        recs = [
+            "**Nunca reimprima, use \"salvar como\" nem passe o arquivo por "
+            "otimizadores, conversores ou assinadores CAdES.** Qualquer um desses "
+            "atos destrói as assinaturas de forma irreversível. Junte sempre o "
+            "binário original; se o sistema de destino reprocessar o arquivo, "
+            "preserve também uma via intacta.",
+            "**Guarde o resultado do validador oficial** da respectiva "
+            "infraestrutura de chaves públicas (no Brasil, `validar.iti.gov.br`) "
+            "junto ao documento. É a prova de conformidade que dispensa discussão "
+            "técnica.",
+        ]
+        if "SIGNING_CERT_ATTR_MULTIVALUED" in codes:
+            recs.append(
+                "**Teste o documento no validador oficial antes de usá-lo**: o "
+                "atributo `signingCertificate` duplicado faz validadores estritos "
+                "retornarem \"indeterminado\". Melhor descobrir isso agora do que "
+                "em contraditório.")
+        if "NO_TIMESTAMP" in codes:
+            recs.append(
+                "**Providencie um carimbo de tempo o quanto antes** (novo carimbo "
+                "sobre o arquivo, ata notarial ou registro com hash em serviço "
+                "confiável). Sem ele, quando o certificado expirar ou for revogado, "
+                "provar a anterioridade da assinatura fica muito mais difícil.")
+        if "DSS_UNSEALED" in codes or "DSS_WITHOUT_CERTS" in codes or "NO_LTA" in codes:
+            recs.append(
+                "**Para guarda de longo prazo, não confie apenas neste arquivo.** "
+                "Faltam elementos do perfil PAdES B-LTA. Acrescente preservação "
+                "própria: carimbo de tempo adicional sobre o arquivo, ou depósito "
+                "do hash em registro com data confiável, e arquive junto os "
+                "certificados intermediários e as LCRs vigentes hoje.")
+        if "CHAIN_INCOMPLETE" in codes:
+            recs.append(
+                "**Baixe e arquive as certificadoras intermediárias faltantes** "
+                "(endereços no campo AIA do certificado) enquanto os repositórios "
+                "estão no ar. Sem elas, a validação offline futura fica prejudicada.")
+        if "PAGE_CONTENT_REPLACED" in codes:
+            recs.append(
+                "**Compare visualmente as versões do documento.** O fluxo de conteúdo "
+                "de páginas foi substituído em revisão posterior: o texto exibido "
+                "hoje é desenhado por outro objeto, e não se pode presumir que seja "
+                "idêntico ao original. Uma perícia consegue renderizar cada revisão "
+                "separadamente e confrontá-las página a página.")
+        if "GOVBR_ADVANCED_SIGNATURE" in codes:
+            recs.append(
+                "**Atente para a natureza da assinatura gov.br.** É assinatura "
+                "avançada (Lei 14.063/2020), não qualificada ICP-Brasil. Entre "
+                "particulares, convém demonstrar que as partes admitiram esse meio — "
+                "por exemplo, pela própria conduta contratual — já que a presunção "
+                "do art. 10, §1º da MP 2.200-2/2001 não se aplica automaticamente.")
+        if ("INFO_CHANGED_AFTER_SIGNING" in codes or "COVERAGE_INCREMENTAL" in codes) \
+                and not (codes & {"DIGEST_MISMATCH", "BYTERANGE_MISALIGNED",
+                                  "PAGE_CONTENT_REPLACED", "DOCMDP_VIOLATED"}):
+            recs.append(
+                "**Antecipe a impugnação de \"documento alterado após a "
+                "assinatura\".** Houve revisões incrementais posteriores; a seção 5 "
+                "deste relatório demonstra objetivamente o que cada uma fez e por que "
+                "não afeta o conteúdo.")
+        if "ORPHAN_SIGNATURE" in codes or "ACROFORM_GUTTED" in codes:
+            recs.insert(0,
+                        "**Procure a via original assinada.** O arquivo em mãos passou "
+                        "por um programa que descartou o campo de assinatura "
+                        "(reprocessamento, impressão para PDF, app de celular, "
+                        "compressor online). Peça a quem enviou o arquivo exatamente "
+                        "como saído do assinador; só essa via permite validação.")
+        if "BYTERANGE_MISALIGNED" in codes:
+            recs.insert(0,
+                        "**Não afirme, com base neste arquivo, que o conteúdo foi ou "
+                        "não foi alterado.** O deslocamento do /ByteRange impede "
+                        "reconstruir os bytes assinados: não se pode nem confirmar nem "
+                        "negar a integridade do texto. O que se pode afirmar é que "
+                        "existiu uma assinatura e que este arquivo não é a via que ela "
+                        "protegia.")
+        if "DOCMDP_VIOLATED" in codes:
+            recs.append(
+                "**Registre que a assinatura violada era de certificação (DocMDP).** "
+                "Diferentemente de uma assinatura comum de aprovação, ela travava o "
+                "documento contra alterações — o que reforça o argumento de que a "
+                "modificação posterior não foi autorizada pelo signatário.")
+        if "CERT_REVOKED" in codes:
+            recs.append(
+                "**Compare a data da revogação com o instante do carimbo de tempo.** "
+                "Se a assinatura é anterior à revogação e o motivo não é "
+                "comprometimento de chave, ela em geral permanece válida — mas o "
+                "ponto precisa ser sustentado expressamente.")
+        if any(c in codes for c in ("DIGEST_MISMATCH", "SIG_MATH_BAD",
+                                    "TST_IMPRINT_MISMATCH", "COVERAGE_GAP")):
+            recs.insert(0,
+                        "**Não utilize este documento como prova de integridade sem "
+                        "perícia.** Há achado crítico que indica alteração ou "
+                        "inconsistência criptográfica.")
+        recs.append(
+            "**Confira os hashes de arquivos externos** eventualmente citados no "
+            "corpo do documento (anexos, ZIPs, mídias). O que a assinatura protege "
+            "é o PDF; os anexos externos só estão protegidos indiretamente, pelos "
+            "hashes que o PDF declara.")
+        self.bullets(recs)
+
+    def appendix(self):
+        self.h(2, "Anexo — como reproduzir esta análise")
+        self.w("```bash")
+        self.w("pip install pyhanko asn1crypto cryptography")
+        self.w(f"python3 pdfsig_forense.py \"{os.path.basename(self.doc.path)}\" "
+               f"-o relatorio.md --json dados.json")
+        self.w("```")
+        self.w("O script é determinístico e opera offline por padrão. Todos os "
+               "valores de hash, números de série e fingerprints deste relatório podem "
+               "ser recalculados de forma independente com `openssl`, `pdfsig` "
+               "(poppler-utils) ou qualquer biblioteca ASN.1.")
+        self.w()
+        self.w("**Limites desta análise automatizada:** ela não julga a confiança da "
+               "âncora de certificação (isso depende do repositório oficial), não "
+               "avalia o mérito do conteúdo do documento e não substitui perícia "
+               "quando há achado crítico. A classificação de severidade é uma "
+               "heurística de auxílio, não um parecer jurídico.")
 
 # ----------------------------------------------------------------------------
 # Saída JSON
@@ -2519,7 +2997,6 @@ def to_jsonable(o):
     if isinstance(o, (str, int, float, bool)) or o is None:
         return o
     return str(o)
-
 
 def build_json(doc: DocReport, sigs: List[SigReport], dss: DSSReport,
                revs: List[RevisionReport], harvest: Harvest,
@@ -2547,7 +3024,6 @@ def build_json(doc: DocReport, sigs: List[SigReport], dss: DSSReport,
             "ocsps": len(harvest.ocsps),
         },
     })
-
 
 # ----------------------------------------------------------------------------
 # Âncoras de confiança
@@ -2582,7 +3058,6 @@ def load_anchors(paths: Sequence[str]) -> List[x509.Certificate]:
                 except Exception:
                     print(f"[aviso] formato não reconhecido em {p}", file=sys.stderr)
     return out
-
 
 def self_signed_from_harvest(harvest: Harvest) -> List[x509.Certificate]:
     return [c for c in harvest.cert_list
@@ -2621,7 +3096,11 @@ class AnalysisResult:
 
 
 def analyze_pdf_file(pdf_path: str, options: Optional[AnalysisOptions] = None) -> AnalysisResult:
-    """Executa a análise completa e devolve relatório Markdown + JSON estruturado."""
+    """Executa a análise completa e devolve relatório Markdown + JSON estruturado.
+
+    Inclui assinaturas registradas no AcroForm e assinaturas órfãs (dicionário
+    /Sig ou /ByteRange+/Contents ainda no arquivo, mas fora de /Fields).
+    """
     options = options or AnalysisOptions()
     if not os.path.isfile(pdf_path):
         raise FileNotFoundError(pdf_path)
@@ -2635,18 +3114,20 @@ def analyze_pdf_file(pdf_path: str, options: Optional[AnalysisOptions] = None) -
         trust_anchor=list(options.trust_anchors or []),
         dump_material=options.dump_material_dir,
         traceback=options.traceback,
-        anchor_mode_label=None,
+        anchor_mode_label="",
+        announce_dump=False,
     )
 
-    with open(pdf_path, "rb") as fh, open(pdf_path, "rb") as fh_hist:
+    with open(args.pdf, "rb") as fh, open(args.pdf, "rb") as fh_hist:
         reader = PdfFileReader(fh, strict=False)
         reader_hist = PdfFileReader(fh_hist, strict=False)
 
-        doc = analyze_document(reader, data, pdf_path)
+        doc = analyze_document(reader, data, args.pdf)
         harvest = harvest_from_pdf(reader_hist)
-        # Pré-colhe certificados dos CMS com LEITOR SEPARADO (não tocar em
-        # reader.embedded_signatures antes da análise (cache do pyHanko).
-        with open(pdf_path, "rb") as fh_cms:
+        # Certificados do CMS entram na colheita antes da escolha da âncora.
+        # Sem isso, a raiz que só existe dentro da assinatura não vira âncora
+        # e a validação de caminho fica sem trust root.
+        with open(args.pdf, "rb") as fh_cms:
             reader_cms = PdfFileReader(fh_cms, strict=False)
             for i, sig in enumerate(
                 list(safe(lambda: reader_cms.embedded_signatures, []) or []), 1
@@ -2655,51 +3136,98 @@ def analyze_pdf_file(pdf_path: str, options: Optional[AnalysisOptions] = None) -
                     harvest_from_cms(sig.signed_data, harvest, f"CMS da assinatura #{i}")
                 except Exception:
                     pass
+        for idnum, _rev, sdict, _widget, _fname in find_all_signature_dicts(reader_hist):
+            raw = safe(lambda sdict=sdict: bytes(sdict["/Contents"]))
+            if not raw:
+                continue
+            try:
+                harvest_from_cms(
+                    cms.ContentInfo.load(raw)["content"],
+                    harvest,
+                    f"objeto {idnum}",
+                )
+            except Exception:
+                continue
         dss = analyze_dss(reader, harvest)
         history = dss_history(reader_hist) if dss.present else []
         revs, rev_findings = analyze_revisions(reader_hist)
 
         anchors = load_anchors(args.trust_anchor)
         anchors_from_file = False
-        if anchors:
-            args.anchor_mode_label = (
-                f"{len(anchors)} raiz(es) externa(s) fornecida(s) "
-                f"(ex.: ICP-Brasil / ITI; preferível)"
-            )
-        else:
+        if not anchors:
             anchors = self_signed_from_harvest(harvest)
             anchors_from_file = bool(anchors)
-            if anchors_from_file:
-                args.anchor_mode_label = (
-                    "raiz(es) autoassinada(s) extraída(s) do próprio arquivo "
-                    "(validação CIRCULAR; compare fingerprints com o ITI)"
-                )
-            else:
-                args.anchor_mode_label = "nenhuma âncora disponível"
+        if anchors_from_file:
+            args.anchor_mode_label = (
+                "raiz(es) autoassinada(s) extraída(s) do próprio arquivo "
+                "(validação CIRCULAR; compare fingerprints com o ITI)"
+            )
+        elif anchors:
+            args.anchor_mode_label = (
+                f"{len(anchors)} raiz(es) externa(s) fornecida(s) "
+                "(ex.: ICP-Brasil / ITI; preferível)"
+            )
+        else:
+            args.anchor_mode_label = "nenhuma âncora disponível"
+
+        # assinaturas vistas pelo caminho normal (AcroForm) ...
+        embedded = list(safe(lambda: reader.embedded_signatures, []) or [])
+        # ... e TODAS as que existem fisicamente no arquivo
+        all_dicts = find_all_signature_dicts(reader_hist)
+        embedded_contents = set()
+        for esig in embedded:
+            c = safe(lambda: bytes(esig.sig_object["/Contents"]))
+            if c:
+                embedded_contents.add(hashlib.sha256(c).digest())
+
+        orphans = []
+        for idnum, rev, sdict, widget, fname in all_dicts:
+            c = safe(lambda: bytes(sdict["/Contents"]))
+            if c and hashlib.sha256(c).digest() in embedded_contents:
+                continue          # já coberta pela leitura normal
+            orphans.append((idnum, rev, sdict, widget, fname))
 
         sigs: List[SigReport] = []
-        embedded = list(safe(lambda: reader.embedded_signatures, []) or [])
-        for i, sig in enumerate(embedded, 1):
+        targets: List[Tuple[Any, bool, str, Optional[int], Optional[int]]] = [
+            (sig, False, "", None, None) for sig in embedded]
+        for idnum, rev, sdict, widget, fname in orphans:
+            name = fname or f"<sem campo · objeto {idnum}>"
+            if widget is None:
+                motivo = (f"O dicionário /Sig (objeto {idnum}) não é referenciado "
+                          f"por nenhum campo de assinatura.")
+            else:
+                motivo = (f"O dicionário /Sig (objeto {idnum}) é referenciado pelo "
+                          f"widget /Annot objeto {widget} (campo «{fname}»), mas "
+                          f"esse campo NÃO consta na lista /Fields do AcroForm.")
+            targets.append((RawSignatureRef(sdict, idnum, rev, name, widget),
+                            True, motivo, idnum, widget))
+
+        for i, (sig, is_orphan, motivo, idnum, widget) in enumerate(targets, 1):
             try:
-                sigs.append(
-                    analyze_signature(reader, sig, i, data, harvest, anchors, dss, args)
-                )
+                rp = analyze_signature(reader, sig, i, data, harvest,
+                                       anchors, dss, args)
+                rp.orphan, rp.orphan_reason = is_orphan, motivo
+                rp.obj_idnum, rp.widget_idnum = idnum, widget
+                if is_orphan:
+                    rp.findings.append(Finding(
+                        "CRITICO", "ORPHAN_SIGNATURE",
+                        "Assinatura presente no arquivo mas INVISÍVEL para "
+                        "validadores",
+                        motivo + " Nenhum validador comum (Adobe Reader, "
+                        "validador do ITI, pyHanko) reporta esta assinatura: "
+                        "para eles o documento simplesmente não está assinado. "
+                        "O bloco de assinatura, porém, continua fisicamente no "
+                        "arquivo e foi analisado aqui."))
+                sigs.append(rp)
             except Exception as e:
-                if options.traceback:
+                if args.traceback:
                     traceback.print_exc()
-                rep = SigReport(
-                    index=i,
-                    field_name=str(safe(lambda: sig.field_name, "?")),
-                    obj_type=str(safe(lambda: sig.sig_object_type, "?")),
-                )
-                rep.findings.append(
-                    Finding(
-                        "CRITICO",
-                        "ANALYSIS_ERROR",
-                        "Falha ao analisar esta assinatura",
-                        "",
-                    )
-                )
+                rep = SigReport(index=i, field_name=str(safe(lambda: sig.field_name, "?")),
+                                obj_type=str(safe(lambda: sig.sig_object_type, "?")))
+                rep.findings.append(Finding(
+                    "CRITICO", "ANALYSIS_ERROR",
+                    "Falha ao analisar esta assinatura",
+                    f"{type(e).__name__}: {e}"))
                 sigs.append(rep)
 
         has_dts = any(x.obj_type == "/DocTimeStamp" for x in sigs)
@@ -2708,79 +3236,82 @@ def analyze_pdf_file(pdf_path: str, options: Optional[AnalysisOptions] = None) -
                 x.pades_level, x.pades_note = pades_level(x, dss, harvest, has_dts)
 
         extra = list(rev_findings)
+        extra.extend(check_acroform_coherence(
+            reader, reader_hist, len(targets), len(orphans)))
         extra.extend(check_dss_history(dss, history, harvest))
         extra.extend(check_lta_seal(sigs, dss))
         for s in sigs:
             if s.obj_type != "/DocTimeStamp":
-                extra.extend(find_info_and_metadata_changes(reader_hist, s.signed_revision))
+                extra.extend(find_info_and_metadata_changes(
+                    reader_hist, s.signed_revision))
                 break
-        if not embedded:
-            extra.append(
-                Finding(
-                    "ALERTA",
-                    "NO_SIGNATURE",
-                    "Nenhuma assinatura digital encontrada no documento",
-                    ""
-                )
-            )
+        notas_conteudo, f_conteudo = detect_content_replacement(reader_hist)
+        extra.extend(f_conteudo)
+        vistos_govbr: set = set()
+        for x in sigs:
+            g = detect_govbr(x.signer_cert)
+            if g and x.signer_cert is not None and \
+                    x.signer_cert.sha256 not in vistos_govbr:
+                vistos_govbr.add(x.signer_cert.sha256)
+                g.scope = f"assinatura #{x.index} ({x.field_name})"
+                extra.append(g)
+        if not targets:
+            extra.append(Finding(
+                "ALERTA", "NO_SIGNATURE",
+                "Nenhuma assinatura digital encontrada no documento",
+                "Não há campo de assinatura preenchido. Imagens de rubrica ou "
+                "textos de 'assinado eletronicamente' impressos na página não "
+                "possuem valor criptográfico."))
         if anchors_from_file:
-            extra.append(
-                Finding(
-                    "ATENCAO",
-                    "ANCHOR_FROM_FILE",
-                    "A âncora de confiança usada veio de dentro do próprio arquivo",
-                    "",
-                )
-            )
+            extra.append(Finding(
+                "ATENCAO", "ANCHOR_FROM_FILE",
+                "A âncora de confiança usada veio de dentro do próprio arquivo",
+                "Isso torna a validação de caminho circular. Forneça a raiz "
+                "oficial com --trust-anchor e compare os fingerprints com os "
+                "publicados pela autoridade."))
         elif anchors:
-            extra.append(
-                Finding(
-                    "OK",
-                    "ANCHOR_EXTERNAL",
-                    f"Validação ancorada em {len(anchors)} raiz(es) fornecida(s) "
-                    f"externamente",
-                    "",
-                )
-            )
+            extra.append(Finding(
+                "OK", "ANCHOR_EXTERNAL",
+                f"Validação ancorada em {len(anchors)} raiz(es) fornecida(s) "
+                f"externamente", ""))
 
-        if options.dump_material_dir:
-            os.makedirs(options.dump_material_dir, exist_ok=True)
+        if args.dump_material:
+            os.makedirs(args.dump_material, exist_ok=True)
             for c in harvest.cert_list:
                 name = "".join(ch if ch.isalnum() else "_" for ch in cn_of(c))[:60]
-                with open(
-                    os.path.join(
-                        options.dump_material_dir, f"cert_{name}_{fp(c)[:12]}.der"
-                    ),
-                    "wb",
-                ) as f:
+                with open(os.path.join(args.dump_material,
+                                       f"cert_{name}_{fp(c)[:12]}.der"), "wb") as f:
                     f.write(c.dump())
             for n, c in enumerate(harvest.crl_list, 1):
-                with open(
-                    os.path.join(options.dump_material_dir, f"crl_{n}.crl"), "wb"
-                ) as f:
+                with open(os.path.join(args.dump_material, f"crl_{n}.crl"), "wb") as f:
                     f.write(c.dump())
+            if getattr(args, "announce_dump", False):
+                print(f"[ok] material extraído em {args.dump_material}",
+                      file=sys.stderr)
 
         writer = ReportWriter(doc, sigs, dss, revs, harvest, extra, args)
+        writer.content_notes = notas_conteudo
         report = writer.build()
-        findings = writer.all_findings()
-        approvals = [s for s in sigs if s.obj_type != "/DocTimeStamp"]
-        payload = build_json(doc, sigs, dss, revs, harvest, extra)
-        payload["anchor_mode"] = args.anchor_mode_label
-        payload["anchors_from_file"] = anchors_from_file
-        return AnalysisResult(
-            markdown=report,
-            payload=payload,
-            findings=findings,
-            has_critical=any(f.severity == "CRITICO" for f in findings),
-            signed=bool(approvals),
-            signature_count=len(approvals),
-            anchors_from_file=anchors_from_file,
-            anchor_mode_label=args.anchor_mode_label or "",
-            harvest=harvest,
-            doc=doc,
-            sigs=sigs,
-            dss=dss,
-        )
+
+    findings = writer.all_findings()
+    approvals = [s for s in sigs if s.obj_type != "/DocTimeStamp"]
+    payload = build_json(doc, sigs, dss, revs, harvest, extra)
+    payload["anchor_mode"] = args.anchor_mode_label
+    payload["anchors_from_file"] = anchors_from_file
+    return AnalysisResult(
+        markdown=report,
+        payload=payload,
+        findings=findings,
+        has_critical=any(f.severity == "CRITICO" for f in findings),
+        signed=bool(approvals),
+        signature_count=len(approvals),
+        anchors_from_file=anchors_from_file,
+        anchor_mode_label=args.anchor_mode_label or "",
+        harvest=harvest,
+        doc=doc,
+        sigs=sigs,
+        dss=dss,
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -2796,7 +3327,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         epilog=textwrap.dedent("""
             Exemplos:
               %(prog)s doc.pdf
-              %(prog)s doc.pdf -o relatorio.md --json dados.json
+              %(prog)s doc.pdf -o laudo.md --json dados.json
               %(prog)s doc.pdf --trust-anchor raiz-icpbrasil.crt --tz -3
               %(prog)s doc.pdf --no-redact --dump-material ./material
         """).strip())
@@ -2828,112 +3359,41 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     data = open(args.pdf, "rb").read()
     if not data.startswith(b"%PDF"):
-        print("aviso: o arquivo não começa com %PDF (pode não ser um PDF válido).",
+        print("aviso: o arquivo não começa com %PDF — pode não ser um PDF válido.",
               file=sys.stderr)
 
     try:
-        # Dois leitores independentes: a varredura histórica (harvest, revisões,
-        # diffs) popula caches internos do pyHanko de um modo que quebra a análise
-        # de diferenças. Mantemos 'reader' intocado para a análise das assinaturas.
-        with open(args.pdf, "rb") as fh, open(args.pdf, "rb") as fh_hist:
-            reader = PdfFileReader(fh, strict=False)
-            reader_hist = PdfFileReader(fh_hist, strict=False)
-
-            doc = analyze_document(reader, data, args.pdf)
-            harvest = harvest_from_pdf(reader_hist)
-            dss = analyze_dss(reader, harvest)
-            history = dss_history(reader_hist) if dss.present else []
-            revs, rev_findings = analyze_revisions(reader_hist)
-
-            anchors = load_anchors(args.trust_anchor)
-            anchors_from_file = False
-            if not anchors:
-                anchors = self_signed_from_harvest(harvest)
-                anchors_from_file = bool(anchors)
-
-            sigs: List[SigReport] = []
-            embedded = list(safe(lambda: reader.embedded_signatures, []) or [])
-            for i, sig in enumerate(embedded, 1):
-                try:
-                    sigs.append(analyze_signature(reader, sig, i, data, harvest,
-                                                  anchors, dss, args))
-                except Exception as e:
-                    if args.traceback:
-                        traceback.print_exc()
-                    rep = SigReport(index=i, field_name=str(safe(lambda: sig.field_name, "?")),
-                                    obj_type=str(safe(lambda: sig.sig_object_type, "?")))
-                    rep.findings.append(Finding(
-                        "CRITICO", "ANALYSIS_ERROR",
-                        "Falha ao analisar esta assinatura",
-                        f"{type(e).__name__}: {e}"))
-                    sigs.append(rep)
-
-            has_dts = any(x.obj_type == "/DocTimeStamp" for x in sigs)
-            for x in sigs:
-                if x.obj_type != "/DocTimeStamp":
-                    x.pades_level, x.pades_note = pades_level(x, dss, harvest, has_dts)
-
-            extra = list(rev_findings)
-            extra.extend(check_dss_history(dss, history, harvest))
-            extra.extend(check_lta_seal(sigs, dss))
-            for s in sigs:
-                if s.obj_type != "/DocTimeStamp":
-                    extra.extend(find_info_and_metadata_changes(
-                        reader_hist, s.signed_revision))
-                    break
-            if not embedded:
-                extra.append(Finding(
-                    "ALERTA", "NO_SIGNATURE",
-                    "Nenhuma assinatura digital encontrada no documento",
-                    "Não há campo de assinatura preenchido. Imagens de rubrica ou "
-                    "textos de 'assinado eletronicamente' impressos na página não "
-                    "possuem valor criptográfico."))
-            if anchors_from_file:
-                extra.append(Finding(
-                    "ATENCAO", "ANCHOR_FROM_FILE",
-                    "A âncora de confiança usada veio de dentro do próprio arquivo",
-                    ""))
-            elif anchors:
-                extra.append(Finding(
-                    "OK", "ANCHOR_EXTERNAL",
-                    f"Validação ancorada em {len(anchors)} raiz(es) fornecida(s) "
-                    f"externamente", ""))
-
-            if args.dump_material:
-                os.makedirs(args.dump_material, exist_ok=True)
-                for c in harvest.cert_list:
-                    name = "".join(ch if ch.isalnum() else "_" for ch in cn_of(c))[:60]
-                    with open(os.path.join(args.dump_material,
-                                           f"cert_{name}_{fp(c)[:12]}.der"), "wb") as f:
-                        f.write(c.dump())
-                for n, c in enumerate(harvest.crl_list, 1):
-                    with open(os.path.join(args.dump_material, f"crl_{n}.crl"), "wb") as f:
-                        f.write(c.dump())
-                print(f"[ok] material extraído em {args.dump_material}",
-                      file=sys.stderr)
-
-            writer = ReportWriter(doc, sigs, dss, revs, harvest, extra, args)
-            report = writer.build()
+        result = analyze_pdf_file(
+            args.pdf,
+            AnalysisOptions(
+                trust_anchors=list(args.trust_anchor or []),
+                fetch=bool(args.fetch),
+                redact=bool(args.redact),
+                tz=args.tz,
+                dump_material_dir=args.dump_material,
+                traceback=bool(args.traceback),
+            ),
+        )
     except Exception as e:
         if args.traceback:
             traceback.print_exc()
         print(f"erro ao processar o PDF: {type(e).__name__}: {e}", file=sys.stderr)
         return 3
 
+    if args.dump_material:
+        print(f"[ok] material extraído em {args.dump_material}", file=sys.stderr)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
-            f.write(report)
+            f.write(result.markdown)
         print(f"[ok] relatório gravado em {args.out}", file=sys.stderr)
     if args.json_out:
         with open(args.json_out, "w", encoding="utf-8") as f:
-            json.dump(build_json(doc, sigs, dss, revs, harvest, extra), f,
-                      ensure_ascii=False, indent=2)
+            json.dump(result.payload, f, ensure_ascii=False, indent=2)
         print(f"[ok] JSON gravado em {args.json_out}", file=sys.stderr)
     if not args.quiet and not args.out:
-        print(report)
+        print(result.markdown)
 
-    findings = writer.all_findings()
-    if any(f.severity == "CRITICO" for f in findings):
+    if result.has_critical:
         return 1
     return 0
 

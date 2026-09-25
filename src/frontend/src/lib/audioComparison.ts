@@ -52,7 +52,10 @@ export interface PlotBundleJson {
 }
 
 export interface AudioOverlayLayer {
+  evidenceId: string;
   evidenceLabel: string;
+  jobId: string;
+  parameters: Record<string, unknown>;
   bundle: PlotBundleJson;
 }
 
@@ -146,27 +149,38 @@ export function emptyLtasOverlays(): Record<LtasPanelKey, AudioOverlayLayer[]> {
 export function appendOverlayLayer(
   previous: AudioOverlayLayer[],
   retain: boolean,
-  evidenceLabel: string,
+  layer: Omit<AudioOverlayLayer, "bundle">,
   bundle: PlotBundleJson
 ): AudioOverlayLayer[] {
-  const layer: AudioOverlayLayer = { evidenceLabel, bundle };
+  const nextLayer: AudioOverlayLayer = { ...layer, bundle };
   if (!retain || previous.length === 0) {
-    return [layer];
+    return [nextLayer];
   }
-  return [...previous, layer];
+  return [...previous, nextLayer];
 }
 
 export function appendLtasOverlays(
   previous: Record<LtasPanelKey, AudioOverlayLayer[]>,
   retain: boolean,
-  evidenceLabel: string,
+  layer: Omit<AudioOverlayLayer, "bundle">,
   panels: Record<LtasPanelKey, PlotBundleJson>
 ): Record<LtasPanelKey, AudioOverlayLayer[]> {
   const next = { ...previous };
   for (const { key } of LTAS_PANELS) {
     const bundle = panels[key];
     if (!bundle) continue;
-    next[key] = appendOverlayLayer(previous[key] ?? [], retain, evidenceLabel, bundle);
+    next[key] = appendOverlayLayer(previous[key] ?? [], retain, layer, bundle);
   }
   return next;
+}
+
+/** Manifesto enviado ao salvar o derivado. Uma camada = um pai; várias = comparação. */
+export function comparisonLayersPayload(layers: AudioOverlayLayer[]): Record<string, unknown>[] {
+  return layers.map((layer, index) => ({
+    order: index,
+    evidence_id: layer.evidenceId,
+    evidence_label: layer.evidenceLabel,
+    job_id: layer.jobId,
+    parameters: layer.parameters,
+  }));
 }

@@ -206,7 +206,16 @@ def analyze_pdf_signatures(pdf_path: str, out_dir: Path) -> Dict[str, Any]:
             ),
             "pades_label": s.pades_level or "",
         }
-        if s.digest_ok and s.math_ok:
+        if getattr(s, "orphan", False):
+            onde = f"objeto {s.obj_idnum}" if getattr(s, "obj_idnum", None) else "fora do AcroForm"
+            if s.digest_ok is False:
+                extra = "A integridade do trecho assinado não confere com o arquivo atual."
+            elif s.math_ok is False:
+                extra = "A verificação matemática não confere."
+            else:
+                extra = "O bloco criptográfico foi recuperado; validadores comuns não a enxergam."
+            human["headline"] = f"Assinatura órfã `{s.field_name}` ({onde}). {extra}"
+        elif s.digest_ok and s.math_ok:
             human["headline"] = (
                 f"Assinatura do campo `{s.field_name}` tecnicamente consistente "
                 f"(PAdES {s.pades_level or '—'})."
@@ -235,6 +244,9 @@ def analyze_pdf_signatures(pdf_path: str, out_dir: Path) -> Dict[str, Any]:
                 "pades_level": s.pades_level,
                 "pades_note": s.pades_note,
                 "signer_cn": signer_cn,
+                "orphan": bool(getattr(s, "orphan", False)),
+                "obj_idnum": getattr(s, "obj_idnum", None),
+                "widget_idnum": getattr(s, "widget_idnum", None),
                 "human_verdict": human,
                 "findings": [
                     {
@@ -254,11 +266,17 @@ def analyze_pdf_signatures(pdf_path: str, out_dir: Path) -> Dict[str, Any]:
     payload["status"] = "ok" if analysis.signed or analysis.signature_count == 0 else "ok"
     if not analysis.signed and analysis.signature_count == 0:
         payload["status"] = "unsigned"
-    payload["message"] = (
-        f"{analysis.signature_count} assinatura(s) encontrada(s)."
-        if analysis.signed
-        else "Nenhuma assinatura digital embutida encontrada."
-    )
+    n_orphan = sum(1 for item in sig_summaries if item.get("orphan"))
+    if analysis.signed and n_orphan:
+        payload["message"] = (
+            f"{analysis.signature_count} assinatura(s) encontrada(s), "
+            f"{n_orphan} órfã(s) recuperada(s) fora do AcroForm "
+            "(validadores comuns podem não vê-las)."
+        )
+    elif analysis.signed:
+        payload["message"] = f"{analysis.signature_count} assinatura(s) encontrada(s)."
+    else:
+        payload["message"] = "Nenhuma assinatura digital embutida encontrada."
     payload["engine"] = f"pdfsig_forense v{eng.VERSION}"
     payload["trust_disclaimer"] = result["trust_disclaimer"]
     payload["anchors_from_file"] = analysis.anchors_from_file
@@ -320,7 +338,7 @@ def _write_fallback(out_dir: Path, result: Dict[str, Any]) -> None:
         encoding="utf-8",
     )
     lines = [
-        "# Relatório técnico: assinaturas digitais em PDF",
+        "# Relatório",
         "",
         f"**Status:** {result.get('status')}",
         f"**Mensagem:** {result.get('message')}",

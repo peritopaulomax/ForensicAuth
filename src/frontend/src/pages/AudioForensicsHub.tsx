@@ -48,6 +48,7 @@ const TECHNIQUE: Record<AudioTab, string> = {
 import {
   appendOverlayLayer,
   appendLtasOverlays,
+  comparisonLayersPayload,
   emptyLtasOverlays,
   type AudioOverlayLayer,
   type LtasPanelKey,
@@ -68,17 +69,17 @@ const COMPARE_DERIVATIVE: Partial<Record<CompareTab, { filename: string; label: 
   dc: { filename: "interactive.html", label: "dc_local" },
 };
 
-const OVERLAY_SNAPSHOT: Record<"enf" | "levels" | "dc", string> = {
-  enf: "enf_overlay_snapshot.png",
-  levels: "levels_overlay_snapshot.png",
-  dc: "dc_overlay_snapshot.png",
+const OVERLAY_HTML: Record<"enf" | "levels" | "dc", string> = {
+  enf: "enf_overlay.html",
+  levels: "levels_overlay.html",
+  dc: "dc_overlay.html",
 };
 
-const LTAS_OVERLAY_SNAPSHOT: Record<LtasPanelKey, string> = {
-  normal: "ltas_normal_overlay_snapshot.png",
-  "6db": "ltas_6db_overlay_snapshot.png",
-  sorted: "ltas_sorted_overlay_snapshot.png",
-  derivative: "ltas_derivative_overlay_snapshot.png",
+const LTAS_OVERLAY_HTML: Record<LtasPanelKey, string> = {
+  normal: "ltas_normal_overlay.html",
+  "6db": "ltas_6db_overlay.html",
+  sorted: "ltas_sorted_overlay.html",
+  derivative: "ltas_derivative_overlay.html",
 };
 
 const COMPARE_PLOT_HEIGHT = 560;
@@ -336,34 +337,25 @@ export default function AudioForensicsHub({
   }
 
   function overlayEffectiveParameters(layers: AudioOverlayLayer[]): Record<string, unknown> {
+    const comparisonLayers = comparisonLayersPayload(layers);
     return {
       ...buildParams(),
-      view: "client_overlay_composite",
+      view: layers.length > 1 ? "client_overlay_composite" : "single",
       overlay_evidence_labels: layers.map((layer) => layer.evidenceLabel),
       overlay_layer_count: layers.length,
-      retain_for_comparison: retainForComparison,
+      retain_for_comparison: layers.length > 1,
+      ...(layers.length > 1 ? { comparison_layers: comparisonLayers } : {}),
     };
   }
 
   async function handleSaveOverlayDerivative(
     artifactFilename: string,
     label: string,
-    layers: AudioOverlayLayer[],
-    plotRef: React.RefObject<AudioOverlayPlotHandle | null>
+    layers: AudioOverlayLayer[]
   ) {
     const jobId = jobIdForDerivativeExport();
     if (!jobId || layers.length === 0) return;
     try {
-      const blob = await plotRef.current?.exportPngBlob();
-      if (!blob) throw new Error("Grafico nao pronto");
-
-      const form = new FormData();
-      form.append("file", blob, artifactFilename);
-      form.append("artifact_filename", artifactFilename);
-      await api.post(`/analysis/${jobId}/plot-snapshot`, form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-
       await save(jobId, artifactFilename, label, overlayEffectiveParameters(layers));
     } catch {
     }
@@ -373,7 +365,6 @@ export default function AudioForensicsHub({
     artifactFilename: string,
     label: string,
     layers: AudioOverlayLayer[],
-    plotRef: React.RefObject<AudioOverlayPlotHandle | null>,
     buttonText = "Salvar composição nos derivados"
   ) {
     if (!jobIdForDerivativeExport() || !caseId || layers.length === 0) return null;
@@ -381,7 +372,7 @@ export default function AudioForensicsHub({
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
         <button
           type="button"
-          onClick={() => handleSaveOverlayDerivative(artifactFilename, label, layers, plotRef)}
+          onClick={() => handleSaveOverlayDerivative(artifactFilename, label, layers)}
           disabled={!!saving}
           style={btnPrimary}
         >
@@ -417,13 +408,24 @@ export default function AudioForensicsHub({
     );
   }
 
-  const applyEvidence = useCallback(
-    (_id: string) => {
-      clearPlots();
-      clearMessage();
-    },
-    []
-  );
+  const retainRef = useRef(retainForComparison);
+  const tabRef = useRef(tab);
+  const clearPlotsRef = useRef(clearPlots);
+  const clearMessageRef = useRef(clearMessage);
+  retainRef.current = retainForComparison;
+  tabRef.current = tab;
+  clearPlotsRef.current = clearPlots;
+  clearMessageRef.current = clearMessage;
+
+  const applyEvidence = useCallback((_id: string) => {
+    // Com retencao, trocar de audio nao apaga as curvas ja desenhadas.
+    if (retainRef.current && isCompareTab(tabRef.current)) {
+      clearMessageRef.current();
+      return;
+    }
+    clearPlotsRef.current();
+    clearMessageRef.current();
+  }, []);
 
   const { embedded, showEvidencePicker, evidenceId, selectionSource, onSelectEvidence } =
     useGroupAwareEvidence(caseId!, applyEvidence);
@@ -476,6 +478,11 @@ export default function AudioForensicsHub({
   async function process(fromAutoRefresh = false) {
     if (!evidenceId || !runtimeOk) return;
     const evidenceLabel = selectedFilename || "evidência";
+    const layerIdentity = {
+      evidenceId,
+      evidenceLabel,
+      parameters: buildParams(),
+    };
     const keepSpectrogramVisible =
       fromAutoRefresh && tab === "spectrogram" && spectrogramData !== null;
 
@@ -521,7 +528,7 @@ export default function AudioForensicsHub({
             try {
               const panels = await loadLtasPlotData(jobId);
               setOverlayLtas((prev) =>
-                appendLtasOverlays(prev, retainForComparison, evidenceLabel, panels)
+                appendLtasOverlays(prev, retainForComparison, { ...layerIdentity, jobId }, panels)
               );
             } catch {
             }
@@ -537,7 +544,7 @@ export default function AudioForensicsHub({
             try {
               const bundle = await loadPlotBundle(jobId);
               setOverlayEnf((prev) =>
-                appendOverlayLayer(prev, retainForComparison, evidenceLabel, bundle)
+                appendOverlayLayer(prev, retainForComparison, { ...layerIdentity, jobId }, bundle)
               );
             } catch {
               if (!retainForComparison) setOverlayEnf([]);
@@ -552,7 +559,7 @@ export default function AudioForensicsHub({
             try {
               const bundle = await loadPlotBundle(jobId);
               setOverlayLevels((prev) =>
-                appendOverlayLayer(prev, retainForComparison, evidenceLabel, bundle)
+                appendOverlayLayer(prev, retainForComparison, { ...layerIdentity, jobId }, bundle)
               );
             } catch {
               if (!retainForComparison) setOverlayLevels([]);
@@ -567,7 +574,7 @@ export default function AudioForensicsHub({
             try {
               const bundle = await loadPlotBundle(jobId);
               setOverlayDc((prev) =>
-                appendOverlayLayer(prev, retainForComparison, evidenceLabel, bundle)
+                appendOverlayLayer(prev, retainForComparison, { ...layerIdentity, jobId }, bundle)
               );
             } catch {
               if (!retainForComparison) setOverlayDc([]);
@@ -1064,10 +1071,9 @@ export default function AudioForensicsHub({
           {compareDerivative &&
             tab !== "ltas" &&
             renderOverlayDerivativeActions(
-              OVERLAY_SNAPSHOT[tab],
+              OVERLAY_HTML[tab],
               compareDerivative.label,
               compareLayers,
-              compareOverlayRef,
               tab === "enf" ? "Salvar ENF (composição) nos derivados" : "Salvar composição nos derivados"
             )}
           {saveMessage && isCompareTab(tab) && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
@@ -1097,10 +1103,9 @@ export default function AudioForensicsHub({
           {compareDerivative &&
             tab !== "ltas" &&
             renderOverlayDerivativeActions(
-              OVERLAY_SNAPSHOT[tab],
+              OVERLAY_HTML[tab],
               compareDerivative.label,
               compareLayers,
-              compareOverlayRef,
               tab === "enf" ? "Salvar ENF (composição) nos derivados" : "Salvar composição nos derivados"
             )}
           {saveMessage && isCompareTab(tab) && <MessageBox type={saveMessage.type} text={saveMessage.text} />}
@@ -1137,10 +1142,9 @@ export default function AudioForensicsHub({
                   height={LTAS_PANEL_HEIGHT}
                 />
                 {renderOverlayDerivativeActions(
-                  LTAS_OVERLAY_SNAPSHOT[panel.key],
+                  LTAS_OVERLAY_HTML[panel.key],
                   LTAS_ARTIFACTS[panel.key].label,
                   overlayLtas[panel.key],
-                  ltasOverlayRefs[panel.key],
                   `Salvar ${panel.title} (composição) nos derivados`
                 )}
               </div>

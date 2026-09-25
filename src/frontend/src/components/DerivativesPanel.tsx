@@ -98,6 +98,24 @@ export default function DerivativesPanel({
     }
   }
 
+  function renderParents(meta: Record<string, unknown>) {
+    const listed = Array.isArray(meta.parent_evidence_ids)
+      ? meta.parent_evidence_ids.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [];
+    const ids = listed.length > 0 ? listed : [meta.parent_evidence_id].filter((id): id is string => typeof id === "string");
+    if (ids.length === 0) return renderParent(undefined);
+    return (
+      <>
+        {ids.map((id, index) => (
+          <span key={`${id}-${index}`}>
+            {index > 0 ? " · " : null}
+            {renderParent(id)}
+          </span>
+        ))}
+      </>
+    );
+  }
+
   /** Pai ausente do lookup = insumo excluido (soft-delete): sinalizar em vez de mostrar id cru. */
   function renderParent(parentId: string | undefined) {
     if (!parentId) return <>—</>;
@@ -298,7 +316,7 @@ export default function DerivativesPanel({
                           {ev.original_filename}
                         </div>
                         <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-                          {procedure} · {renderParent(parentId)} · {formatBytes(ev.file_size)}
+                          {procedure} · {renderParents(meta as Record<string, unknown>)} · {formatBytes(ev.file_size)}
                           {groupId && (
                             <> · pacote job {groupId.slice(0, 8)}…</>
                           )}
@@ -417,7 +435,7 @@ export default function DerivativesPanel({
                         <strong>Procedimento:</strong> {procedure}
                       </div>
                       <div>
-                        <strong>Origem:</strong> {renderParent(parentId)}
+                        <strong>Origem:</strong> {renderParents(meta as Record<string, unknown>)}
                       </div>
                       {groupId && (
                         <div>

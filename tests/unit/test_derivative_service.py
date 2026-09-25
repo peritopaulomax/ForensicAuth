@@ -927,4 +927,152 @@ class TestDerivativeService:
         assert "DCT" in derivative.extra_metadata["procedure_summary"]
         assert derivative.extra_metadata["derivation_group_id"] == str(job_id)
 
+    def test_audio_overlay_save_keeps_one_parent_or_every_layer(
+        self, db_session, sample_case, test_user, sample_evidence
+    ):
+        from app.config import get_settings
+        from services.derivative_service import DerivativeSaveError, DerivativeService
+
+        settings = get_settings()
+        second = Evidence(
+            id=uuid.uuid4(),
+            case_id=sample_case.id,
+            filename="audio2.wav",
+            original_filename="audio_b.wav",
+            file_path="./uploads/audio2.wav",
+            file_size=2048,
+            file_type="audio",
+            mime_type="audio/wav",
+            sha256="b" * 64,
+            uploaded_by=test_user.id,
+        )
+        db_session.add(second)
+        db_session.commit()
+
+        def _job(evidence: Evidence, filename: str):
+            job_id = uuid.uuid4()
+            result_dir = build_job_result_dir(
+                settings.RESULTS_DIR, sample_case.id, evidence.id, job_id
+            )
+            result_dir.mkdir(parents=True, exist_ok=True)
+            params = {"fnom": 60, "bwenf": 1}
+            receipt = _seed_job_preview(
+                job_id=job_id,
+                result_dir=result_dir,
+                technique="audio_enf",
+                parameters=params,
+                evidence_sha256=evidence.sha256,
+            )
+            (result_dir / filename).write_bytes(b"\x89PNG\r\n\x1a\noverlay")
+            (result_dir / "plot_traces.json").write_text(
+                json.dumps(
+                    {
+                        "traces": [
+                            {
+                                "type": "scatter",
+                                "x": [0, 1, 2],
+                                "y": [float(len(evidence.sha256) % 5), 2, 3],
+                                "name": "ENF",
+                                "mode": "lines",
+                                "line": {"color": "#111111", "width": 2},
+                            }
+                        ],
+                        "xaxis_title": "Tempo (s)",
+                        "yaxis_title": "Hz",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            job = AnalysisJob(
+                id=job_id,
+                evidence_id=evidence.id,
+                technique="audio_enf",
+                status="completed",
+                parameters=params,
+                result_path=str(result_dir),
+                runtime_manifest=receipt,
+                created_by=test_user.id,
+            )
+            db_session.add(job)
+            db_session.commit()
+            return job
+
+        job_a = _job(sample_evidence, "enf_overlay_snapshot.png")
+        job_b = _job(second, "enf_overlay_snapshot.png")
+        service = DerivativeService(db_session)
+
+        single = service.save_from_job(
+            job_id=job_a.id,
+            artifact_filename="enf_overlay_snapshot.png",
+            user_id=test_user.id,
+            label="enf",
+        )
+        assert len(single.extra_metadata["parent_inputs"]) == 1
+        assert single.extra_metadata["parent_inputs"][0]["role"] == "input"
+        assert single.extra_metadata["derivation_step"] == "audio_enf_artifact_save"
+
+        layers = [
+            {
+                "order": 0,
+                "evidence_id": str(sample_evidence.id),
+                "evidence_label": "audio_a.wav",
+                "job_id": str(job_a.id),
+                "parameters": {"fnom": 60},
+            },
+            {
+                "order": 1,
+                "evidence_id": str(second.id),
+                "evidence_label": "audio_b.wav",
+                "job_id": str(job_b.id),
+                "parameters": {"fnom": 50},
+            },
+        ]
+        composite = service.save_from_job(
+            job_id=job_b.id,
+            artifact_filename="enf_overlay.html",
+            user_id=test_user.id,
+            label="enf_overlay",
+            effective_parameters={
+                "view": "client_overlay_composite",
+                "comparison_layers": layers,
+            },
+        )
+        parents = composite.extra_metadata["parent_inputs"]
+        assert [p["evidence_id"] for p in parents] == [
+            str(sample_evidence.id),
+            str(second.id),
+        ]
+        assert [p["role"] for p in parents] == ["compared", "compared"]
+        assert [p["source_job_id"] for p in parents] == [str(job_a.id), str(job_b.id)]
+        assert composite.extra_metadata["derivation_step"] == "audio_overlay_comparison_save"
+        assert composite.extra_metadata["parent_evidence_ids"] == [
+            str(sample_evidence.id),
+            str(second.id),
+        ]
+        assert "audio_b.wav" in composite.extra_metadata["procedure_summary"]
+        stored_layers = composite.extra_metadata["parameters"]["comparison_layers"]
+        assert stored_layers[0]["parameters"] == {"fnom": 60}
+        assert stored_layers[1]["job_id"] == str(job_b.id)
+        assert composite.mime_type == "text/html"
+        assert composite.extra_metadata["artifact_role"] == "audio_overlay_html"
+        html = Path(composite.file_path).read_text(encoding="utf-8")
+        assert "plotly" in html.lower()
+        assert "audio_a.wav" in html and "audio_b.wav" in html
+
+        before = db_session.query(Evidence).count()
+        with pytest.raises(DerivativeSaveError, match="nao esta concluido"):
+            service.save_from_job(
+                job_id=job_b.id,
+                artifact_filename="heatmap.png",
+                user_id=test_user.id,
+                effective_parameters={
+                    "view": "client_overlay_composite",
+                    "comparison_layers": [
+                        layers[0],
+                        {**layers[1], "job_id": str(uuid.uuid4())},
+                    ],
+                },
+            )
+        assert db_session.query(Evidence).count() == before
+
 
