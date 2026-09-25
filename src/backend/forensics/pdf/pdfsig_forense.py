@@ -2246,7 +2246,6 @@ class ReportWriter:
         self.revisions_section()
         self.material_section()
         self.findings_section()
-        self.appendix()
         return "\n".join(self.lines).rstrip() + "\n"
 
     def header(self):
@@ -2669,27 +2668,6 @@ class ReportWriter:
                     for para in textwrap.wrap(f.detail, 100):
                         self.w(para)
                 self.w()
-
-    def appendix(self):
-        self.h(2, "8. Reprodução")
-        self.w("```bash")
-        self.w("pip install pyhanko asn1crypto cryptography")
-        self.w(f"python3 pdfsig_forense.py \"{os.path.basename(self.doc.path)}\" "
-               f"-o relatorio.md --json dados.json")
-        self.w("```")
-        self.w("Execução determinística e offline. Os valores de hash, números de "
-               "série e fingerprints deste relatório podem ser recalculados de forma "
-               "independente com `openssl`, `pdfsig` (poppler-utils) ou qualquer "
-               "biblioteca ASN.1.")
-        self.w()
-        self.w("Este documento relata o que foi encontrado no arquivo e o resultado "
-               "das verificações executadas. Não contém interpretação dos achados, "
-               "recomendação de conduta nem conclusão sobre o mérito do conteúdo do "
-               "documento analisado.")
-        self.w()
-        self.w("Verificações não executadas: confiança da âncora de certificação "
-               "(depende do repositório oficial da autoridade) e consultas de rede "
-               "quando a opção --fetch não é usada.")
 
 # ----------------------------------------------------------------------------
 # Saída JSON
