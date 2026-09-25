@@ -12,12 +12,18 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setLoading(true);
+    const data = new FormData(e.currentTarget);
+    const submittedUsername = String(data.get("username") ?? username).trim();
+    const submittedPassword = String(data.get("password") ?? password);
     try {
-      const { tokens, user } = await login({ username: username.trim(), password });
+      const { tokens, user } = await login({
+        username: submittedUsername,
+        password: submittedPassword,
+      });
       setAuth(tokens.access_token, tokens.refresh_token, user);
       navigate("/");
     } catch (err: any) {
@@ -36,7 +42,9 @@ export default function Login() {
             <label htmlFor="username">Usuário</label>
             <input
               id="username"
+              name="username"
               type="text"
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
@@ -47,7 +55,9 @@ export default function Login() {
             <label htmlFor="password">Senha</label>
             <input
               id="password"
+              name="password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

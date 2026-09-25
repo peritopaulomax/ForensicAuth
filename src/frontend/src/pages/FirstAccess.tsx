@@ -49,7 +49,9 @@ export default function FirstAccess() {
             <label htmlFor="username">Usuário</label>
             <input
               id="username"
+              name="username"
               type="text"
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
@@ -61,7 +63,9 @@ export default function FirstAccess() {
             <label htmlFor="password">Nova senha</label>
             <input
               id="password"
+              name="password"
               type="password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -72,7 +76,9 @@ export default function FirstAccess() {
             <label htmlFor="passwordConfirm">Confirmar senha</label>
             <input
               id="passwordConfirm"
+              name="passwordConfirm"
               type="password"
+              autoComplete="new-password"
               value={passwordConfirm}
               onChange={(e) => setPasswordConfirm(e.target.value)}
               required
